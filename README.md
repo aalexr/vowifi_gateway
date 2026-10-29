@@ -335,6 +335,7 @@ in practice); MOBIKE / `UPDATE_SA_ADDRESSES` (the host has a stable wired IP); m
 
 **Audio one-way or none:**  
 - **Browser softphone silent**: hard-refresh (Ctrl+Shift+R) to load the latest WebUI bundle (the audio attach fix). Check the browser Console for `audioblocked` or autoplay errors.
+- **Engine build / engines have no network** (`Could not resolve host` during `dnf`, tunnel never comes up): a running Docker Engine sets the iptables `FORWARD` policy to `DROP`, which also drops rootful podman traffic. The installer refuses to continue in that state; fix with `sudo systemctl disable --now docker.socket docker.service && sudo iptables -P FORWARD ACCEPT`.
 - **External client no audio**: confirm `VOWIFI_ADVERTISE_ADDR` is the correct LAN IP (not 127.x, not a container-bridge IP such as 10.88.x). Check firewall rules allow RTP (UDP 10000–10059+ inbound).
 - **Outbound works, inbound fails**: your router's NAT may mangle the SIP `Contact` header. Use the TLS transport (port 5061) if your client supports it, or set `settings.tls.domain` to a public FQDN + port-forward.
 

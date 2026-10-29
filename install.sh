@@ -244,6 +244,16 @@ ensure_podman() {
     warn "Docker still has vowifi containers — remove them first (old ./install.sh uninstall,"
     warn "or: docker rm -f \$(docker ps -aq --filter name=^vowifi-)) so their ports are freed"
   fi
+  # A running Docker Engine sets the iptables FORWARD policy to DROP and only whitelists its own
+  # bridge, so rootful podman containers (podman0) get no outbound traffic at all: the engine
+  # build fails resolving the Fedora mirrors and engines could never reach the ePDG.
+  if have systemctl && systemctl is-active --quiet docker 2>/dev/null \
+      && have iptables && iptables -S FORWARD 2>/dev/null | grep -qx -- '-P FORWARD DROP'; then
+    err "Docker Engine is running and its firewall rules (FORWARD policy DROP) block podman containers."
+    err "Stop it (it is no longer needed) and reset the policy, then re-run:"
+    printf '\n  sudo systemctl disable --now docker.socket docker.service\n  sudo iptables -P FORWARD ACCEPT\n\n' >&2
+    exit 1
+  fi
   if have systemctl; then
     # Docker-compatible API socket the control plane talks to (socket-activated).
     systemctl enable --now podman.socket >/dev/null 2>&1 || warn "could not enable podman.socket"
