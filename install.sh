@@ -451,6 +451,30 @@ setup_venv() {
   info "venv ready"
 }
 
+# SELinux (Fedora/RHEL, enforcing): the venv lives in the repo, typically under /home, so its
+# files are labelled user_home_t — and systemd (init_t) may not execute those (status=203/EXEC,
+# AVC "denied { read } ... lnk_file" on .venv/bin/python). A persistent fcontext rule labels the
+# venv's bin/ as bin_t (survives relabels); the service then runs as unconfined_service_t.
+SELINUX_VENV_FCONTEXT="$VENV_DIR/bin(/.*)?"
+selinux_label_venv() {
+  have selinuxenabled && selinuxenabled 2>/dev/null || return 0
+  if ! have semanage; then
+    if have dnf || have yum; then pkg_install policycoreutils-python-utils; fi
+  fi
+  have semanage || { warn "SELinux is enabled but semanage is missing — vowifi-control may fail with 203/EXEC"; return 0; }
+  semanage fcontext -a -t bin_t "$SELINUX_VENV_FCONTEXT" 2>/dev/null \
+    || semanage fcontext -m -t bin_t "$SELINUX_VENV_FCONTEXT" 2>/dev/null \
+    || warn "could not add SELinux file context for $VENV_DIR/bin"
+  restorecon -R "$VENV_DIR/bin" 2>/dev/null || true
+  info "SELinux: labelled $VENV_DIR/bin as bin_t"
+}
+
+selinux_unlabel_venv() {
+  have selinuxenabled && selinuxenabled 2>/dev/null && have semanage || return 0
+  semanage fcontext -d "$SELINUX_VENV_FCONTEXT" 2>/dev/null || true
+  [ -d "$VENV_DIR/bin" ] && restorecon -R "$VENV_DIR/bin" 2>/dev/null || true
+}
+
 # Write + (re)start the native control-plane systemd unit. Runs as root (needs the reader via
 # host pcscd + the Podman API socket to manage engine containers). Because the control plane runs
 # ON the host, VOWIFI_HOST_DATA == VOWIFI_DATA (the real host path the manager hands to engine
@@ -464,6 +488,7 @@ run_control_local() {
   [ -z "$LAN_IP" ] && LAN_IP=$(detect_lan_ip)
   [ -z "$LAN_IP" ] && warn "could not auto-detect a LAN IP; set VOWIFI_ADVERTISE_ADDR — SIP/WebRTC audio needs a routable host address"
 
+  selinux_label_venv
   info "installing systemd unit $SYSTEMD_UNIT (native control plane)"
   cat > "$SYSTEMD_UNIT" <<EOF
 [Unit]
@@ -679,6 +704,7 @@ cmd_uninstall() {
   # Tear down BOTH possible control planes so switching modes leaves nothing behind.
   info "removing native control plane (if any)…"
   remove_control_local
+  selinux_unlabel_venv
   info "removing vowifi containers…"
   podman rm -f "$CONTROL_NAME" >/dev/null 2>&1 || true
   for n in $(engine_names); do podman rm -f "$n" >/dev/null 2>&1 || true; done
