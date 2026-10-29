@@ -53,6 +53,9 @@ transport=volte_ims
 context=volte_ims
 message_context=volte_ims_msg
 disallow=all
+; AMR-WB (HD Voice, 16 kHz) first, AMR-NB as fallback: offering only amr pins every call to
+; narrowband even when the carrier and far end support wideband.
+allow=amrwb
 allow=amr
 bw_value=41
 outbound_auth=volte_ims
@@ -208,6 +211,14 @@ auth=auth-{{ webrtc_user }}
 aors={{ webrtc_user }}
 transport=transport-wss
 webrtc=yes
+; Browsers offer Opus 48 kHz (plus telephone-event/48000 for DTMF); prefer it over the
+; template's PCM-first order (kept for external SIP clients) so an AMR-WB carrier leg stays
+; wideband end to end instead of being squeezed through 8 kHz ulaw.
+disallow=all
+allow=opus
+allow=g722
+allow=ulaw
+allow=alaw
 dtls_auto_generate_cert=yes
 [auth-{{ webrtc_user }}](auth-local)
 username={{ webrtc_user }}
