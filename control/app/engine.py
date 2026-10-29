@@ -116,7 +116,9 @@ def start(inst: dict, settings: dict, dev_mounts: bool = False):
         IMAGE,
         name=container_name(iid),
         detach=True,
-        cap_add=["NET_ADMIN"],
+        # NET_RAW: swu_ike's raw ESP socket (and ping). Docker granted NET_RAW, MKNOD and
+        # AUDIT_WRITE by default; podman's default set omits them, so add them back explicitly.
+        cap_add=["NET_ADMIN", "NET_RAW", "MKNOD", "AUDIT_WRITE"],
         devices=["/dev/net/tun:/dev/net/tun:rwm"],
         volumes=volumes,
         ports=port_bindings,
