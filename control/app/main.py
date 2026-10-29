@@ -358,21 +358,28 @@ async def card_monitor():
         await asyncio.sleep(0.25)
 
 
-def extract_msisdn(iid):
+def extract_msisdn(iid, tail: int = 1200):
     """Learn the registered MSISDN from the P-Associated-URI in the engine SIP logs."""
-    logs = engine.logs(iid, 1200)
+    logs = engine.logs(iid, tail)
     m = re.search(r'P-Associated-Uri:\s*<(?:tel:|sip:)(\+\d+)', logs, re.I)
     return m.group(1) if m else None
 
 
 async def learn_msisdn(iid):
-    """One-shot: enable the SIP logger, re-register to produce a fresh 200 OK, then parse
-    the P-Associated-URI. Capped attempts so we don't re-register forever."""
+    """One-shot: parse the P-Associated-URI from the registration 200 OK already in the
+    engine log; only if it isn't there (SIP logger was off), enable the logger and
+    re-register to produce a fresh one. The forced re-REGISTER right after the initial one
+    can be rate-limited by the IMS (Telefonica DE: 503 + Retry-After), which then reads as
+    reg_rejected, so avoid it whenever possible. Capped attempts so we don't re-register
+    forever."""
     try:
-        await asyncio.to_thread(engine.exec_cli, iid, "pjsip set logger on")
-        await asyncio.to_thread(engine.exec_cli, iid, "pjsip send register volte_ims")
-        await asyncio.sleep(8)
-        msisdn = await asyncio.to_thread(extract_msisdn, iid)
+        # Wide tail: with Asterisk debug on, the 200 OK is quickly buried in console output.
+        msisdn = await asyncio.to_thread(extract_msisdn, iid, 20000)
+        if not msisdn:
+            await asyncio.to_thread(engine.exec_cli, iid, "pjsip set logger on")
+            await asyncio.to_thread(engine.exec_cli, iid, "pjsip send register volte_ims")
+            await asyncio.sleep(8)
+            msisdn = await asyncio.to_thread(extract_msisdn, iid)
         if msisdn:
             cfg.upsert_instance({"id": iid, "msisdn": msisdn})
             c = hub.ami.get(iid)
