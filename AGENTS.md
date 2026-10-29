@@ -13,10 +13,11 @@ server, with SMS and eSIM (lpac) management. Two planes:
 | Plane | Where | What |
 |-------|-------|------|
 | **engine** (one container per SIM) | `engine/` | `swu_ike.py` (pure-Python SWu IKEv2 + EAP-AKA + userspace ESP on `ipsec0`), sysmocom Asterisk (IMS PJSIP), USIM bridges (`pin_keeper.py`, `ami_usim.py`), `notify.py` event hook |
-| **control** (singleton) | `control/` + `webui/` | FastAPI manager (Docker SDK, pyscard, SQLite) + React/Vite/Tailwind WebUI served by the manager |
+| **control** (singleton) | `control/` + `webui/` | FastAPI manager (Docker SDK against Podman's API socket, pyscard, SQLite) + React/Vite/Tailwind WebUI served by the manager |
 
 Deploy modes (`install.sh`): **local** (default; control plane = native venv + `vowifi-control`
-systemd service, Docker only for engines) and **docker** (control plane in a privileged container).
+systemd service, Podman only for engines) and **container** (control plane in a privileged container;
+`docker` is a legacy alias). Everything runs under **rootful Podman**; there is no Docker dependency.
 
 ## Layout
 
@@ -49,8 +50,8 @@ cd webui && npm ci && npm run build
 bash -n install.sh engine/entrypoint.sh
 
 # Images
-docker build -t vowifi/engine engine/                       # slow: compiles Asterisk + pcsc-lite
-docker build -t vowifi/control -f control/Dockerfile .
+sudo podman build -t localhost/vowifi/engine engine/                        # slow: compiles Asterisk + pcsc-lite
+sudo podman build -t localhost/vowifi/control -f control/Containerfile .
 ```
 
 Running for real needs a PC/SC reader, a SIM and carrier access — usually not available to an
@@ -59,18 +60,19 @@ agent. Don't claim end-to-end verification you couldn't do; say what was checked
 Dev loops (see README **Development**):
 - Control plane by hand: venv, `pip install -r control/requirements.txt`, `VOWIFI_DATA=./data python control/run.py`.
 - WebUI: `cd webui && npm run dev` (proxies `/api` and `/ws` to `VOWIFI_DEV_API`, default `https://localhost:8443`).
-- Engine scripts without rebuild: start the control plane with `VOWIFI_DEV_MOUNTS=1`, then `docker restart vowifi-engine-<id>`.
+- Engine scripts without rebuild: start the control plane with `VOWIFI_DEV_MOUNTS=1`, then `sudo podman restart vowifi-engine-<id>`.
 - Installed system: `sudo ./install.sh restart` (control), `sudo ./install.sh reload [--engines]`.
 
 Don't run `install.sh` install/uninstall/patch/purge commands or anything touching host pcscd,
-systemd or Docker containers unless the user asks — they modify the host.
+systemd or Podman containers unless the user asks — they modify the host.
 
 ## Invariants — don't break these
 
-- **pcsc-lite version lock**: `PCSC_VERSION` (default `2.3.3`) must stay identical in `install.sh`, `engine/Dockerfile` and `control/Dockerfile`. The host pcscd owns the reader; containers are clients via the bind-mounted `/run/pcscd` socket.
+- **pcsc-lite version lock**: `PCSC_VERSION` (default `2.3.3`) must stay identical in `install.sh`, `engine/Containerfile` and `control/Containerfile`. The host pcscd owns the reader; containers are clients via the bind-mounted `/run/pcscd` socket.
 - **Per-instance port blocks**: instance `i` uses SIP UDP `5060+100*(i-1)`, TLS `5061+…`, WSS `8089+…`, AMI `5038+…`, RTP `10000+…` (+59). Keep `engine.py`, templates and README consistent.
 - **Contract between control and engine** is `instance.json` (written by control, consumed by `render.py`) plus the env vars exported in `entrypoint.sh` and status files in the bind-mounted run dir (e.g. `swu_status.json`, `pin_status.json`). Adding a setting usually touches: `config.py` defaults → `main.py`/`engine.py` → `render.py` → template and/or `entrypoint.sh` export list → WebUI view (`SimConfig.jsx` / `Settings.jsx`) → README.
 - **State machine**: `NO_CARD → PIN_PROBLEM → EPDG_UNRESOLVED → TUNNEL_DOWN → REGISTERING → OK` (+ `STOPPED`). The WebUI and `apply_health` depend on these names.
+- **Podman specifics**: images are tagged `localhost/vowifi/*` and `FROM` lines are fully qualified (no short-name resolution). Engines use `restart_policy=always` (what `podman-restart.service` revives on boot) and `label=disable` (SELinux, for the pcscd socket + data mounts). Engines reach the manager at `host.containers.internal`. `control/app/engine.py` talks to `DOCKER_HOST` (default `unix:///run/podman/podman.sock`) via the Docker SDK — keep to API calls Podman's compat layer supports.
 - **No carrier database**: carrier values are derived from IMSI/SIM (ePDG FQDN, realm, SMSC from EF_SMSP). `CARRIER_CP_PREF` is only a probe-order hint; don't make carrier presets required.
 - **SIM safety**: PIN retries are finite. Never add code paths that retry PIN verification blindly; respect the existing preflight/locked checks (`_preflight_pin_locked`, `pin_keeper.py`). Exclusive PC/SC access (eSIM ops) must stay guarded against a running engine on the same reader.
 - **3GPP behaviour** in `swu_ike.py` (TS 24.302 reject classification + back-off, DPD/liveness, rekey/reauth, RFC 7383 fragmentation) was tuned against live networks — change conservatively and explain the spec reasoning in comments.
@@ -80,7 +82,7 @@ systemd or Docker containers unless the user asks — they modify the host.
 ## Code style
 
 - Python: module docstring at top describing purpose and contract (`"""name.py - ..."""`), `from __future__ import annotations`, stdlib `logging` with `vowifi.*` logger names, explanatory comments for protocol/hardware quirks. No formatter is enforced; match the surrounding file.
-- Engine scripts are standalone executables (`#!/usr/bin/env python3`), installed to `/usr/local/bin` in the image; keep their dependencies within what `engine/Dockerfile` installs.
+- Engine scripts are standalone executables (`#!/usr/bin/env python3`), installed to `/usr/local/bin` in the image; keep their dependencies within what `engine/Containerfile` installs.
 - New control-plane deps go in `control/requirements.txt`; new WebUI deps in `webui/package.json` (commit `package-lock.json`).
 - WebUI: React 18 function components + hooks, Tailwind v4 utility classes, light and dark themes both supported — check both.
 

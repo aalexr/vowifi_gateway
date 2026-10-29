@@ -3,7 +3,7 @@ main.py - VoWiFi gateway control surface (FastAPI).
 
 Serves the management REST API + WebSocket live feed + the built WebUI, and (for the
 browser softphone) proxies provisioning. Runs natively or in a container; talks to
-engine containers via the Docker SDK (engine.py) and Asterisk AMI (ami.py). HTTPS with
+engine containers via the Docker SDK on Podman's API socket (engine.py) and Asterisk AMI (ami.py). HTTPS with
 an auto-generated self-signed cert by default.
 """
 from __future__ import annotations

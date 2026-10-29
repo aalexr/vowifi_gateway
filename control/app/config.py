@@ -89,7 +89,7 @@ def _iface_is_lan_candidate(name: str) -> bool:
     if not n or n == "lo":
         return False
     skip_prefixes = (
-        "docker", "br-", "veth", "virbr", "cni", "flannel", "tun", "tap",
+        "podman", "docker", "br-", "veth", "virbr", "cni", "flannel", "tun", "tap",
         "wg", "ipsec", "vti", "gre", "gretap", "erspan", "sit", "nlmon",
         "uk-", "nordlynx", "tailscale", "zerotier", "zt", "ppp",
     )
@@ -822,10 +822,10 @@ def render_instance_json(inst: dict, settings: dict) -> dict:
         # Where engine notify.py POSTs events. Explicit setting wins; else VOWIFI_MANAGER_URL
         # env (the installer sets this to the PUBLISHED host port when the control plane runs
         # in a bridge-networked container with a non-8443 port map); else the default assumes
-        # a 1:1 host.docker.internal:<http_port> mapping.
+        # a 1:1 host.containers.internal:<http_port> mapping (podman adds that host entry).
         "manager_url": settings.get("manager_url")
                        or os.environ.get("VOWIFI_MANAGER_URL")
-                       or f"https://host.docker.internal:{settings.get('http_port', 8443)}",
+                       or f"https://host.containers.internal:{settings.get('http_port', 8443)}",
         "domain": settings.get("tls", {}).get("domain", ""),
         "rtp_start": ports["rtp_start"],
         # The engine publishes only rtp_start..rtp_start+RTP_SPAN-1 host ports (engine.start),

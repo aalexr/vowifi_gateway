@@ -1,5 +1,6 @@
 """
-engine.py - Per-SIM engine container lifecycle via the Docker SDK.
+engine.py - Per-SIM engine container lifecycle via the Docker SDK, against rootful Podman's
+Docker-compatible API socket (DOCKER_HOST, default unix:///run/podman/podman.sock).
 
 Each instance runs one `vowifi/engine` container that owns its ePDG tunnel + Asterisk.
 The manager renders instance.json, starts/stops/recreates the container with the right
@@ -8,7 +9,7 @@ the swu_ike daemon publishes swu_status.json {state: CONNECTED} for tunnel state
 
 PC/SC: engine containers are pcscd CLIENTS — they mount the HOST pcscd socket (/run/pcscd).
 The pcsc-lite client library in the engine image is pinned to the SAME version as the host
-pcscd (Dockerfile PCSC_VERSION == install.sh PCSC_VERSION) so client/server protocol matches.
+pcscd (Containerfile PCSC_VERSION == install.sh PCSC_VERSION) so client/server protocol matches.
 """
 from __future__ import annotations
 
@@ -23,7 +24,9 @@ from . import config as cfg
 log = logging.getLogger("vowifi.engine")
 
 DATA_DIR = cfg.DATA_DIR
-IMAGE = os.environ.get("VOWIFI_ENGINE_IMAGE", "vowifi/engine")
+IMAGE = os.environ.get("VOWIFI_ENGINE_IMAGE", "localhost/vowifi/engine")
+# Podman API socket (Docker-compatible). DOCKER_HOST wins so the SDK's usual override still works.
+PODMAN_URL = os.environ.get("DOCKER_HOST", "unix:///run/podman/podman.sock")
 PCSCD_SOCK = os.environ.get("VOWIFI_PCSCD_DIR", "/run/pcscd")
 # Absolute host path to the project data dir (needed for bind mounts when the manager
 # itself runs in a container; defaults to DATA_DIR on the host).
@@ -31,7 +34,7 @@ HOST_DATA_DIR = os.environ.get("VOWIFI_HOST_DATA", DATA_DIR)
 
 
 def _client():
-    return docker.from_env()
+    return docker.DockerClient(base_url=PODMAN_URL)
 
 
 def container_name(iid: str) -> str:
@@ -117,9 +120,15 @@ def start(inst: dict, settings: dict, dev_mounts: bool = False):
         devices=["/dev/net/tun:/dev/net/tun:rwm"],
         volumes=volumes,
         ports=port_bindings,
-        restart_policy={"Name": "unless-stopped"},
+        # "always": podman-restart.service only brings back "always" containers on boot.
+        # stop() removes the container, so a user stop is never undone by this.
+        restart_policy={"Name": "always"},
         environment={"VOWIFI_ID": iid},
-        extra_hosts={"host.docker.internal": "host-gateway"},  # so notify.py can reach the manager
+        # The bind-mounted pcscd socket + data dir carry host SELinux labels a confined
+        # container can't use; Docker never applied labels here either.
+        security_opt=["label=disable"],
+        # notify.py reaches the manager via host.containers.internal, which podman adds to
+        # every container's /etc/hosts.
     )
     log.info("started engine container %s", c.name)
     return c.id
@@ -194,7 +203,7 @@ def logs(iid: str, tail: int = 200, since=None) -> str:
         c = _client().containers.get(container_name(iid))
         kwargs = {"tail": tail}
         if since is not None:
-            # docker SDK accepts an int (unix ts) or datetime; used by the SMS delivery
+            # the SDK accepts an int (unix ts) or datetime; used by the SMS delivery
             # watcher to read only the lines emitted after a send.
             kwargs["since"] = since
         return c.logs(**kwargs).decode(errors="replace")

@@ -10,7 +10,7 @@
 # (amd64/arm64) is functionally identical — the base image tag below, sysmocom asterisk
 # (sysmocom/20.7.0) + pjproject (sysmocom/2.14) + cherry-pick f1b60dc, patches/asterisk/*.py.
 # Pin the base tag rather than :latest for determinism.
-FROM fedora:40
+FROM registry.fedoraproject.org/fedora:40
 
 # pcsc-lite is pinned to a fixed upstream version and built from source (see below), so the
 # engine's PC/SC client library matches the host pcscd EXACTLY across any distro — this is the

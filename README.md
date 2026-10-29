@@ -12,7 +12,7 @@ A **containerized VoWiFi→SIP gateway** that turns a physical VoWiFi-capable SI
 
 **What you need:**
 - A Linux host (amd64/arm64, Raspberry Pi works) with `/dev/net/tun` + kernel ESP/XFRM
-- **Docker** + a **PC/SC smart-card reader** (USB CCID)
+- **Podman** (rootful; the installer adds it from your distro if missing) + a **PC/SC smart-card reader** (USB CCID)
 - A **VoWiFi-capable SIM** from a carrier that allows ePDG (tested: Telus Canada 302-220; T-Mobile US + many EU carriers should work)
 - *(Optional, for the eSIM tab)* an **eUICC** in the reader, plus a one-time local lpac build (`git clone` [estkme-group/lpac](https://github.com/estkme-group/lpac) next to this repo, then `sudo ./install.sh build-lpac`)
 
@@ -37,13 +37,15 @@ The control-plane WebUI — dashboard, browser softphone, SMS messaging, and eSI
 
 The gateway has two planes:
 
-1. **`vowifi/engine`** (per-SIM, always a Docker container): a pure-Python SWu IKEv2/IPsec client (`swu_ike.py`, based on [fasferraz/SWu-IKEv2](https://github.com/fasferraz/SWu-IKEv2)) for the ePDG tunnel (IKEv2 + EAP-AKA, userspace ESP) + sysmocom Asterisk (IMS PJSIP) + USIM bridge scripts (PIN keeper, AMI ↔ PC/SC). One container per SIM, each with `NET_ADMIN` + `/dev/net/tun` + its own port block (5060+, 10000+ RTP). The tunnel client carries VoWiFi resilience: it verifies the SIM PIN (CHV1) in its own PC/SC connection on every EAP-AKA authentication, sends NAT-T keepalives to hold the tunnel open when idle, runs an initiator-side liveness/DPD check to detect a silently-dead ePDG, re-syncs the P-CSCF into PJSIP on reconnect, advertises IKEv2 fragmentation (RFC 7383) and reassembles fragmented ePDG responses (fragmenting its own oversized messages too), classifies reject Notifies per 3GPP TS 24.302 §7.2.2.2 (honouring an attached back-off timer instead of hammering the network), answers the ePDG's IKEv2 `DEVICE_IDENTITY`/DPD/P-CSCF-restoration requests, and records every received 3GPP Notify — so it rekeys/re-auths and self-heals after a full re-establishment (see [Troubleshooting](#troubleshooting)).
-2. **control plane** (singleton): FastAPI manager + React WebUI dashboard. Manages engine containers via the Docker SDK and reads the SIM via pyscard over the host pcscd socket.
+1. **`vowifi/engine`** (per-SIM, always a Podman container): a pure-Python SWu IKEv2/IPsec client (`swu_ike.py`, based on [fasferraz/SWu-IKEv2](https://github.com/fasferraz/SWu-IKEv2)) for the ePDG tunnel (IKEv2 + EAP-AKA, userspace ESP) + sysmocom Asterisk (IMS PJSIP) + USIM bridge scripts (PIN keeper, AMI ↔ PC/SC). One container per SIM, each with `NET_ADMIN` + `/dev/net/tun` + its own port block (5060+, 10000+ RTP). The tunnel client carries VoWiFi resilience: it verifies the SIM PIN (CHV1) in its own PC/SC connection on every EAP-AKA authentication, sends NAT-T keepalives to hold the tunnel open when idle, runs an initiator-side liveness/DPD check to detect a silently-dead ePDG, re-syncs the P-CSCF into PJSIP on reconnect, advertises IKEv2 fragmentation (RFC 7383) and reassembles fragmented ePDG responses (fragmenting its own oversized messages too), classifies reject Notifies per 3GPP TS 24.302 §7.2.2.2 (honouring an attached back-off timer instead of hammering the network), answers the ePDG's IKEv2 `DEVICE_IDENTITY`/DPD/P-CSCF-restoration requests, and records every received 3GPP Notify — so it rekeys/re-auths and self-heals after a full re-establishment (see [Troubleshooting](#troubleshooting)).
+2. **control plane** (singleton): FastAPI manager + React WebUI dashboard. Manages engine containers via the Docker SDK pointed at rootful Podman's Docker-compatible API socket (`/run/podman/podman.sock`) and reads the SIM via pyscard over the host pcscd socket.
 
 The control plane runs in one of two **deploy modes** (chosen at install time):
 
-- **`local`** *(default)* — the control plane runs **natively on the host** as a Python venv + a `vowifi-control` systemd service; Docker is used **only as the engine layer**. The WebUI is still compiled with a throwaway `node:22-alpine` container, so the host needs no Node/JS toolchain.
-- **`docker`** — the control plane runs in a **privileged container** (host Docker socket + host pcscd socket bind-mounted), alongside the engine containers.
+- **`local`** *(default)* — the control plane runs **natively on the host** as a Python venv + a `vowifi-control` systemd service; Podman is used **only as the engine layer**. The WebUI is still compiled with a throwaway `node:22-alpine` container, so the host needs no Node/JS toolchain.
+- **`container`** — the control plane runs in a **privileged container** (host Podman API socket + host pcscd socket bind-mounted), alongside the engine containers. (`docker` is still accepted as a legacy alias.)
+
+All containers run under **rootful Podman** (engines need `NET_ADMIN`, `/dev/net/tun` and the host pcscd socket). Podman has no daemon, so the installer enables `podman.socket` (the API the control plane uses) and `podman-restart.service` (restarts the `--restart always` containers on boot).
 
 In **both** modes the reader is owned by the **host's pcscd**, and **pcsc-lite is version-locked** (`PCSC_VERSION`, default 2.3.3) across the host + every container image so the PC/SC client/server protocol always matches. Runtime data (`config.yaml`, per-instance configs, SQLite call logs, TLS certs) lives in `./data`.
 
@@ -56,14 +58,14 @@ git clone https://github.com/pagecat/vowifi_gateway.git
 cd vowifi_gateway
 sudo ./install.sh install                 # default: local mode (native control plane)
 # or, fully containerized:
-sudo ./install.sh install --mode docker
+sudo ./install.sh install --mode container
 ```
 
 The installer:
-- Installs Docker (via `get.docker.com` if missing) + host pcscd, **version-locked** to `PCSC_VERSION`
+- Installs Podman (distro package, if missing) + enables `podman.socket` / `podman-restart.service`, and host pcscd, **version-locked** to `PCSC_VERSION`
 - Builds the engine image from source (~10–15 min on a Pi; compiles Asterisk + pcsc-lite + the Python SWu tunnel deps; bakes `engine/patches/*`)
 - **local mode**: compiles the WebUI in a throwaway Node container, creates a Python venv (`control/.venv`), and starts the `vowifi-control` systemd service
-- **docker mode**: builds the `vowifi/control` image and starts the control plane in a privileged container
+- **container mode**: builds the `localhost/vowifi/control` image and starts the control plane in a privileged container
 - Autostart is enabled; prints `https://<host-lan-ip>:8443` — open it in your browser
 
 The chosen mode is remembered (persisted under the data dir), so `reload`/`status`/`logs`/`uninstall` don't need `--mode` again. An explicit `--mode` or the `VOWIFI_MODE` env var always overrides.
@@ -82,10 +84,10 @@ Set via **env vars** (or a `.env` file next to `install.sh`) before running `ins
 
 | Env var | Default | What |
 |---------|---------|------|
-| `VOWIFI_MODE` | `local` | Deploy mode: `local` (native control plane, Docker engine only) or `docker` (both containerized). Overridable per-command with `--mode`. |
+| `VOWIFI_MODE` | `local` | Deploy mode: `local` (native control plane, Podman engines only) or `container` (both containerized; `docker` = legacy alias). Overridable per-command with `--mode`. |
 | `VOWIFI_PORT` | `8443` | Host port the WebUI is served/published on |
 | `VOWIFI_DATA_DIR` | `<repo>/data` | Runtime data directory (config, logs, DB, certs) |
-| `VOWIFI_ADVERTISE_ADDR` | auto-detect | Host LAN IP advertised to local SIP/WebRTC clients for RTP, Contact and SDP. It overrides **Settings → SIP / WebRTC advertise address**. Auto-detection prefers a real LAN NIC and skips common VPN/docker interfaces; pin it explicitly on multi-homed hosts. |
+| `VOWIFI_ADVERTISE_ADDR` | auto-detect | Host LAN IP advertised to local SIP/WebRTC clients for RTP, Contact and SDP. It overrides **Settings → SIP / WebRTC advertise address**. Auto-detection prefers a real LAN NIC and skips common VPN/container interfaces; pin it explicitly on multi-homed hosts. |
 | `VOWIFI_BIND` | `0.0.0.0` | Bind address for the control plane (rarely changed) |
 | `PCSC_VERSION` | `2.3.3` | pcsc-lite version pinned across host + all images |
 
@@ -102,7 +104,7 @@ sudo VOWIFI_PORT=9443 VOWIFI_ADVERTISE_ADDR=192.168.1.100 ./install.sh install
 # Check status (mode + control + engine containers)
 ./install.sh status
 
-# View control-plane logs (live) — journalctl in local mode, docker logs in docker mode
+# View control-plane logs (live) — journalctl in local mode, podman logs in container mode
 ./install.sh logs
 
 # Start / stop / restart just the control plane (systemd service or container, per mode)
@@ -115,11 +117,11 @@ sudo ./install.sh restart
 sudo ./install.sh
 
 # Rebuild + restart the control plane (preserves data). In local mode this rebuilds the
-# WebUI + refreshes the venv + restarts the systemd service; in docker mode it rebuilds
+# WebUI + refreshes the venv + restarts the systemd service; in container mode it rebuilds
 # the control image + recreates the container. The engine image is reused unless forced.
 sudo ./install.sh reload
 
-# Rebuild from scratch (no Docker build cache; also forces an engine-image rebuild)
+# Rebuild from scratch (no Podman build cache; also forces an engine-image rebuild)
 sudo ./install.sh reload --no-cache
 
 # Rebuild + also recreate engine containers (forces an engine-image rebuild — e.g. after
@@ -135,7 +137,7 @@ sudo ./install.sh build-lpac
 # Or: sudo ./install.sh build-lpac --lpac-src /path/to/lpac
 
 # Switch modes (tears down the old plane, brings up the new one, keeps data + engine image)
-sudo ./install.sh install --mode docker
+sudo ./install.sh install --mode container
 sudo ./install.sh install --mode local
 
 # Disable autostart (control + engines won't restart on reboot)
@@ -145,7 +147,7 @@ sudo ./install.sh disable-autostart
 sudo ./install.sh enable-autostart
 
 # Uninstall (removes vowifi containers + the native service; KEEPS the patched engine image,
-# venv, Docker, pcscd, and ./data so a reinstall is fast)
+# venv, Podman, pcscd, and ./data so a reinstall is fast)
 sudo ./install.sh uninstall
 
 # Uninstall + delete everything (images, venv, and ./data)
@@ -333,24 +335,24 @@ in practice); MOBIKE / `UPDATE_SA_ADDRESSES` (the host has a stable wired IP); m
 
 **Audio one-way or none:**  
 - **Browser softphone silent**: hard-refresh (Ctrl+Shift+R) to load the latest WebUI bundle (the audio attach fix). Check the browser Console for `audioblocked` or autoplay errors.
-- **External client no audio**: confirm `VOWIFI_ADVERTISE_ADDR` is the correct LAN IP (not 127.x, not a docker-bridge IP). Check firewall rules allow RTP (UDP 10000–10059+ inbound).
+- **External client no audio**: confirm `VOWIFI_ADVERTISE_ADDR` is the correct LAN IP (not 127.x, not a container-bridge IP such as 10.88.x). Check firewall rules allow RTP (UDP 10000–10059+ inbound).
 - **Outbound works, inbound fails**: your router's NAT may mangle the SIP `Contact` header. Use the TLS transport (port 5061) if your client supports it, or set `settings.tls.domain` to a public FQDN + port-forward.
 
 **Control plane won't start:**  
-Check its logs with `./install.sh logs` (that's `journalctl -u vowifi-control` in local mode, `docker logs vowifi-control` in docker mode). Common causes: `/run/pcscd/pcscd.comm` missing (host pcscd not running) or Docker not reachable (in docker mode the control container must be privileged; in local mode the service runs as root so it can reach the reader + Docker socket).
+Check its logs with `./install.sh logs` (that's `journalctl -u vowifi-control` in local mode, `podman logs vowifi-control` in container mode). Common causes: `/run/pcscd/pcscd.comm` missing (host pcscd not running) or the Podman API not reachable (`systemctl status podman.socket`; in container mode the control container must be privileged; in local mode the service runs as root so it can reach the reader + `/run/podman/podman.sock`).
 
 ---
 
 ## Development
 
-**Local mode already IS the dev-friendly path**: the control plane runs natively from `control/`, so editing `control/app/*.py` + `sudo ./install.sh restart` reloads it. To live-edit **engine** scripts without rebuilding the image, start the control plane with `VOWIFI_DEV_MOUNTS=1` set — the manager then bind-mounts the local `engine/*.py` + templates into each engine container as read-only overlays, so an edit + `docker restart vowifi-engine-<id>` applies immediately.
+**Local mode already IS the dev-friendly path**: the control plane runs natively from `control/`, so editing `control/app/*.py` + `sudo ./install.sh restart` reloads it. To live-edit **engine** scripts without rebuilding the image, start the control plane with `VOWIFI_DEV_MOUNTS=1` set — the manager then bind-mounts the local `engine/*.py` + templates into each engine container as read-only overlays, so an edit + `sudo podman restart vowifi-engine-<id>` applies immediately.
 
 **Control-plane only, by hand** (outside the installer): create a venv, `pip install -r control/requirements.txt`, `export VOWIFI_DATA=./data`, `python control/run.py`. The WebUI dev server (`cd webui && npm run dev`) proxies `/api` + `/ws` to the control plane — point it with `VOWIFI_DEV_API=https://<gateway-host>:8443` (defaults to `localhost:8443`).
 
 **Manual build**:
 ```bash
-docker build -t vowifi/engine engine/
-docker build -t vowifi/control -f control/Dockerfile .
+sudo podman build -t localhost/vowifi/engine engine/
+sudo podman build -t localhost/vowifi/control -f control/Containerfile .
 ```
 
 ---

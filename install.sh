@@ -1,26 +1,28 @@
 #!/bin/sh
 # install.sh — one-click installer / lifecycle manager for the VoWiFi→SIP gateway.
 #
-# Deploys the whole system on any Docker-capable Linux with a PC/SC reader, in one of two
+# Deploys the whole system on any Linux with Podman (rootful) and a PC/SC reader, in one of two
 # DEPLOY MODES:
 #
 #   local   (DEFAULT) — control plane runs NATIVELY on the host (Python venv + systemd unit);
-#                       Docker is used only as the ENGINE layer (per-SIM engine containers).
+#                       Podman is used only as the ENGINE layer (per-SIM engine containers).
 #                       The WebUI is still compiled with a throwaway Node container, so the
 #                       host needs no Node/JS toolchain.
-#   docker            — control plane AND engine both run in containers (control plane in a
-#                       privileged container with the host Docker + pcscd sockets bind-mounted).
+#   container         — control plane AND engine both run in containers (control plane in a
+#                       privileged container with the host Podman API + pcscd sockets bind-mounted).
+#                       ('docker' is accepted as a legacy alias for this mode.)
 #
 # In BOTH modes:
-#   - Docker + host pcscd are installed and running
+#   - Podman (rootful, with its Docker-compatible API socket podman.socket) + host pcscd are
+#     installed and running; podman-restart.service brings containers back after a reboot
 #   - pcsc-lite is version-LOCKED (PCSC_VERSION) across the host + every container image so the
 #     PC/SC client/server protocol always matches (distro defaults differ -> "Failed to
 #     establish context")
 #   - the engine image is built from source with all bug-fix patches baked in (engine/patches/*)
 #
 # Usage:
-#   sudo ./install.sh install [--mode local|docker]   # full install (default mode: local)
-#   sudo ./install.sh reload  [--mode local|docker] [--no-cache] [--engines]
+#   sudo ./install.sh install [--mode local|container]   # full install (default mode: local)
+#   sudo ./install.sh reload  [--mode local|container] [--no-cache] [--engines]
 #   sudo ./install.sh build-lpac [--lpac-src PATH] [--dest DIR]   # local eSIM LPA (lpac)
 #   sudo ./install.sh enable-autostart | disable-autostart
 #   sudo ./install.sh uninstall [--purge]             # --purge also deletes ./data (+ venv)
@@ -30,7 +32,7 @@
 # don't need --mode again. An explicit --mode or the VOWIFI_MODE env var always overrides.
 #
 # Config via env (or a .env file next to this script):
-#   VOWIFI_MODE            deploy mode: local | docker                (default local)
+#   VOWIFI_MODE            deploy mode: local | container             (default local)
 #   VOWIFI_PORT            host port to publish/serve the WebUI on    (default 8443)
 #   VOWIFI_DATA_DIR        runtime data dir                           (default <repo>/data)
 #   VOWIFI_ADVERTISE_ADDR  host LAN IP for SIP/WebRTC media           (default: auto-detect)
@@ -50,10 +52,17 @@ VOWIFI_DATA_DIR="${VOWIFI_DATA_DIR:-$REPO_DIR/data}"
 VOWIFI_BIND="${VOWIFI_BIND:-0.0.0.0}"
 VOWIFI_ADVERTISE_ADDR="${VOWIFI_ADVERTISE_ADDR:-}"
 
-CONTROL_IMAGE="vowifi/control"
-ENGINE_IMAGE="vowifi/engine"
+# Fully qualified: podman stores locally built images under localhost/.
+CONTROL_IMAGE="localhost/vowifi/control"
+ENGINE_IMAGE="localhost/vowifi/engine"
 CONTROL_NAME="vowifi-control"
 ENGINE_PREFIX="vowifi-engine-"
+
+# Rootful podman's Docker-compatible API socket. The control plane drives engine containers
+# through it with the Docker SDK (DOCKER_HOST), so no daemon other than podman is needed.
+PODMAN_SOCK="/run/podman/podman.sock"
+# Base image for the throwaway WebUI build (fully qualified: podman doesn't assume docker.io).
+NODE_IMAGE="docker.io/library/node:22-alpine"
 
 # Native (local-mode) control plane bits.
 VENV_DIR="$REPO_DIR/control/.venv"
@@ -102,12 +111,12 @@ detect_lan_ip() {
   ip=""
   if have ip; then
     ip=$(ip -4 -o addr show scope global 2>/dev/null | awk '
-      $2 ~ /^(docker|br-|veth|virbr|cni|flannel|tun|tap|wg|ipsec|vti|uk-|nordlynx|tailscale|zerotier|zt|ppp)/ { next }
+      $2 ~ /^(podman|docker|br-|veth|virbr|cni|flannel|tun|tap|wg|ipsec|vti|uk-|nordlynx|tailscale|zerotier|zt|ppp)/ { next }
       $2 == "lo" { next }
       {
         split($4, a, "/")
         addr = a[1]
-        if (addr ~ /^127\./ || addr ~ /^169\.254\./ || addr ~ /^172\.17\./) next
+        if (addr ~ /^127\./ || addr ~ /^169\.254\./ || addr ~ /^172\.17\./ || addr ~ /^10\.88\./) next
         print addr
         exit
       }')
@@ -117,7 +126,7 @@ detect_lan_ip() {
   fi
   if [ -z "$ip" ] && have hostname; then
     ip=$(hostname -I 2>/dev/null | tr ' ' '\n' | grep -E '^[0-9]+\.' \
-      | grep -Ev '^(127\.|169\.254\.|172\.17\.)' | head -n1)
+      | grep -Ev '^(127\.|169\.254\.|172\.17\.|10\.88\.)' | head -n1)
   fi
   if [ -z "$ip" ] && have ip; then
     ip=$(ip route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([0-9.]*\).*/\1/p' | head -n1)
@@ -183,12 +192,12 @@ persist_mode() {
 }
 
 # Detect an EXISTING installation from real artifacts (not just the state file), and which
-# plane it uses. Prints: local | docker | none.
-#   local  = native systemd unit present
-#   docker = control container present
+# plane it uses. Prints: local | container | none.
+#   local     = native systemd unit present
+#   container = control container present
 detect_installed_mode() {
   if [ -f "$SYSTEMD_UNIT" ]; then echo local; return; fi
-  if have docker && docker container inspect "$CONTROL_NAME" >/dev/null 2>&1; then echo docker; return; fi
+  if have podman && podman container exists "$CONTROL_NAME" 2>/dev/null; then echo container; return; fi
   echo none
 }
 
@@ -202,8 +211,9 @@ resolve_mode() {
   [ -z "$m" ] && [ -f "$MODE_STATE" ] && m=$(cat "$MODE_STATE" 2>/dev/null || true)
   [ -z "$m" ] && m="local"
   case "$m" in
-    local|docker) ;;
-    *) die "invalid deploy mode '$m' (use: local | docker)";;
+    local|container) ;;
+    docker) m=container ;;   # legacy name (pre-podman installs persisted "docker")
+    *) die "invalid deploy mode '$m' (use: local | container)";;
   esac
   MODE="$m"
 }
@@ -213,33 +223,42 @@ control_running() {
   if [ "${MODE:-}" = local ]; then
     have systemctl && systemctl is-active --quiet vowifi-control
   else
-    [ "$(docker inspect -f '{{.State.Running}}' "$CONTROL_NAME" 2>/dev/null)" = true ]
+    [ "$(podman inspect -f '{{.State.Running}}' "$CONTROL_NAME" 2>/dev/null)" = true ]
   fi
 }
 
 # ------------------------------------------------------------------ prerequisites
-ensure_docker() {
-  if have docker && docker info >/dev/null 2>&1; then
-    info "Docker present ($(docker --version | awk '{print $3}' | tr -d ,))"
-    return
+ensure_podman() {
+  # Rootful podman: engines need NET_ADMIN + /dev/net/tun + the host pcscd socket, and the
+  # control plane runs as root, so everything lives in root's container storage.
+  if ! have podman; then
+    info "installing Podman…"
+    pkg_install podman
   fi
-  if ! have docker; then
-    info "installing Docker via get.docker.com…"
-    if have curl; then curl -fsSL https://get.docker.com | sh
-    elif have wget; then wget -qO- https://get.docker.com | sh
-    else die "need curl or wget to install Docker"
-    fi
+  have podman || die "Podman installation failed"
+  podman info >/dev/null 2>&1 || die "Podman is installed but not working (podman info failed)"
+  # A Docker Engine install also uses /usr/bin/docker + docker.sock; engines it still runs would
+  # hold the per-SIM ports and be invisible to podman. (podman-docker's shim is fine.)
+  if have docker && ! docker --version 2>/dev/null | grep -qi podman \
+      && docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q '^vowifi-'; then
+    warn "Docker still has vowifi containers — remove them first (old ./install.sh uninstall,"
+    warn "or: docker rm -f \$(docker ps -aq --filter name=^vowifi-)) so their ports are freed"
   fi
-  svc_enable_start docker
-  docker info >/dev/null 2>&1 || die "Docker installed but the daemon is not running"
-  info "Docker ready"
+  if have systemctl; then
+    # Docker-compatible API socket the control plane talks to (socket-activated).
+    systemctl enable --now podman.socket >/dev/null 2>&1 || warn "could not enable podman.socket"
+    # Podman has no daemon: this unit restarts containers with a restart policy on boot.
+    systemctl enable podman-restart.service >/dev/null 2>&1 || warn "could not enable podman-restart.service (containers won't autostart on boot)"
+  fi
+  [ -S "$PODMAN_SOCK" ] || die "Podman API socket $PODMAN_SOCK missing (is podman.socket available?)"
+  info "Podman ready ($(podman --version | awk '{print $3}'))"
 }
 
 ensure_pcscd() {
   # We PIN pcsc-lite to $PCSC_VERSION everywhere (host pcscd + container client libs) so the
   # PC/SC client/server protocol always matches — distro-default versions differ and cause
   # "Failed to establish context" between a client and the host daemon.  In BOTH deploy modes
-  # the reader is owned by the HOST pcscd; engine containers (and, in docker mode, the control
+  # the reader is owned by the HOST pcscd; engine containers (and, in container mode, the control
   # container) are pcscd clients over the shared /run/pcscd socket.
   installed_ver=""
   if have pcscd; then installed_ver=$(pcscd --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1); fi
@@ -353,23 +372,23 @@ _build_pcsclite_host() {
 # Build the engine image ONLY if it is missing, or if forced ($1 non-empty / --no-cache).
 # The engine image is large and slow to build (~10-15 min: compiles Asterisk + pcsc-lite + the
 # Python SWu tunnel deps), and it bakes every bug-fix patch under engine/patches/* via the
-# Dockerfile — so an unforced reinstall reuses the existing patched image instead of rebuilding it.
+# Containerfile — so an unforced reinstall reuses the existing patched image instead of rebuilding it.
 ensure_engine_image() {
   force="${1:-}"
-  if [ -z "$force" ] && [ -z "$NOCACHE_FLAG" ] && docker image inspect "$ENGINE_IMAGE" >/dev/null 2>&1; then
+  if [ -z "$force" ] && [ -z "$NOCACHE_FLAG" ] && podman image exists "$ENGINE_IMAGE" >/dev/null 2>&1; then
     info "engine image $ENGINE_IMAGE present — reusing (patches from engine/patches/* are baked in). Use 'reload --engines' or '--no-cache' to force a rebuild."
     return
   fi
   info "building engine image ($ENGINE_IMAGE) from source — long; compiles Asterisk+pcsc-lite+Python SWu tunnel deps and bakes engine/patches/*…"
   # shellcheck disable=SC2086
-  docker build $NOCACHE_FLAG --build-arg "PCSC_VERSION=$PCSC_VERSION" -t "$ENGINE_IMAGE" "$REPO_DIR/engine"
+  podman build $NOCACHE_FLAG --build-arg "PCSC_VERSION=$PCSC_VERSION" -t "$ENGINE_IMAGE" "$REPO_DIR/engine"
   info "engine image built"
 }
 
 build_control_image() {
   info "building control image ($CONTROL_IMAGE) from source (WebUI + FastAPI)…"
   # shellcheck disable=SC2086
-  docker build $NOCACHE_FLAG --build-arg "PCSC_VERSION=$PCSC_VERSION" -t "$CONTROL_IMAGE" -f "$REPO_DIR/control/Dockerfile" "$REPO_DIR"
+  podman build $NOCACHE_FLAG --build-arg "PCSC_VERSION=$PCSC_VERSION" -t "$CONTROL_IMAGE" -f "$REPO_DIR/control/Containerfile" "$REPO_DIR"
   info "control image built"
 }
 
@@ -378,7 +397,8 @@ build_control_image() {
 # host node_modules that might be built for another arch), then copies dist back to the host.
 build_webui_local() {
   info "building WebUI (webui/dist) via a throwaway node:22-alpine container (no host Node needed)…"
-  docker run --rm -v "$REPO_DIR/webui":/host-webui node:22-alpine sh -euc '
+  # label=disable: the repo checkout isn't labelled for container access on SELinux hosts.
+  podman run --rm --security-opt label=disable -v "$REPO_DIR/webui":/host-webui "$NODE_IMAGE" sh -euc '
     cp -a /host-webui /build && cd /build && rm -rf node_modules dist
     npm ci
     npm run build
@@ -422,12 +442,12 @@ setup_venv() {
 }
 
 # Write + (re)start the native control-plane systemd unit. Runs as root (needs the reader via
-# host pcscd + the Docker socket to manage engine containers). Because the control plane runs
+# host pcscd + the Podman API socket to manage engine containers). Because the control plane runs
 # ON the host, VOWIFI_HOST_DATA == VOWIFI_DATA (the real host path the manager hands to engine
-# bind-mounts). Engines reach it back over host.docker.internal:<port> (engine.start adds the
-# host-gateway extra_host), same as in docker mode.
+# bind-mounts). Engines reach it back over host.containers.internal:<port> (podman adds that
+# name to every container's /etc/hosts), same as in container mode.
 run_control_local() {
-  have systemctl || die "local mode needs systemd (systemctl not found). Re-run with --mode docker."
+  have systemctl || die "local mode needs systemd (systemctl not found). Re-run with --mode container."
   mkdir -p "$VOWIFI_DATA_DIR"
   DATA_ABS=$(data_dir_abs)
   LAN_IP="$VOWIFI_ADVERTISE_ADDR"
@@ -438,8 +458,8 @@ run_control_local() {
   cat > "$SYSTEMD_UNIT" <<EOF
 [Unit]
 Description=VoWiFi Gateway control surface (native / manager + WebUI)
-After=network-online.target pcscd.service docker.service
-Wants=network-online.target
+After=network-online.target pcscd.service podman.socket
+Wants=network-online.target podman.socket
 
 [Service]
 Type=simple
@@ -451,7 +471,8 @@ Environment=VOWIFI_HTTP_PORT=$VOWIFI_PORT
 Environment=VOWIFI_BIND=$VOWIFI_BIND
 Environment=VOWIFI_ADVERTISE_ADDR=$LAN_IP
 Environment=VOWIFI_ENGINE_IMAGE=$ENGINE_IMAGE
-Environment=VOWIFI_MANAGER_URL=https://host.docker.internal:$VOWIFI_PORT
+Environment=VOWIFI_MANAGER_URL=https://host.containers.internal:$VOWIFI_PORT
+Environment=DOCKER_HOST=unix://$PODMAN_SOCK
 Environment=VOWIFI_PCSCD_DIR=/run/pcscd
 Environment=PYTHONUNBUFFERED=1
 ExecStart=$VENV_DIR/bin/python run.py
@@ -486,13 +507,16 @@ run_control() {
   [ -z "$LAN_IP" ] && LAN_IP=$(detect_lan_ip)
   [ -z "$LAN_IP" ] && warn "could not auto-detect a LAN IP; set VOWIFI_ADVERTISE_ADDR — SIP/WebRTC audio needs a routable host address"
 
-  docker rm -f "$CONTROL_NAME" >/dev/null 2>&1 || true
+  podman rm -f "$CONTROL_NAME" >/dev/null 2>&1 || true
   info "starting control plane container ($CONTROL_NAME) on https://${LAN_IP:-<host>}:${VOWIFI_PORT}"
-  docker run -d --name "$CONTROL_NAME" \
+  # restart=always (not unless-stopped): podman-restart.service only revives "always" containers
+  # on boot across podman versions.
+  podman run -d --name "$CONTROL_NAME" \
     --privileged \
-    --restart unless-stopped \
+    --restart always \
     -p "${VOWIFI_PORT}:8443" \
-    -v /var/run/docker.sock:/var/run/docker.sock \
+    -v "${PODMAN_SOCK}:${PODMAN_SOCK}" \
+    -e DOCKER_HOST="unix://${PODMAN_SOCK}" \
     -v /run/pcscd:/run/pcscd \
     -v "${DATA_ABS}:/data" \
     -e VOWIFI_DATA=/data \
@@ -500,13 +524,13 @@ run_control() {
     -e VOWIFI_HTTP_PORT=8443 \
     -e VOWIFI_BIND="${VOWIFI_BIND}" \
     -e VOWIFI_ADVERTISE_ADDR="${LAN_IP}" \
-    -e VOWIFI_MANAGER_URL="https://host.docker.internal:${VOWIFI_PORT}" \
+    -e VOWIFI_MANAGER_URL="https://host.containers.internal:${VOWIFI_PORT}" \
     -e VOWIFI_ENGINE_IMAGE="${ENGINE_IMAGE}" \
     -e VOWIFI_PCSCD_DIR=/run/pcscd \
     "$CONTROL_IMAGE"
 }
 
-engine_names() { docker ps -a --format '{{.Names}}' 2>/dev/null | grep "^${ENGINE_PREFIX}" || true; }
+engine_names() { podman ps -a --format '{{.Names}}' 2>/dev/null | grep "^${ENGINE_PREFIX}" || true; }
 
 # ------------------------------------------------------------------ subcommands
 cmd_install() {
@@ -517,16 +541,16 @@ cmd_install() {
   # low-power ARM boards (Raspberry Pi, Armbian SBCs) this first build can take 20-30 minutes —
   # only once, since later installs reuse the built image. Warn up front so a long, quiet build
   # isn't mistaken for a hang.
-  if ! docker image inspect "$ENGINE_IMAGE" >/dev/null 2>&1; then
+  if ! podman image exists "$ENGINE_IMAGE" 2>/dev/null; then
     warn "the engine image builds from source (Asterisk + pcsc-lite + SWu tunnel deps). On low-power ARM"
     warn "machines this can take 20-30 minutes — this is normal, please be patient. It runs only once;"
     warn "later installs/reloads reuse the built image."
   fi
-  ensure_docker
+  ensure_podman
   ensure_pcscd
   ensure_engine_image
   persist_mode "$MODE"
-  if [ "$MODE" = docker ]; then
+  if [ "$MODE" = container ]; then
     build_control_image
     run_control
   else
@@ -542,9 +566,9 @@ cmd_install() {
   printf '   %sWebUI:%s   https://%s:%s\n' "$B" "$N" "${LAN_IP:-<host-ip>}" "$VOWIFI_PORT"
   printf '   %sData:%s    %s\n' "$B" "$N" "$DATA_ABS"
   if [ "$MODE" = local ]; then
-    printf '   %sControl:%s native systemd service (vowifi-control); engines run in Docker\n' "$B" "$N"
+    printf '   %sControl:%s native systemd service (vowifi-control); engines run in Podman\n' "$B" "$N"
   else
-    printf '   %sControl:%s Docker container (%s); engines run in Docker\n' "$B" "$N" "$CONTROL_NAME"
+    printf '   %sControl:%s Podman container (%s); engines run in Podman\n' "$B" "$N" "$CONTROL_NAME"
   fi
   printf '   %sManage:%s  %s status | logs | reload | disable-autostart | uninstall\n' "$B" "$N" "$0"
   printf '   Accept the self-signed cert in your browser, then provision your SIM in the dashboard.\n'
@@ -562,7 +586,7 @@ cmd_reload() {
   else
     ensure_engine_image
   fi
-  if [ "$MODE" = docker ]; then
+  if [ "$MODE" = container ]; then
     build_control_image
     run_control
   else
@@ -573,7 +597,7 @@ cmd_reload() {
   fi
   if [ "$RECREATE_ENGINES" = 1 ]; then
     warn "engines will be re-created by the control plane on next start/provision (image updated)"
-    for n in $(engine_names); do docker rm -f "$n" >/dev/null 2>&1 || true; done
+    for n in $(engine_names); do podman rm -f "$n" >/dev/null 2>&1 || true; done
   fi
   info "reload complete (data preserved)"
 }
@@ -585,7 +609,7 @@ cmd_start() {
     have systemctl || die "local mode needs systemd"
     systemctl start vowifi-control && info "control plane started (systemd)" || warn "could not start vowifi-control"
   else
-    docker start "$CONTROL_NAME" >/dev/null 2>&1 && info "control plane started (docker)" || warn "control container not found"
+    podman start "$CONTROL_NAME" >/dev/null 2>&1 && info "control plane started (container)" || warn "control container not found"
   fi
 }
 
@@ -596,7 +620,7 @@ cmd_stop() {
     have systemctl || die "local mode needs systemd"
     systemctl stop vowifi-control && info "control plane stopped (systemd)" || warn "could not stop vowifi-control"
   else
-    docker stop "$CONTROL_NAME" >/dev/null 2>&1 && info "control plane stopped (docker)" || warn "control container not found"
+    podman stop "$CONTROL_NAME" >/dev/null 2>&1 && info "control plane stopped (container)" || warn "control container not found"
   fi
   info "note: engine containers keep running; the control plane just stops managing them until restarted"
 }
@@ -608,7 +632,7 @@ cmd_restart() {
     have systemctl || die "local mode needs systemd"
     systemctl restart vowifi-control && info "control plane restarted (systemd)" || warn "could not restart vowifi-control"
   else
-    docker restart "$CONTROL_NAME" >/dev/null 2>&1 && info "control plane restarted (docker)" || warn "control container not found"
+    podman restart "$CONTROL_NAME" >/dev/null 2>&1 && info "control plane restarted (container)" || warn "control container not found"
   fi
 }
 
@@ -618,9 +642,10 @@ cmd_enable_autostart() {
   if [ "$MODE" = local ]; then
     have systemctl && systemctl enable vowifi-control >/dev/null 2>&1 && info "control autostart ON (systemd)" || warn "systemd unit not found"
   else
-    docker update --restart unless-stopped "$CONTROL_NAME" >/dev/null 2>&1 && info "control autostart ON" || warn "control container not found"
+    podman update --restart always "$CONTROL_NAME" >/dev/null 2>&1 && info "control autostart ON" || warn "control container not found (or podman too old for 'update --restart')"
   fi
-  for n in $(engine_names); do docker update --restart unless-stopped "$n" >/dev/null 2>&1 || true; done
+  for n in $(engine_names); do podman update --restart always "$n" >/dev/null 2>&1 || true; done
+  have systemctl && systemctl enable podman-restart.service >/dev/null 2>&1 || true
 }
 
 cmd_disable_autostart() {
@@ -629,9 +654,9 @@ cmd_disable_autostart() {
   if [ "$MODE" = local ]; then
     have systemctl && systemctl disable vowifi-control >/dev/null 2>&1 && info "control autostart OFF (systemd)" || warn "systemd unit not found"
   else
-    docker update --restart no "$CONTROL_NAME" >/dev/null 2>&1 && info "control autostart OFF" || warn "control container not found"
+    podman update --restart no "$CONTROL_NAME" >/dev/null 2>&1 && info "control autostart OFF" || warn "control container not found (or podman too old for 'update --restart')"
   fi
-  for n in $(engine_names); do docker update --restart no "$n" >/dev/null 2>&1 || true; done
+  for n in $(engine_names); do podman update --restart no "$n" >/dev/null 2>&1 || true; done
   info "note: already-running components keep running until stopped or the host reboots"
 }
 
@@ -645,19 +670,19 @@ cmd_uninstall() {
   info "removing native control plane (if any)…"
   remove_control_local
   info "removing vowifi containers…"
-  docker rm -f "$CONTROL_NAME" >/dev/null 2>&1 || true
-  for n in $(engine_names); do docker rm -f "$n" >/dev/null 2>&1 || true; done
+  podman rm -f "$CONTROL_NAME" >/dev/null 2>&1 || true
+  for n in $(engine_names); do podman rm -f "$n" >/dev/null 2>&1 || true; done
   if [ "$PURGE" = 1 ]; then
     # Full teardown: also drop images (incl. the slow, patched engine image) and data+venv.
     info "removing vowifi images…"
-    docker rmi -f "$CONTROL_IMAGE" "$ENGINE_IMAGE" >/dev/null 2>&1 || true
+    podman rmi -f "$CONTROL_IMAGE" "$ENGINE_IMAGE" >/dev/null 2>&1 || true
     warn "purging data dir: $(data_dir_abs) and venv $VENV_DIR"
     rm -rf "$VOWIFI_DATA_DIR" "$VENV_DIR"
   else
     # Keep the ~15-20 min patched engine image (and the control image) so a reinstall reuses
     # them; only the running components are torn down. Data + venv are preserved too.
-    docker rmi -f "$CONTROL_IMAGE" >/dev/null 2>&1 || true
-    info "data kept at $(data_dir_abs); engine image + venv preserved (use --purge to delete all). Docker & pcscd left installed."
+    podman rmi -f "$CONTROL_IMAGE" >/dev/null 2>&1 || true
+    info "data kept at $(data_dir_abs); engine image + venv preserved (use --purge to delete all). Podman & pcscd left installed."
   fi
   info "uninstall complete"
 }
@@ -673,10 +698,10 @@ cmd_status() {
         || printf '  vowifi-control  (not running)\n'
     fi
   else
-    docker ps -a --filter "name=^${CONTROL_NAME}$" --format '  {{.Names}}  {{.Status}}  {{.Ports}}' 2>/dev/null || true
+    podman ps -a --filter "name=^${CONTROL_NAME}$" --format '  {{.Names}}  {{.Status}}  {{.Ports}}' 2>/dev/null || true
   fi
   printf '%sEngines:%s\n' "$B" "$N"
-  docker ps -a --filter "name=^${ENGINE_PREFIX}" --format '  {{.Names}}  {{.Status}}' 2>/dev/null || true
+  podman ps -a --filter "name=^${ENGINE_PREFIX}" --format '  {{.Names}}  {{.Status}}' 2>/dev/null || true
 }
 
 # Opt-in: build + install the patched CCID driver (patches/ccid/*) on the host. Kept out of
@@ -702,7 +727,7 @@ cmd_patchall() {
 
 cmd_build_lpac() {
   # Compile lpac (PC/SC + curl, STANDALONE) into $VOWIFI_DATA_DIR/lpac for the eSIM UI.
-  # Local-mode only — docker control plane is out of scope for this integration.
+  # Local-mode only — containerized control plane is out of scope for this integration.
   #
   # lpac STANDALONE uses cmake_policy(CMP0177) which needs CMake >= 3.31.
   # Ubuntu 22.04 / Armbian ship 3.22 — we fetch a Kitware binary toolchain into
@@ -878,7 +903,7 @@ cmd_logs() {
     have systemctl || die "systemd not available"
     journalctl -fu vowifi-control || true
   else
-    docker logs -f "$CONTROL_NAME" || true
+    podman logs -f "$CONTROL_NAME" || true
   fi
 }
 
@@ -906,7 +931,7 @@ cmd_auto() {
     if [ "$MODE" = local ]; then
       systemctl is-enabled --quiet vowifi-control 2>/dev/null && echo on || echo off
     else
-      case "$(docker inspect -f '{{.HostConfig.RestartPolicy.Name}}' "$CONTROL_NAME" 2>/dev/null)" in
+      case "$(podman inspect -f '{{.HostConfig.RestartPolicy.Name}}' "$CONTROL_NAME" 2>/dev/null)" in
         ""|no) echo off;; *) echo on;; esac
     fi
   }
@@ -942,9 +967,9 @@ usage() {
 ${B}VoWiFi→SIP gateway installer${N}
 
   $0                      auto: install if absent, else show status + control menu
-  $0 install [--mode local|docker]   build + run (default mode: local)
-  $0 reload  [--mode local|docker] [--no-cache] [--engines]   rebuild + restart (keep data)
-  $0 start | stop | restart          control-plane lifecycle (systemd or docker per mode)
+  $0 install [--mode local|container]   build + run (default mode: local)
+  $0 reload  [--mode local|container] [--no-cache] [--engines]   rebuild + restart (keep data)
+  $0 start | stop | restart          control-plane lifecycle (systemd or container per mode)
   $0 enable-autostart     start on boot
   $0 disable-autostart    do not start on boot
   $0 uninstall [--purge]  remove vowifi containers/images/service (--purge also deletes data+venv)
@@ -958,9 +983,10 @@ ${B}VoWiFi→SIP gateway installer${N}
 
 ${B}Modes:${N}
   local  (default) control plane runs natively (venv + systemd 'vowifi-control');
-                   Docker is the engine layer only. WebUI compiled via a throwaway
+                   Podman is the engine layer only. WebUI compiled via a throwaway
                    Node container, so the host needs no Node.
-  docker           control plane AND engine run in containers.
+  container        control plane AND engine run in Podman containers
+                   ('docker' = legacy alias).
   Both modes version-lock pcsc-lite ($PCSC_VERSION) and bake engine patches.
   Run with no arguments to auto-install, or to manage an existing install.
 
@@ -982,7 +1008,7 @@ NOCACHE_FLAG=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --mode)
-      [ $# -ge 2 ] || die "--mode requires a value: local | docker"
+      [ $# -ge 2 ] || die "--mode requires a value: local | container"
       MODE_ARG="$2"; shift 2; continue ;;
     --mode=*)   MODE_ARG="${1#--mode=}" ;;
     --no-cache) NOCACHE_FLAG="--no-cache"; ARGS="$ARGS $1" ;;

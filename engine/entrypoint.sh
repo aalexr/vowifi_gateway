@@ -11,7 +11,7 @@
 #
 # PC/SC: this container is a pcscd CLIENT — it talks to the HOST pcscd via the bind-mounted
 # /run/pcscd socket. The pcsc-lite client library is pinned to the same version as the host
-# pcscd (see Dockerfile PCSC_VERSION) so the client/server protocol always matches.
+# pcscd (see Containerfile PCSC_VERSION) so the client/server protocol always matches.
 set -u
 
 export VOWIFI_RUNDIR="${VOWIFI_RUNDIR:-/run/vowifi}"
@@ -55,7 +55,7 @@ rm -f "$VOWIFI_RUNDIR/swu.ctl" "$VOWIFI_RUNDIR/swu_status.json"
 
 # swu_ike is very chatty (per-packet IKE decode dumps). Send ITS stdout+stderr ONLY to the IKE
 # log (run/charon.log) so it does not intermix with Asterisk's console on the container stdout
-# (docker logs) — the manager surfaces the IKE log and the Asterisk log as two separate views.
+# (podman logs) — the manager surfaces the IKE log and the Asterisk log as two separate views.
 # The supervisor's own status lines still go to the container stdout via log().
 (
   backoff=4
