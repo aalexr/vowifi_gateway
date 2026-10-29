@@ -14,7 +14,12 @@ import sys
 #      SUBSCRIBE <default IMPU> with Event: reg, Accept: application/reginfo+xml,
 #      Expires: 600000, routed exactly like the MO SMS path (Service-Route as Route,
 #      Security-Verify, sec-agree, P-Access-Network-Info, P-Preferred-Identity) so it
-#      leaves over the protected IPsec port. Re-sent on every re-registration instead of an
+#      leaves over the protected IPsec port. Pinned to the transport the REGISTER's 200 OK
+#      arrived on, with dest_info pre-seeded to its peer (the P-CSCF), as in the RP-ACK patch:
+#      Route is added as a plain header, so PJSIP would otherwise resolve the request-URI
+#      host -- for Telefonica DE that is the IMPU domain "telefonica.de", a public web host
+#      unreachable over the IMS link -> locally generated 503, SUBSCRIBE never sent.
+#      Re-sent on every re-registration instead of an
 #      in-dialog refresh (the registration refresh interval is always shorter than the
 #      subscription lifetime the S-CSCF grants, which TS 24.229 caps at the registration's).
 #   2. A tiny PJSIP module, ahead of Asterisk's distributor, that answers incoming
@@ -89,7 +94,8 @@ static void volte_store_reginfo(pjsip_rx_data *rdata)
 	ast_free(xml);
 }
 
-static void volte_send_reg_subscribe(struct sip_outbound_registration_client_state *client_state)
+static void volte_send_reg_subscribe(struct sip_outbound_registration_client_state *client_state,
+	pjsip_transport *tp)
 {
 	struct ast_sip_endpoint *endpoint = NULL;
 	struct ast_sip_transport_state *transport_state = NULL;
@@ -138,6 +144,24 @@ static void volte_send_reg_subscribe(struct sip_outbound_registration_client_sta
 	ast_sip_add_header(tdata, "Accept", "application/reginfo+xml");
 	/* TS 24.229 5.1.1.3: the UE sets Expires to 600000; the S-CSCF shortens it. */
 	ast_sip_add_header(tdata, "Expires", "600000");
+
+	/* Send on the protected link the REGISTER used; never resolve the IMPU domain. */
+	if (tp) {
+		pjsip_tpselector tp_sel;
+
+		memset(&tp_sel, 0, sizeof(tp_sel));
+		tp_sel.type = PJSIP_TPSELECTOR_TRANSPORT;
+		tp_sel.u.transport = tp;
+		pjsip_tx_data_set_transport(tdata, &tp_sel);
+		tdata->dest_info.name = tp->remote_name.host;
+		tdata->dest_info.cur_addr = 0;
+		tdata->dest_info.addr.count = 1;
+		tdata->dest_info.addr.entry[0].type = (pjsip_transport_type_e) tp->key.type;
+		tdata->dest_info.addr.entry[0].priority = 0;
+		tdata->dest_info.addr.entry[0].weight = 0;
+		pj_sockaddr_cp(&tdata->dest_info.addr.entry[0].addr, &tp->key.rem_addr);
+		tdata->dest_info.addr.entry[0].addr_len = tp->addr_len;
+	}
 
 	/* New registration: forget the previous one's reginfo state until the first NOTIFY. */
 	ast_db_put(VOLTE_REGINFO_DB_FAMILY, VOLTE_REGINFO_DB_KEY, "subscribed;none");
@@ -211,7 +235,7 @@ s = replace_once(s,
                  '\t\tif (response->client_state->volte)\n'
                  '\t\t\tstore_volte_p_associated_uri(response);\n'
                  '\t\tif (response->client_state->volte && response->expiration)\n'
-                 '\t\t\tvolte_send_reg_subscribe(response->client_state);\n',
+                 '\t\t\tvolte_send_reg_subscribe(response->client_state, response->rdata->tp_info.transport);\n',
                  '200 OK p_associated_uri store')
 s = replace_once(s, '\tast_sip_register_endpoint_identifier(&line_identifier);\n',
                  '\tast_sip_register_endpoint_identifier(&line_identifier);\n'
