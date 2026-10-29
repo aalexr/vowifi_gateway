@@ -160,8 +160,12 @@ message_context=msg-from-local
 ; shows no incoming-call (Answer/Decline) overlay. The IMS realm is always a valid FQDN.
 from_domain={{ realm }}
 disallow=all
-; Prefer narrowband PCM on the local leg. It negotiates telephone-event/8000 reliably
-; with Linphone/MicroSIP; Asterisk can still transcode to AMR on the IMS leg.
+; Prefer G.722 (wideband, 16 kHz audio) on the local leg, then PCM. Both negotiate
+; telephone-event/8000 (G.722's RTP clock is 8000 per RFC 3551), which is what makes DTMF
+; reliable with Linphone/MicroSIP/FRITZ!Box; Opus would need telephone-event/48000. With an
+; AMR-WB IMS leg, G.722 keeps the call wideband end to end. The WebRTC endpoint overrides
+; this with Opus first.
+allow=g722
 allow=ulaw
 allow=alaw
 allow=opus
