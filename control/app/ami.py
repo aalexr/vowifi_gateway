@@ -127,6 +127,26 @@ class AmiClient:
             pass
         return "unknown"
 
+    async def reginfo_state(self) -> str:
+        """Return the IMS reg-event state the engine stored in astdb ("<state>;<event>", e.g.
+        "active;created" or "terminated;rejected"), or '' if unknown. Asterisk keeps showing
+        the outbound registration as Registered even after the network removed it, so this is
+        the only way to see a network-initiated rejection (engine patch reg_event_subscribe)."""
+        if not self.connected:
+            return ""
+        try:
+            res = await self._action(
+                {"Action": "Command", "Command": "database get volte reginfo"})
+            text = ""
+            for m in (res if isinstance(res, list) else [res]):
+                text += str(m.get("Output") or m.get("content") or "")
+            for line in text.splitlines():
+                if line.strip().startswith("Value:"):
+                    return line.split(":", 1)[1].strip()
+        except Exception as e:  # noqa
+            log.debug("reginfo state error: %r", e)
+        return ""
+
     async def send_sms(self, to: str, body: str) -> dict:
         if not self.connected:
             return {"ok": False, "error": "AMI not connected"}

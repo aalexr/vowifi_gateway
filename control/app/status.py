@@ -46,6 +46,9 @@ REASONS = {
     "tunnel_setup": "Establishing the VoWiFi (IPsec/ePDG) tunnel…",
     "registering": "VoWiFi tunnel is up — registering to the carrier's IMS…",
     "reg_rejected": "Can't register to the carrier's IMS (authentication or provisioning issue).",
+    "ims_rejected": "The carrier's IMS accepted the registration but then removed it again "
+                    "(network-initiated, reg event) — calls and SMS won't work. The carrier "
+                    "likely refuses this device or client for Wi-Fi Calling.",
     "ok": "Working — connected to the carrier over Wi-Fi.",
 }
 
@@ -128,6 +131,13 @@ async def compute(inst: dict, ami_client=None) -> dict:
         reg = await ami_client.registration_state()
     detail["registration"] = reg
     if reg == "Registered":
+        # Asterisk keeps "Registered" even when the network has already terminated the
+        # registration; the reg-event NOTIFY state (stored by the engine) is authoritative.
+        reginfo = await ami_client.reginfo_state() if ami_client is not None else ""
+        if reginfo:
+            detail["reg_event"] = reginfo
+        if reginfo.startswith("terminated"):
+            return out("REGISTERING", "ims_rejected")
         return out("OK", "ok")
     if reg == "Rejected":
         return out("REGISTERING", "reg_rejected")
