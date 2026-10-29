@@ -129,6 +129,13 @@ def start(inst: dict, settings: dict, dev_mounts: bool = False):
         # The bind-mounted pcscd socket + data dir carry host SELinux labels a confined
         # container can't use; Docker never applied labels here either.
         security_opt=["label=disable"],
+        # No SLAAC on the tunnel: the PGW's router advertisement on ipsec0 would otherwise make
+        # the kernel invent a second /64 address, which it then prefers as the SIP source over
+        # the ePDG-assigned INTERNAL_IP6_ADDRESS. Strict P-CSCFs (MTS RU) reject INVITEs from
+        # it with "403 4003 User not registered". "default" covers ipsec0, created later by
+        # swu_ike; RA routes still apply (accept_ra is untouched). /proc/sys is read-only
+        # inside the container, so this must be set at creation.
+        sysctls={"net.ipv6.conf.default.autoconf": "0"},
         # notify.py reaches the manager via host.containers.internal, which podman adds to
         # every container's /etc/hosts.
     )
