@@ -24,6 +24,7 @@ const emptyInstance = () => ({
   id: '', name: '', imsi: '', mcc: '', mnc: '', imei: '', imeisv: '', pin: '', reader: '',
   reader_index: 0, reader_port: '', msisdn: '', smsc: '', enabled: true, apn: 'ims', idr_mode: 'apn', cp_mode: 'auto',
   use_reauth_id: true,
+  ims_domain: '', reg_geolocation_country: '', reg_srvcc_tags: false, reg_imei_urn_spare_zero: false,
   sip: {
     listen_addr: '0.0.0.0', transport: 'udp', external: [], webrtc: { enable: true },
     pani_country_enable: true, pani_country: '',
@@ -341,6 +342,30 @@ export default function SimConfig({ instances, selected, refresh, cards, setSele
         </label>
         <div style={{ fontSize: 11, color: 'var(--text-mute)', marginTop: 4 }}>
           On by default. After a successful attach the carrier's AAA may hand out a short-lived re-authentication identity; presenting it on a reconnect lets the network skip a full SIM auth run. If it has expired the engine notices the rejection and retries with the permanent IMSI identity by itself, so this is safe to leave on. Turn it <b>off</b> for a carrier whose AAA rejects it on every reconnect (O2 UK) to skip that wasted attach attempt.
+        </div>
+
+        <h4 style={{ marginBottom: 6, marginTop: 16 }}>IMS registration (advanced)</h4>
+        <div className="grid2">
+          <Field label="Registrar home domain">
+            <input className="mono" value={form.ims_domain || ''} onChange={(e) => upd({ ims_domain: e.target.value.trim() })} placeholder="auto (ims.mnc….mcc….3gppnetwork.org)" />
+          </Field>
+          <Field label="Geolocation in REGISTER (country)">
+            <input className="mono" value={form.reg_geolocation_country || ''} maxLength={2}
+              onChange={(e) => upd({ reg_geolocation_country: e.target.value.replace(/[^a-zA-Z]/g, '').toUpperCase() })} placeholder="off (e.g. DE)" />
+          </Field>
+        </div>
+        <label style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <input type="checkbox" style={{ width: 'auto' }} checked={!!form.reg_srvcc_tags}
+            onChange={(e) => upd({ reg_srvcc_tags: e.target.checked })} />
+          Advertise SRVCC capabilities in REGISTER
+        </label>
+        <label style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <input type="checkbox" style={{ width: 'auto' }} checked={!!form.reg_imei_urn_spare_zero}
+            onChange={(e) => upd({ reg_imei_urn_spare_zero: e.target.checked })} />
+          Send IMEI in +sip.instance with spare digit 0 (RFC 7254)
+        </label>
+        <div style={{ fontSize: 11, color: 'var(--text-mute)', marginTop: 4 }}>
+          Leave these off/empty unless the carrier needs them — they change only this line. Some IMS cores accept the REGISTER and then remove it within a second (status "The carrier's IMS accepted the registration but then removed it again") unless it looks like a native phone. <b>MTS RU</b> needs only the Geolocation country (the country you are in, e.g. <code>DE</code>); the other options are there for carriers that turn out to need them (an iPhone sends all of them). Restart the line after changing them.
         </div>
 
         <h4 style={{ marginBottom: 6 }}>Local SIP access</h4>

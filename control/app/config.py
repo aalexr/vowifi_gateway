@@ -797,6 +797,13 @@ def render_instance_json(inst: dict, settings: dict) -> dict:
         "mcc": inst["mcc"],
         "mnc": inst["mnc"],
         "imei": inst.get("imei", ""),
+        # Optional registrar domain override (REGISTER request-URI); empty = IMSI-derived realm.
+        "ims_domain": (inst.get("ims_domain") or "").strip(),
+        # Optional native-UE REGISTER extras (engine patch reg_extras), off unless set:
+        # country for a Geolocation/PIDF-LO body, and SRVCC capability tags in the Contact.
+        "reg_geolocation_country": (inst.get("reg_geolocation_country") or "").strip().upper(),
+        "reg_srvcc_tags": bool(inst.get("reg_srvcc_tags", False)),
+        "reg_imei_urn_spare_zero": bool(inst.get("reg_imei_urn_spare_zero", False)),
         # IMEISV (16 digits) for the ePDG DEVICE_IDENTITY response. Explicit stored value wins;
         # otherwise auto-derive from the IMEI (14-digit base + '00' SVN). Empty stays empty
         # (swu_ike then derives its own or falls back).

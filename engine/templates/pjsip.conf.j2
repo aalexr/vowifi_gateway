@@ -31,8 +31,8 @@ sec_encryption=yes
 type=registration
 transport=volte_ims
 outbound_auth=volte_ims
-imei={{ imei }}
-server_uri=sip:{{ realm }}
+imei={{ imei_urn }}
+server_uri=sip:{{ ims_domain }}
 client_uri=sip:{{ imsi }}@{{ realm }}
 retry_interval=30
 fatal_retry_interval=30
@@ -97,6 +97,14 @@ transport=volte_ims
 type=resolve
 ip={{ pcscf }}
 transport=volte_ims
+{% if ims_domain != realm %}
+
+; Registrar home domain (ims_domain) -> the same P-CSCF, so the REGISTER still goes there.
+[{{ ims_domain }}]
+type=resolve
+ip={{ pcscf }}
+transport=volte_ims
+{% endif %}
 {% endif %}
 
 ; ================= Local SIP access (external clients / softphone provisioning) =================

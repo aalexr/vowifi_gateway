@@ -161,11 +161,22 @@ def imeisv_from_imei(imei, imeisv="", svn="00"):
     return base14 + svn2
 
 
+def imei_for_urn(imei: str) -> str:
+    """15-digit IMEI with the check digit replaced by the spare digit 0 (RFC 7254)."""
+    digits = "".join(ch for ch in str(imei or "") if ch.isdigit())
+    return digits[:14] + "0" if len(digits) >= 14 else str(imei or "")
+
+
 def build_context(cfg):
     mcc = str(cfg["mcc"])
     mnc = str(cfg["mnc"]).zfill(3)
     imsi = str(cfg["imsi"])
     realm = cfg.get("realm") or f"ims.mnc{mnc}.mcc{mcc}.3gppnetwork.org"
+    # Registrar (REGISTER request-URI) domain. Defaults to the IMSI-derived realm; some
+    # carriers expect their real IMS home domain here, as native UEs read it from the ISIM
+    # (MTS RU: iPhone registers to sip:rf.ims.mts.ru while still using the IMSI-derived
+    # private/temporary public identity). Only server_uri changes; identities stay on realm.
+    ims_domain = (cfg.get("ims_domain") or "").strip() or realm
     epdg = cfg.get("epdg") or f"epdg.epc.mnc{mnc}.mcc{mcc}.pub.3gppnetwork.org"
     nai = f"0{imsi}@nai.epc.mnc{mnc}.mcc{mcc}.3gppnetwork.org"
     # P-CSCF: explicit config wins; else a discovered address exported by entrypoint.
@@ -196,7 +207,14 @@ def build_context(cfg):
         "mcc": mcc,
         "mnc": mnc,
         "imei": cfg.get("imei", ""),
+        # IMEI for the registration's +sip.instance URN only (urn:gsma:imei:TAC-SNR-spare).
+        # Opt-in per line: RFC 7254 / TS 23.003 send the 15th position as spare digit "0"
+        # (native UEs: ...-0); the default keeps the historical check digit so lines that
+        # already work are untouched. The tunnel's DEVICE_IDENTITY always keeps the real IMEI.
+        "imei_urn": (imei_for_urn(cfg.get("imei", "")) if cfg.get("reg_imei_urn_spare_zero")
+                     else cfg.get("imei", "")),
         "realm": realm,
+        "ims_domain": ims_domain,
         "epdg": epdg,
         "nai": nai,
         "msisdn": cfg.get("msisdn", ""),
@@ -325,6 +343,10 @@ def main():
         # derived from the IMEI if the instance didn't carry one (hand-authored config).
         imei_digits = "".join(ch for ch in str(cfg.get("imei", "")) if ch.isdigit())
         f.write(f"SWU_IMEI={imei_digits}\n")
+        # Native-UE REGISTER extras, read by the patched Asterisk (patches/asterisk/reg_extras.py).
+        geo = "".join(ch for ch in str(cfg.get("reg_geolocation_country") or "") if ch.isalpha())[:2].upper()
+        f.write(f"VOWIFI_REG_GEO_COUNTRY={geo}\n")
+        f.write(f"VOWIFI_REG_SRVCC_TAGS={'1' if cfg.get('reg_srvcc_tags') else ''}\n")
         f.write(f"SWU_IMEISV={cfg.get('imeisv') or imeisv_from_imei(cfg.get('imei',''))}\n")
         f.write(f"SWU_SOURCE={ctx['local_addr']}\n")
         f.write(f"SWU_EPDG={ctx['epdg']}\n")
