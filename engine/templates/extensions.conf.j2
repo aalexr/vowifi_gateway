@@ -16,7 +16,10 @@
 exten => _.,1,NoOp(Incoming call from ${CALLERID(num)})
 same => n,Set(CALLPEER=${CALLERID(num)})
 same => n,Progress()
-same => n,Set(FILE(/logs/calls.txt,,,a)=IN call from ${CALLERID(num)} at ${STRFTIME(${EPOCH},,%Y-%m-%d %H:%M:%S)})
+; calls.txt: one entry per line. "l" (line mode) appends the value as a line incl. newline;
+; the explicit "u" (Unix) format is required, else FILE() probes the file's line endings and
+; refuses to write to a missing file or one without any newline yet.
+same => n,Set(FILE(/logs/calls.txt,,,al,u)=IN call from ${CALLERID(num)} at ${STRFTIME(${EPOCH},,%Y-%m-%d %H:%M:%S)})
 same => n,TrySystem(/usr/local/bin/notify.py call_in "${CALLERID(num)}" &)
 same => n,WaitForPrecondition(10,2000)
 same => n,Ringing()
@@ -68,7 +71,7 @@ same => n,Hangup()
 ; such as FRITZ!Box DECT handsets can't dial "+".
 same => n,Set(DEST=${IF($["${EXTEN:0:2}" = "00"]?+${EXTEN:2}:${EXTEN})})
 {% endif %}same => n,Set(CALLPEER={{ dest }})
-same => n,Set(FILE(/logs/calls.txt,,,a)=OUT call to {{ dest }} at ${STRFTIME(${EPOCH},,%Y-%m-%d %H:%M:%S)})
+same => n,Set(FILE(/logs/calls.txt,,,al,u)=OUT call to {{ dest }} at ${STRFTIME(${EPOCH},,%Y-%m-%d %H:%M:%S)})
 same => n,TrySystem(/usr/local/bin/notify.py call_out "{{ dest }}" &)
 ; Ring timeout {{ ring_timeout }}s (configurable): if the callee never answers, Asterisk
 ; CANCELs the outbound INVITE at this deadline instead of leaving it open. The carrier keeps
