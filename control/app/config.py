@@ -806,6 +806,9 @@ def render_instance_json(inst: dict, settings: dict) -> dict:
         "reg_imei_urn_spare_zero": bool(inst.get("reg_imei_urn_spare_zero", False)),
         # Outgoing calls: rewrite a leading international prefix 00 to "+" (off by default).
         "dial_00_to_plus": bool(inst.get("dial_00_to_plus", False)),
+        # Outgoing calls with preconditions: send the QoS UPDATE only after the 183 PRACK is
+        # answered (engine patch update_after_prack); off by default.
+        "update_after_prack": bool(inst.get("update_after_prack", False)),
         # IMEISV (16 digits) for the ePDG DEVICE_IDENTITY response. Explicit stored value wins;
         # otherwise auto-derive from the IMEI (14-digit base + '00' SVN). Empty stays empty
         # (swu_ike then derives its own or falls back).

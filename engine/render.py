@@ -348,6 +348,7 @@ def main():
         geo = "".join(ch for ch in str(cfg.get("reg_geolocation_country") or "") if ch.isalpha())[:2].upper()
         f.write(f"VOWIFI_REG_GEO_COUNTRY={geo}\n")
         f.write(f"VOWIFI_REG_SRVCC_TAGS={'1' if cfg.get('reg_srvcc_tags') else ''}\n")
+        f.write(f"VOWIFI_UPDATE_AFTER_PRACK={'1' if cfg.get('update_after_prack') else ''}\n")
         f.write(f"SWU_IMEISV={cfg.get('imeisv') or imeisv_from_imei(cfg.get('imei',''))}\n")
         f.write(f"SWU_SOURCE={ctx['local_addr']}\n")
         f.write(f"SWU_EPDG={ctx['epdg']}\n")
