@@ -840,6 +840,11 @@ def render_instance_json(inst: dict, settings: dict) -> dict:
                        or f"https://host.containers.internal:{settings.get('http_port', 8443)}",
         "domain": settings.get("tls", {}).get("domain", ""),
         "rtp_start": ports["rtp_start"],
+        # Host ports the engine's local SIP transport is published on (engine.start maps them
+        # to 5060/5061 inside the container). The engine must advertise these in Contact/Via,
+        # or a LAN client sends ACK/BYE to 5060 = a different line (render.py).
+        "host_sip_udp_port": ports.get("sip_udp", 5060),
+        "host_sip_tls_port": ports.get("sip_tls", 5061),
         # The engine publishes only rtp_start..rtp_start+RTP_SPAN-1 host ports (engine.start),
         # so the Asterisk RTP pool (rtp.conf rtpend) MUST match that published window — a port
         # picked above it would be unreachable from a LAN WebRTC client → no/one-way audio. Cap

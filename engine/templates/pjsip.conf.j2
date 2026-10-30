@@ -120,6 +120,10 @@ transport=volte_ims
 type=transport
 protocol=tls
 bind={{ local_bind_addr }}:{{ sip_tls_port }}
+{% if local_ext and host_sip_tls_port != sip_tls_port %}
+; Published on another host port than the container's: advertise that one in Contact/Via.
+external_signaling_port={{ host_sip_tls_port }}
+{% endif %}
 cert_file=/etc/asterisk/certificate.crt
 priv_key_file=/etc/asterisk/certificate.key
 method=tlsv1_2
@@ -138,6 +142,13 @@ bind={{ local_bind_addr }}:{{ sip_udp_port }}
 {% if local_ext %}
 external_media_address={{ local_ext }}
 external_signaling_address={{ local_ext }}
+{% if host_sip_udp_port != sip_udp_port %}
+; This line's port block publishes the container's {{ sip_udp_port }} on host port {{ host_sip_udp_port }}.
+; Advertise the host port in Contact/Via: otherwise LAN clients (FRITZ!Box) send ACK/BYE to
+; {{ sip_udp_port }} = another line's engine, the 200 OK is never ACKed and the BYE to the client is
+; held back until the INVITE transaction times out (~2 min after the far end hung up).
+external_signaling_port={{ host_sip_udp_port }}
+{% endif %}
 {% endif %}
 {% endif %}
 

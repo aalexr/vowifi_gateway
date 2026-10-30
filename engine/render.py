@@ -255,6 +255,9 @@ def build_context(cfg):
         "local_bind_addr": (cfg.get("local_addr") or container_ipv4() or "0.0.0.0"),
         "sip_tls_port": sip.get("tls_port", 5061),
         "sip_udp_port": sip.get("udp_port", 5060),
+        # Published host ports (control config.py); default = container port, i.e. no override.
+        "host_sip_udp_port": int(cfg.get("host_sip_udp_port") or sip.get("udp_port", 5060)),
+        "host_sip_tls_port": int(cfg.get("host_sip_tls_port") or sip.get("tls_port", 5061)),
         "sip_transport": sip.get("transport", "udp"),  # udp|tcp|tls
         # Blank placeholder rows are not valid pjsip objects. Quote secrets containing
         # semicolons/spaces so Asterisk does not truncate them and reject REGISTER auth.
