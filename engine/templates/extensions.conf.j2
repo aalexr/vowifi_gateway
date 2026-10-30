@@ -62,10 +62,14 @@ same => n,Hangup()
 ; reported to the manager for the call log.
 [from-local]
 ; _[+0-9]. (not _.) so the special h/i/t extensions never match here and log phantom calls
-exten => _[+0-9].,1,NoOp(Outgoing call to ${EXTEN} from ${CALLERID(num)})
-same => n,Set(CALLPEER=${EXTEN})
-same => n,Set(FILE(/logs/calls.txt,,,a)=OUT call to ${EXTEN} at ${STRFTIME(${EPOCH},,%Y-%m-%d %H:%M:%S)})
-same => n,TrySystem(/usr/local/bin/notify.py call_out "${EXTEN}" &)
+{% set dest = '${DEST}' if dial_00_to_plus else '${EXTEN}' %}exten => _[+0-9].,1,NoOp(Outgoing call to ${EXTEN} from ${CALLERID(num)})
+{% if dial_00_to_plus %}; Per-line dial_00_to_plus: send a leading international prefix 00 as "+" (E.164), for
+; carriers that don't treat 00 as international (MTS RU uses 8~10 / +) while local phones
+; such as FRITZ!Box DECT handsets can't dial "+".
+same => n,Set(DEST=${IF($["${EXTEN:0:2}" = "00"]?+${EXTEN:2}:${EXTEN})})
+{% endif %}same => n,Set(CALLPEER={{ dest }})
+same => n,Set(FILE(/logs/calls.txt,,,a)=OUT call to {{ dest }} at ${STRFTIME(${EPOCH},,%Y-%m-%d %H:%M:%S)})
+same => n,TrySystem(/usr/local/bin/notify.py call_out "{{ dest }}" &)
 ; Ring timeout {{ ring_timeout }}s (configurable): if the callee never answers, Asterisk
 ; CANCELs the outbound INVITE at this deadline instead of leaving it open. The carrier keeps
 ; the early dialog alive and RE-ALERTS the callee (repeated 180 Ringing) for as long as our
@@ -73,7 +77,7 @@ same => n,TrySystem(/usr/local/bin/notify.py call_out "${EXTEN}" &)
 ; we give up. Most carriers roll to voicemail by ~30s; 35 is the default. (The repeated
 ; ringing itself is carrier-side MMTel behaviour and can't be removed here.) A caller who
 ; hangs up earlier still CANCELs immediately.
-same => n,Dial(PJSIP/${EXTEN}@volte_ims,{{ ring_timeout }})
+same => n,Dial(PJSIP/{{ dest }}@volte_ims,{{ ring_timeout }})
 ; Dial only returns here when the call was NEVER answered (reject/busy/no-answer/congestion);
 ; answered calls are bridged and tear down via BYE, never reaching this line.
 ; Save the REAL disposition for the call log BEFORE overriding the response (PJSIPHangup does

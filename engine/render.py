@@ -281,6 +281,7 @@ def build_context(cfg):
         "advertise_addr": sip.get("advertise_address", ""),
         # Outbound ring timeout (s) for Dial() — see extensions.conf.j2. Default 35.
         "ring_timeout": int(sip.get("ring_timeout", 35) or 35),
+        "dial_00_to_plus": bool(cfg.get("dial_00_to_plus", False)),
         # The container's own RTP bind IP (docker-bridge private, e.g. 172.17.0.2). Used as the
         # LHS of rtp.conf [ice_host_candidates] to rewrite that unreachable host candidate to
         # the host LAN IP (advertise_addr) so a LAN WebRTC browser can reach our RTP.

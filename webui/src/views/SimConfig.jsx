@@ -25,6 +25,7 @@ const emptyInstance = () => ({
   reader_index: 0, reader_port: '', msisdn: '', smsc: '', enabled: true, apn: 'ims', idr_mode: 'apn', cp_mode: 'auto',
   use_reauth_id: true,
   ims_domain: '', reg_geolocation_country: '', reg_srvcc_tags: false, reg_imei_urn_spare_zero: false,
+  dial_00_to_plus: false,
   sip: {
     listen_addr: '0.0.0.0', transport: 'udp', external: [], webrtc: { enable: true },
     pani_country_enable: true, pani_country: '',
@@ -363,6 +364,11 @@ export default function SimConfig({ instances, selected, refresh, cards, setSele
           <input type="checkbox" style={{ width: 'auto' }} checked={!!form.reg_imei_urn_spare_zero}
             onChange={(e) => upd({ reg_imei_urn_spare_zero: e.target.checked })} />
           Send IMEI in +sip.instance with spare digit 0 (RFC 7254)
+        </label>
+        <label style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <input type="checkbox" style={{ width: 'auto' }} checked={!!form.dial_00_to_plus}
+            onChange={(e) => upd({ dial_00_to_plus: e.target.checked })} />
+          Dial a leading 00 as + (for phones that can't dial "+", e.g. DECT handsets)
         </label>
         <div style={{ fontSize: 11, color: 'var(--text-mute)', marginTop: 4 }}>
           Leave these off/empty unless the carrier needs them — they change only this line. Some IMS cores accept the REGISTER and then remove it within a second (status "The carrier's IMS accepted the registration but then removed it again") unless it looks like a native phone. <b>MTS RU</b> needs only the Geolocation country (the country you are in, e.g. <code>DE</code>); the other options are there for carriers that turn out to need them (an iPhone sends all of them). Restart the line after changing them.
