@@ -3,7 +3,7 @@
 A **containerized VoWiFi→SIP gateway** that turns a physical VoWiFi-capable SIM into an IMS endpoint you can call/text via standard SIP clients (softphones, desk phones, Asterisk trunks). One SIM = one routable phone number; multiple SIMs can run in parallel (each gets its own engine container + port block).
 
 **What it does:**
-- Reads the SIM's IMS credentials (IMSI/Ki/OPc) via PC/SC
+- Uses the SIM over PC/SC: reads its identity (IMSI, SMSC) and has the card itself answer every EAP-AKA / IMS-AKA challenge (Ki/OPc never leave the SIM, so the card must stay in the reader)
 - Establishes an IPsec ePDG tunnel + IMS registration to your carrier's VoWiFi core
 - Presents the registered line as a **WebRTC endpoint** (browser softphone in the control-plane WebUI) and a **SIP/RTP server** (for MicroSIP, Zoiper, Asterisk trunks, etc.) with two-way voice
 - Routes outbound calls (`INVITE` to the SIP server → IMS `INVITE` over the tunnel) and inbound calls (IMS `INVITE` → rings your SIP clients)
@@ -280,7 +280,7 @@ so the two are not confused.
 Wrong PIN, or the SIM locked (PUK needed). Re-provision with the correct PIN; if the SIM is locked, unlock it first (SIM manager tool outside this gateway).
 
 **`REGISTERING` → timeout:**  
-IKE + SIP credentials succeeded, but IMS-AKA (`REGISTER`) fails. Check the IMSI/Ki/OPc read correctly (dashboard → instance → USIM tab shows them). If Ki/OPc are wrong, the SIM can't auth; verify them with your carrier or a known-good SIM toolkit.
+The tunnel is up (so the SIM already passed EAP-AKA), but IMS-AKA on `REGISTER` fails. The gateway never sees Ki/OPc — `ami_usim.py` forwards each SIP challenge to the card's AUTHENTICATE command — so check `usim_status.json` in the instance's run dir (`/run/vowifi` inside the engine): `AUTH_FAIL` means the card rejected the challenge, `PIN_FAIL`/`NO_CARD` means the SIP auth path can't reach the card (PIN or reader binding). If the card answers (`AUTH_OK`) and the network still rejects, the line is most likely not provisioned for IMS / Wi-Fi Calling — check with your carrier.
 
 **Tunnel drops after a while, or a call drops mid-session:**  
 Handled automatically by the Python SWu tunnel client. Behind NAT the ESP-in-UDP flow would
