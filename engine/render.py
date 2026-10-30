@@ -347,7 +347,7 @@ def main():
         # derived from the IMEI if the instance didn't carry one (hand-authored config).
         imei_digits = "".join(ch for ch in str(cfg.get("imei", "")) if ch.isdigit())
         f.write(f"SWU_IMEI={imei_digits}\n")
-        # Native-UE REGISTER extras, read by the patched Asterisk (patches/asterisk/reg_extras.py).
+        # Native-UE REGISTER extras, read by our Asterisk fork (ASTERISK_REF in engine/Containerfile).
         geo = "".join(ch for ch in str(cfg.get("reg_geolocation_country") or "") if ch.isalpha())[:2].upper()
         f.write(f"VOWIFI_REG_GEO_COUNTRY={geo}\n")
         f.write(f"VOWIFI_REG_SRVCC_TAGS={'1' if cfg.get('reg_srvcc_tags') else ''}\n")

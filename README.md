@@ -356,6 +356,8 @@ Check its logs with `./install.sh logs` (that's `journalctl -u vowifi-control` i
 
 **Control-plane only, by hand** (outside the installer): create a venv, `pip install -r control/requirements.txt`, `export VOWIFI_DATA=./data`, `python control/run.py`. The WebUI dev server (`cd webui && npm run dev`) proxies `/api` + `/ws` to the control plane — point it with `VOWIFI_DEV_API=https://<gateway-host>:8443` (defaults to `localhost:8443`).
 
+**Asterisk changes**: the engine builds Asterisk from the fork [aalexr/asterisk](https://github.com/aalexr/asterisk), branch `vowifi/20.7.0` — sysmocom's `sysmocom/20.7.0` plus the AMR cherry-pick and this project's IMS fixes as ordinary commits. To change Asterisk, commit to that branch, then set `ASTERISK_REF` in `engine/Containerfile` to the new commit SHA and rebuild the engine image. pjproject is sysmocom's `sysmocom/2.14`, pinned by `PJPROJECT_REF`. Both can be overridden for a test build with `--build-arg ASTERISK_REPO=… --build-arg ASTERISK_REF=…`.
+
 **Manual build**:
 ```bash
 sudo podman build -t localhost/vowifi/engine engine/
@@ -381,6 +383,7 @@ OK
 
 Released under the [MIT License](LICENSE). The build pulls in third-party components under their own licenses:
 - [phcoder/asterisk-docker](https://github.com/phcoder/asterisk-docker) (sysmocom VoWiFi-enabled Asterisk)
+- [sysmocom Asterisk](https://gitea.sysmocom.de/sysmocom/asterisk) + [pjproject](https://gitea.sysmocom.de/sysmocom/pjproject), built from the fork [aalexr/asterisk](https://github.com/aalexr/asterisk) (GPLv2)
 - [fasferraz/SWu-IKEv2](https://github.com/fasferraz/SWu-IKEv2) (pure-Python SWu ePDG IKEv2/IPsec client)
 - [mitshell/CryptoMobile](https://github.com/mitshell/CryptoMobile) + [mitshell/card](https://github.com/mitshell/card) (Milenage / USIM helpers)
 - [pyscard](https://pyscard.sourceforge.io/) (PC/SC, LGPL)

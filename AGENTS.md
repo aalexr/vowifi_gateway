@@ -30,7 +30,7 @@ systemd service, Podman only for engines) and **container** (control plane in a 
 - `control/app/ami.py` — Asterisk AMI client (panoramisk); `store.py` — SQLite SMS/call log; `notify_push.py` — push notifications; `mcc_country.py` — MCC→ISO country (PANI header).
 - `engine/entrypoint.sh` — render → PIN keeper → SWu tunnel supervisor → P-CSCF discovery → Asterisk.
 - `engine/render.py` + `engine/templates/*.j2` — `/config/instance.json` → Asterisk configs + `engine.env`.
-- `engine/patches/asterisk/*.py` — source-patch scripts applied to Asterisk at image build time.
+- Asterisk changes live in the fork [aalexr/asterisk](https://github.com/aalexr/asterisk), branch `vowifi/20.7.0` (sysmocom/20.7.0 + our commits); `engine/Containerfile` builds it pinned by SHA (`ASTERISK_REF`). Commit there, then bump `ASTERISK_REF`.
 - `patches/ccid/*.patch` — opt-in host CCID driver patches (`install.sh patch|patch2|patchall`).
 - `webui/src/views/*.jsx` — one file per tab/modal; `api.js` = fetch/WS helpers; `softphone.js` = JsSIP wrapper.
 - `data/` — runtime state (configs, SQLite, logs, certs, saved PINs/secrets). **Gitignored; never commit its contents.**
@@ -41,7 +41,7 @@ There is **no automated test suite, linter config or CI**. Verify changes by the
 
 ```bash
 # Python syntax check (control + engine)
-python3 -m py_compile control/app/*.py control/run.py engine/*.py engine/patches/asterisk/*.py
+python3 -m py_compile control/app/*.py control/run.py engine/*.py
 
 # WebUI build (catches JSX/import errors)
 cd webui && npm ci && npm run build

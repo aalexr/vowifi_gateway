@@ -7,8 +7,8 @@
 #   - render.py     : renders /config/instance.json -> Asterisk configs at container start
 #
 # Reproducibility: all build inputs are pinned so a from-scratch build on any machine/arch
-# (amd64/arm64) is functionally identical — the base image tag below, sysmocom asterisk
-# (sysmocom/20.7.0) + pjproject (sysmocom/2.14) + cherry-pick f1b60dc, patches/asterisk/*.py.
+# (amd64/arm64) is functionally identical — the base image tag below, and Asterisk + pjproject
+# by commit SHA (ASTERISK_REF / PJPROJECT_REF), never by a moving branch.
 # Pin the base tag rather than :latest for determinism.
 FROM registry.fedoraproject.org/fedora:40
 
@@ -46,15 +46,21 @@ RUN cd /tmp && \
     ldconfig && \
     rm -rf /tmp/pcsc.tar.gz "/tmp/PCSC-${PCSC_VERSION}"
 
-# sysmocom pjproject + Asterisk (VoLTE/VoWiFi/IMS-AKA/SMS-over-IMS fork), identical to reference build
-COPY patches/asterisk/ /home/asterisk-build/patches/asterisk/
-RUN git clone --depth=1 --branch sysmocom/2.14 https://gitea.sysmocom.de/sysmocom/pjproject.git && \
-    git clone --depth=1 --branch sysmocom/20.7.0 https://gitea.sysmocom.de/sysmocom/asterisk.git && \
+# Asterisk: our fork of sysmocom's VoLTE/VoWiFi/IMS-AKA/SMS-over-IMS Asterisk. Branch
+# vowifi/20.7.0 = sysmocom/20.7.0 + cherry-pick f1b60dc (AMR) + our IMS fixes as commits
+# (MT-SMS RP-ACK routing, reg-event SUBSCRIBE, REGISTER extras, UPDATE after PRACK). Change
+# Asterisk there, then bump ASTERISK_REF to the new commit. pjproject: sysmocom/2.14, unpatched.
+ARG ASTERISK_REPO=https://github.com/aalexr/asterisk.git
+ARG ASTERISK_REF=65fe610277aac45e414e0d39eea1e9d716705c5c
+ARG PJPROJECT_REPO=https://gitea.sysmocom.de/sysmocom/pjproject.git
+ARG PJPROJECT_REF=20537ab1e6beb2baf9ec15599e0217a601cf7ce5
+RUN git init -q pjproject && \
+    git -C pjproject fetch -q --depth=1 "$PJPROJECT_REPO" "$PJPROJECT_REF" && \
+    git -C pjproject checkout -q FETCH_HEAD && \
+    git init -q asterisk && \
+    git -C asterisk fetch -q --depth=1 "$ASTERISK_REPO" "$ASTERISK_REF" && \
+    git -C asterisk checkout -q FETCH_HEAD && \
     cd asterisk && \
-    git config user.email "build@vowifi" && git config user.name "vowifi build" && \
-    git fetch origin f1b60dcd9568c4045512fd0d8b619b9fb91a7f35 && \
-    git cherry-pick f1b60dcd9568c4045512fd0d8b619b9fb91a7f35 && \
-    for p in /home/asterisk-build/patches/asterisk/*.py; do echo "applying $p"; python3 "$p" || exit 1; done && \
     ln -s ../../../pjproject third-party/pjproject/source && \
     sh bootstrap.sh && \
     ./configure --enable-binary-modules && \
