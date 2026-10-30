@@ -131,7 +131,7 @@ class AmiClient:
         """Return the IMS reg-event state the engine stored in astdb ("<state>;<event>", e.g.
         "active;created" or "terminated;rejected"), or '' if unknown. Asterisk keeps showing
         the outbound registration as Registered even after the network removed it, so this is
-        the only way to see a network-initiated rejection (engine patch reg_event_subscribe)."""
+        the only way to see a network-initiated rejection (Asterisk fork, reg-event SUBSCRIBE)."""
         if not self.connected:
             return ""
         try:
