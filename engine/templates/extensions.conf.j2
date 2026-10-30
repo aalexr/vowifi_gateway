@@ -22,11 +22,17 @@ same => n,WaitForPrecondition(10,2000)
 same => n,Ringing()
 {% if dialstr %}
 same => n,Dial({{ dialstr }},60)
+same => n,GotoIf($["${DIALSTATUS}" = "ANSWER"]?done)
+; Not answered: give the carrier the final response a phone would. Declined on a local client
+; (603 -> Q.850 21) or busy -> cause 17 = 486 Busy Here; unanswered / no client reachable ->
+; cause 19 = 480 Temporarily Unavailable. Without this the reject cause 21 maps to
+; 403 Forbidden, which carriers may announce as "call not allowed".
+same => n,Hangup(${IF($["${DIALSTATUS}" = "BUSY" | "${HANGUPCAUSE}" = "21"]?17:19)})
 {% else %}
 same => n,Answer()
 same => n,Wait(30)
 {% endif %}
-same => n,Hangup()
+same => n(done),Hangup()
 ; i (invalid) / t (response timeout) are explicit no-ops so the broad _. never mislogs them.
 exten => i,1,Hangup()
 exten => t,1,Hangup()

@@ -191,7 +191,9 @@ direct_media=no
 ; Keep the IMS endpoint on its default RFC4733 mode; this applies only to local clients.
 dtmf_mode=auto_info
 {% if msisdn %}
-callerid=undefined <{{ msisdn }}>
+; Number only, no display name: the name travels as the From display name of calls the local
+; clients place over the IMS (it used to be a literal "undefined" that carriers could show).
+callerid=<{{ msisdn }}>
 {% endif %}
 
 [auth-local](!)
