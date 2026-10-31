@@ -1,10 +1,10 @@
-import React from 'react'
+import React from "react";
 
 export default function StatePill({ state }) {
-  const enabled = String(state || '').toLowerCase() === 'enabled'
+  const enabled = String(state || "").toLowerCase() === "enabled";
   return (
-    <span className={`pill${enabled ? ' pill-ok' : ''}`}>
-      {enabled ? 'Enabled' : 'Disabled'}
+    <span className={`pill${enabled ? " pill-ok" : ""}`}>
+      {enabled ? "Enabled" : "Disabled"}
     </span>
-  )
+  );
 }
