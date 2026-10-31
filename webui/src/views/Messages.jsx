@@ -196,13 +196,15 @@ export default function Messages({ selected, subscribe, showToast, instances, ca
                   flexDirection: m.direction === 'out' ? 'row-reverse' : 'row' }}>
                 {selMode && <input type="checkbox" readOnly checked={checked} style={{ width: 'auto', flexShrink: 0, marginTop: 10 }} />}
                 <div style={{ minWidth: 0, maxWidth: '100%', flex: '1 1 auto' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6,
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end',
                     flexDirection: m.direction === 'out' ? 'row' : 'row-reverse' }}>
                     {failed && <span title={m.error || 'Delivery failed'}
                       style={{ color: 'var(--danger)', fontWeight: 800, cursor: 'help', fontSize: 15 }}>❗</span>}
                     <div className="msg-bubble" style={{
-                      background: checked ? 'var(--active)' : failed ? 'rgba(239,68,68,.15)' : (m.direction === 'out' ? 'var(--primary)' : 'var(--hover)'),
-                      border: failed ? '1px solid rgba(239,68,68,.55)' : '1px solid transparent',
+                      background: checked ? 'var(--active)' : failed ? 'color-mix(in srgb, var(--danger) 12%, transparent)' : (m.direction === 'out' ? 'var(--primary)' : 'var(--hover)'),
+                      // white on the accent fill; selected/failed bubbles use the normal text colour
+                      color: !checked && !failed && m.direction === 'out' ? '#fff' : 'var(--text)',
+                      border: failed ? '1px solid color-mix(in srgb, var(--danger) 45%, transparent)' : '1px solid transparent',
                       padding: '8px 12px', borderRadius: 12, fontSize: 14,
                     }}>{m.body}</div>
                   </div>
