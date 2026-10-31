@@ -63,7 +63,7 @@ sudo ./install.sh install --mode container
 
 The installer:
 - Installs Podman (distro package, if missing) + enables `podman.socket` / `podman-restart.service`, and host pcscd, **version-locked** to `PCSC_VERSION`
-- Builds the engine image from source (~10–15 min on a Pi; compiles Asterisk + pcsc-lite + the Python SWu tunnel deps; bakes `engine/patches/*`)
+- Builds the engine image (compiles pcsc-lite + the Python SWu tunnel deps, bakes `engine/patches/*`; Asterisk is downloaded prebuilt from the fork's CI release for `ASTERISK_REF` when one exists, otherwise compiled from source, ~10–15 min on a Pi)
 - **local mode**: compiles the WebUI in a throwaway Node container, creates a Python venv (`control/.venv`), and starts the `vowifi-control` systemd service
 - **container mode**: builds the `localhost/vowifi/control` image and starts the control plane in a privileged container
 - Autostart is enabled; prints `https://<host-lan-ip>:8443` — open it in your browser
@@ -357,6 +357,8 @@ Check its logs with `./install.sh logs` (that's `journalctl -u vowifi-control` i
 **Control-plane only, by hand** (outside the installer): create a venv, `pip install -r control/requirements.txt`, `export VOWIFI_DATA=./data`, `python control/run.py`. The WebUI dev server (`cd webui && npm run dev`) proxies `/api` + `/ws` to the control plane — point it with `VOWIFI_DEV_API=https://<gateway-host>:8443` (defaults to `localhost:8443`).
 
 **Asterisk changes**: the engine builds Asterisk from the fork [aalexr/asterisk](https://github.com/aalexr/asterisk), branch `vowifi/20.7.0` — sysmocom's `sysmocom/20.7.0` plus the AMR cherry-pick and this project's IMS fixes as ordinary commits. To change Asterisk, commit to that branch, then set `ASTERISK_REF` in `engine/Containerfile` to the new commit SHA and rebuild the engine image. pjproject is sysmocom's `sysmocom/2.14`, pinned by `PJPROJECT_REF`. Both can be overridden for a test build with `--build-arg ASTERISK_REPO=… --build-arg ASTERISK_REF=…`.
+
+**Prebuilt Asterisk**: the fork's `VowifiBuild` GitHub Actions workflow builds every commit pushed to a `vowifi/**` branch on the engine's Fedora 40 base for x86_64 and aarch64, and publishes the installed tree to the release `build-<commit sha>` (`asterisk-fedora40-<arch>-pj<pjproject sha12>.tar.gz` + `SHA256SUMS`). The engine build downloads the matching tarball for `ASTERISK_REF`/`PJPROJECT_REF`, verifies the checksum and unpacks it, so a Pi doesn't have to compile Asterisk. If there is no such release (CI not finished, or a different `ASTERISK_REPO`), it compiles from source as before. To bump Asterisk, wait for the workflow on the new commit to finish before setting `ASTERISK_REF`. `--build-arg ASTERISK_PREBUILT=never` always compiles; `=always` fails the build if no prebuilt tarball exists.
 
 **Manual build**:
 ```bash

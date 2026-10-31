@@ -577,14 +577,14 @@ cmd_install() {
   need_root
   resolve_mode
   info "VoWiFi gateway install — repo: $REPO_DIR  (mode: ${B}$MODE${N})"
-  # The engine image compiles Asterisk + pcsc-lite + the Python SWu tunnel deps from source. On
-  # low-power ARM boards (Raspberry Pi, Armbian SBCs) this first build can take 20-30 minutes —
+  # The engine image compiles pcsc-lite + the Python SWu tunnel deps (and Asterisk, unless the fork's
+  # CI published a prebuilt tarball for ASTERISK_REF) from source. On low-power ARM boards (Raspberry Pi, Armbian SBCs) this first build can take 20-30 minutes —
   # only once, since later installs reuse the built image. Warn up front so a long, quiet build
   # isn't mistaken for a hang.
   if ! podman image exists "$ENGINE_IMAGE" 2>/dev/null; then
-    warn "the engine image builds from source (Asterisk + pcsc-lite + SWu tunnel deps). On low-power ARM"
-    warn "machines this can take 20-30 minutes — this is normal, please be patient. It runs only once;"
-    warn "later installs/reloads reuse the built image."
+    warn "the engine image builds from source (pcsc-lite + SWu tunnel deps; Asterisk too if no prebuilt"
+    warn "tarball exists for ASTERISK_REF). On low-power ARM machines a full build can take 20-30 minutes —"
+    warn "this is normal, please be patient. It runs only once; later installs/reloads reuse the image."
   fi
   ensure_podman
   ensure_pcscd
