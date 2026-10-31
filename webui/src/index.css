@@ -1,70 +1,89 @@
 @import "tailwindcss";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
 
-/* ============ Theme palettes ============ */
+/* ============ Theme palettes (clean devtool) ============ */
 :root {
   --safe-bottom: env(safe-area-inset-bottom, 0px);
-  /* shape + type tokens; theme branches override these rather than the rules below */
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, "SF Mono", Menlo, monospace;
   --font-display: var(--font-sans);
-  --radius: 14px;
-  --radius-sm: 10px;
-  --sidebar-width: 220px;
+  --radius: 10px;
+  --radius-sm: 8px;
+  --sidebar-width: 224px;
   /* light (default + fallback when system preference is unavailable) */
-  --bg: #f4f6fb;
-  --sidebar: #ffffff;
+  --bg: #fafafa;
+  --sidebar: #fafafa;
   --panel: #ffffff;
   --input-bg: #ffffff;
-  --border: #e2e8f0;
-  --border-strong: #cbd5e1;
-  --hover: #eef2f7;
-  --active: #e0e9ff;
-  --text: #0f172a;
-  --text-soft: #334155;
-  --text-dim: #64748b;
-  --text-mute: #94a3b8;
-  --text-faint: #b6c0cf;
-  --primary: #2563eb;
-  --primary-hover: #1d4ed8;
-  --shadow: rgba(15, 23, 42, 0.18);
+  --border: #e4e4e7;
+  --border-strong: #d4d4d8;
+  --hover: #f4f4f5;
+  --active: #ececef;
+  --text: #09090b;
+  --text-soft: #3f3f46;
+  --text-dim: #71717a;
+  --text-mute: #a1a1aa;
+  --text-faint: #c4c4cc;
+  --primary: #4f46e5;
+  --primary-hover: #4338ca;
+  --shadow: rgba(9, 9, 11, 0.10);
+  --toast-bg: #18181b;
+  --toast-fg: #fafafa;
+  --card-shadow: 0 1px 2px rgba(9, 9, 11, 0.04);
   --nav-active-fg: var(--primary);
-  --toast-bg: var(--text);
-  --toast-fg: var(--panel);
-  --focus: color-mix(in srgb, var(--primary) 45%, transparent);
+  --focus: color-mix(in srgb, var(--primary) 40%, transparent);
   color-scheme: light;
 }
 :root[data-theme="dark"], .theme-dark-vars {
-  --bg: #0b0f1a;
-  --sidebar: #0d1320;
-  --panel: #131a2b;
-  --input-bg: #0e1626;
-  --border: #1f2937;
-  --border-strong: #263149;
-  --hover: #1c2537;
-  --active: #1c2942;
-  --text: #e5e9f0;
-  --text-soft: #cbd5e1;
-  --text-dim: #94a3b8;
-  --text-mute: #64748b;
-  --text-faint: #475569;
-  --primary: #2563eb;
-  --primary-hover: #1d4ed8;
-  --shadow: rgba(0, 0, 0, 0.55);
+  --bg: #09090b;
+  --sidebar: #09090b;
+  --panel: #111113;
+  --input-bg: #0c0c0e;
+  --border: #202024;
+  --border-strong: #2e2e34;
+  --hover: #18181b;
+  --active: #1f1f24;
+  --text: #fafafa;
+  --text-soft: #d4d4d8;
+  --text-dim: #a1a1aa;
+  --text-mute: #71717a;
+  --text-faint: #52525b;
+  --primary: #6366f1;
+  --primary-hover: #4f46e5;
+  --shadow: rgba(0, 0, 0, 0.6);
+  --toast-bg: #fafafa;
+  --toast-fg: #09090b;
+  --card-shadow: none;
   --nav-active-fg: var(--primary);
-  --toast-bg: var(--text);
-  --toast-fg: var(--panel);
-  --focus: color-mix(in srgb, var(--primary) 45%, transparent);
+  --focus: color-mix(in srgb, var(--primary) 50%, transparent);
   color-scheme: dark;
 }
 /* auto: follow the system when no explicit light/dark is chosen */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]):not([data-theme="dark"]) {
-    --bg: #0b0f1a; --sidebar: #0d1320; --panel: #131a2b; --input-bg: #0e1626;
-    --border: #1f2937; --border-strong: #263149; --hover: #1c2537; --active: #1c2942;
-    --text: #e5e9f0; --text-soft: #cbd5e1; --text-dim: #94a3b8; --text-mute: #64748b;
-    --text-faint: #475569; --primary: #2563eb; --primary-hover: #1d4ed8;
-    --shadow: rgba(0, 0, 0, 0.55); --nav-active-fg: var(--primary);
-    --toast-bg: var(--text); --toast-fg: var(--panel); color-scheme: dark;
+    --bg: #09090b;
+    --sidebar: #09090b;
+    --panel: #111113;
+    --input-bg: #0c0c0e;
+    --border: #202024;
+    --border-strong: #2e2e34;
+    --hover: #18181b;
+    --active: #1f1f24;
+    --text: #fafafa;
+    --text-soft: #d4d4d8;
+    --text-dim: #a1a1aa;
+    --text-mute: #71717a;
+    --text-faint: #52525b;
+    --primary: #6366f1;
+    --primary-hover: #4f46e5;
+    --shadow: rgba(0, 0, 0, 0.6);
+    --toast-bg: #fafafa;
+    --toast-fg: #09090b;
+    --card-shadow: none;
+    --nav-active-fg: var(--primary);
+    --focus: color-mix(in srgb, var(--primary) 50%, transparent);
+    color-scheme: dark;
   }
 }
 
@@ -419,3 +438,15 @@ a { color: inherit; }
     display: none;
   }
 }
+
+/* ============ clean devtool direction ============ */
+body { font-feature-settings: "ss01", "cv11"; letter-spacing: -0.005em; }
+.card { box-shadow: var(--card-shadow); }
+.app-brand { font-weight: 700; letter-spacing: -0.3px; }
+.app-title { font-weight: 600; letter-spacing: -0.4px; }
+.btn { font-weight: 500; }
+.btn-primary { box-shadow: inset 0 1px 0 rgba(255,255,255,.15), 0 1px 2px rgba(9,9,11,.12); }
+.btn-ghost { background: transparent; border-color: var(--border-strong); }
+.btn-ghost:hover { background: var(--hover); }
+label { font-weight: 500; }
+.app-nav-button { font-weight: 500; padding: 8px 10px; }
