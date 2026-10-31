@@ -73,7 +73,8 @@ export default function App() {
         refresh()
       }
       wsEvents.current.handlers.forEach((h) => h(msg))
-      if (msg.type === 'sms' && msg.message?.direction === 'in') {
+      // later parts of a concatenated SMS only update the existing message (msg.update)
+      if (msg.type === 'sms' && msg.message?.direction === 'in' && !msg.update) {
         showToast(`SMS from ${msg.message.peer}`)
       }
       if (msg.type === 'call' && msg.call?.direction === 'in') {

@@ -5,7 +5,7 @@ notify.py - Best-effort event hook: POST engine events to the manager.
 Usage (from the Asterisk dialplan or swu_ike tunnel hooks):
   notify.py <event> [arg1] [arg2] ...
 
-Events: call_in <from>, call_out <to>, sms_in <from> <body_b64>,
+Events: call_in <from>, call_out <to>, sms_in <from> <body_b64> [<ref:total:seq>],
         sms_out <to> <body_b64>, tunnel_up, tunnel_down, registered, unregistered
 
 Reads MANAGER_URL and VOWIFI_ID from /run/vowifi/engine.env (written by render.py).

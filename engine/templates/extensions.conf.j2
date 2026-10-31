@@ -54,7 +54,9 @@ same => n,Return()
 exten => _.,1,NoOp(Incoming SMS from ${MESSAGE(from)})
 same => n,Set(NL=${BASE64_DECODE(Cg==)})
 same => n,Set(FILE(/logs/messages.txt,,,a)=IN SMS from ${MESSAGE(from)} at ${STRFTIME(${EPOCH},,%Y-%m-%d %H:%M:%S)}:${NL}${MESSAGE(body)}${NL}=====${NL})
-same => n,TrySystem(/usr/local/bin/notify.py sms_in "${MESSAGE(from)}" "${BASE64_ENCODE(${MESSAGE(body)})}" &)
+; SMS_CONCAT ("ref:total:seq", set by res_pjsip_messaging from the UDH) marks one part of a
+; concatenated SMS; the manager joins the parts. Empty for a single-part SMS.
+same => n,TrySystem(/usr/local/bin/notify.py sms_in "${MESSAGE(from)}" "${BASE64_ENCODE(${MESSAGE(body)})}" "${MESSAGE_DATA(SMS_CONCAT)}" &)
 {% for t in msg_targets %}
 same => n,MessageSend(pjsip:{{ t }},${MESSAGE(from)},sip:{{ t }})
 {% endfor %}
