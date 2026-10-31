@@ -43,7 +43,7 @@ function Field({ label, children, wide }) {
 // touch; they open by default when something in them is already set, so nothing is hidden
 // that differs from the defaults. The open state then belongs to the user until the line
 // changes (resetKey), so clearing a field doesn't snap the section shut mid-edit.
-function Section({ title, desc, collapsible, defaultOpen, resetKey, children }) {
+function Section({ title, desc, collapsible = true, defaultOpen, resetKey, children }) {
   const [open, setOpen] = useState(!!defaultOpen)
   useEffect(() => { setOpen(!!defaultOpen) }, [resetKey])  // eslint-disable-line react-hooks/exhaustive-deps
   const head = (
