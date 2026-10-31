@@ -42,7 +42,7 @@ export default function SipInfoModal({ instance, onClose, setView, setSelected }
   const acct = info?.accounts?.[0]
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: '#000a', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}
+    <div className="modal-backdrop"
       onClick={onClose}>
       <div className="card" style={{ padding: 24, width: 520, maxWidth: '92vw', maxHeight: '92vh', overflow: 'auto' }} onClick={(e) => e.stopPropagation()}>
         <h2 style={{ marginTop: 0 }}>SIP client connection info</h2>
@@ -51,7 +51,7 @@ export default function SipInfoModal({ instance, onClose, setView, setSelected }
           calls/SMS ring your SIP client, and numbers you dial go out over VoWiFi.
         </div>
 
-        {err && <div style={{ color: '#ef4444', fontSize: 13 }}>{err}</div>}
+        {err && <div style={{ color: 'var(--danger)', fontSize: 13 }}>{err}</div>}
         {!info && !err && <div style={{ color: 'var(--text-mute)' }}>Loading…</div>}
 
         {info && (

@@ -228,7 +228,7 @@ export default function Settings() {
 
       <div>
         <button className="btn btn-primary" onClick={save}>Save settings</button>
-        {msg && <span style={{ marginLeft: 12, color: '#22c55e', fontSize: 13 }}>{msg}</span>}
+        {msg && <span style={{ marginLeft: 12, color: 'var(--ok)', fontSize: 13 }}>{msg}</span>}
       </div>
       {info && <PushInfoModal channel={info} onClose={() => setInfo('')} />}
     </div>
