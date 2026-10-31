@@ -53,11 +53,7 @@ function parseActivationCode(raw) {
 function StatePill({ state }) {
   const enabled = String(state || '').toLowerCase() === 'enabled'
   return (
-    <span style={{
-      fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999,
-      background: enabled ? '#dcfce7' : 'var(--hover)',
-      color: enabled ? '#166534' : 'var(--text-dim)',
-    }}>
+    <span className={`pill${enabled ? ' pill-ok' : ''}`}>
       {enabled ? 'Enabled' : 'Disabled'}
     </span>
   )
@@ -77,7 +73,7 @@ function RenameModal({ profile, busy, onClose, onSave }) {
   }, [profile])
   if (!profile) return null
   return (
-    <div style={{ position: 'fixed', inset: 0, background: '#0008', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}
+    <div className="modal-backdrop"
       onClick={onClose}>
       <div className="card" style={{ width: 360, maxWidth: '92vw', padding: 20 }} onClick={(e) => e.stopPropagation()}>
         <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>Rename</div>
@@ -120,7 +116,7 @@ function ProgressBar({ step, done, error }) {
         const finished = done || (cur >= 0 && i < cur)
         const active = !done && !error && cur >= 0 && i === cur
         const failed = !!error && cur >= 0 && i === cur
-        const color = failed ? '#ef4444' : finished ? '#22c55e' : active ? '#eab308' : 'var(--border-strong)'
+        const color = failed ? 'var(--danger-solid)' : finished ? 'var(--ok-solid)' : active ? '#ca8a04' : 'var(--border-strong)'
         return (
           <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
             <span style={{
@@ -207,7 +203,7 @@ function DownloadModal({ reader, ses, imeiDefault, onClose, onStarted, showToast
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: '#0008', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}
+    <div className="modal-backdrop"
       onClick={onClose}>
       <div className="card" style={{ width: 480, maxWidth: '92vw', padding: 20 }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
@@ -245,10 +241,9 @@ function DownloadModal({ reader, ses, imeiDefault, onClose, onStarted, showToast
             </div>
           </div>
         )}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+        <div className="segmented" style={{ marginBottom: 12 }}>
           {[['code', 'Activation code'], ['manual', 'Manual']].map(([k, label]) => (
-            <button key={k} className="btn" onClick={() => setMode(k)}
-              style={{ background: mode === k ? 'var(--primary)' : 'var(--hover)', color: mode === k ? '#fff' : 'var(--text-soft)' }}>
+            <button key={k} className={`btn${mode === k ? ' is-active' : ''}`} onClick={() => setMode(k)}>
               {label}
             </button>
           ))}
@@ -282,7 +277,7 @@ function DownloadModal({ reader, ses, imeiDefault, onClose, onStarted, showToast
           </div>
           <input value={imei} onChange={(e) => setImei(e.target.value)} placeholder="15-digit IMEI" style={{ width: '100%' }} />
         </label>
-        {err && <div style={{ color: '#ef4444', fontSize: 13, marginBottom: 10 }}>{err}</div>}
+        {err && <div style={{ color: 'var(--danger)', fontSize: 13, marginBottom: 10 }}>{err}</div>}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
           <button className="btn btn-primary" disabled={busy || (dual && !seId)} onClick={submit}>
@@ -537,7 +532,7 @@ export default function Esim({ cards, instances, refresh, subscribe, showToast }
       </div>
 
       {lineRunning && (
-        <div className="card" style={{ padding: 14, borderColor: '#f59e0b', background: 'color-mix(in srgb, #f59e0b 12%, var(--panel))' }}>
+        <div className="banner banner-warn" style={{ padding: 14 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             <div>
               <div style={{ fontWeight: 700 }}>VoWiFi running on this reader</div>
@@ -554,7 +549,7 @@ export default function Esim({ cards, instances, refresh, subscribe, showToast }
       )}
 
       {err && (
-        <div className="card" style={{ padding: 14, color: '#b91c1c', borderColor: '#fecaca' }}>
+        <div className="banner banner-danger" role="alert" style={{ padding: 14 }}>
           {err}
         </div>
       )}
@@ -583,7 +578,7 @@ export default function Esim({ cards, instances, refresh, subscribe, showToast }
               {dl.metadata.iccid ? ` · ${dl.metadata.iccid}` : ''}
             </div>
           )}
-          {dl.error && <div style={{ marginTop: 10, color: '#ef4444', fontSize: 13 }}>{dl.error}</div>}
+          {dl.error && <div style={{ marginTop: 10, color: 'var(--danger)', fontSize: 13 }}>{dl.error}</div>}
         </div>
       )}
 

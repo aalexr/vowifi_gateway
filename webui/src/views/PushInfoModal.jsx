@@ -15,7 +15,7 @@ const payloadJson = `{
 export default function PushInfoModal({ channel, onClose }) {
   const isTg = channel === 'telegram'
   return (
-    <div style={{ position: 'fixed', inset: 0, background: '#000a', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}
+    <div className="modal-backdrop"
       onClick={onClose}>
       <div className="card" style={{ padding: 24, width: 620, maxWidth: '94vw', maxHeight: '92vh', overflow: 'auto' }} onClick={(e) => e.stopPropagation()}>
         <h2 style={{ marginTop: 0 }}>{isTg ? 'Telegram push' : 'Webhook push'} — format & notes</h2>

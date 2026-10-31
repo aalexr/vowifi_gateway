@@ -31,6 +31,13 @@
   --toast-bg: #18181b;
   --toast-fg: #fafafa;
   --card-shadow: 0 1px 2px rgba(9, 9, 11, 0.04);
+  --ok: #15803d;
+  --warn: #a16207;
+  --danger: #dc2626;
+  --orange: #c2410c;
+  --ok-solid: #16a34a;
+  --danger-solid: #dc2626;
+  --overlay: rgba(9, 9, 11, 0.45);
   --nav-active-fg: var(--primary);
   --focus: color-mix(in srgb, var(--primary) 40%, transparent);
   color-scheme: light;
@@ -55,6 +62,13 @@
   --toast-bg: #fafafa;
   --toast-fg: #09090b;
   --card-shadow: none;
+  --ok: #4ade80;
+  --warn: #facc15;
+  --danger: #f87171;
+  --orange: #fb923c;
+  --ok-solid: #16a34a;
+  --danger-solid: #dc2626;
+  --overlay: rgba(0, 0, 0, 0.65);
   --nav-active-fg: var(--primary);
   --focus: color-mix(in srgb, var(--primary) 50%, transparent);
   color-scheme: dark;
@@ -81,6 +95,13 @@
     --toast-bg: #fafafa;
     --toast-fg: #09090b;
     --card-shadow: none;
+    --ok: #4ade80;
+    --warn: #facc15;
+    --danger: #f87171;
+    --orange: #fb923c;
+    --ok-solid: #16a34a;
+    --danger-solid: #dc2626;
+    --overlay: rgba(0, 0, 0, 0.65);
     --nav-active-fg: var(--primary);
     --focus: color-mix(in srgb, var(--primary) 50%, transparent);
     color-scheme: dark;
@@ -143,7 +164,7 @@ body {
 
 /* status dot colors (semantic — consistent across themes) */
 .dot { width: 10px; height: 10px; border-radius: 999px; display: inline-block; }
-.st-OK { background: #22c55e; box-shadow: 0 0 8px #22c55e88; }
+.st-OK { background: var(--ok-solid); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok-solid) 20%, transparent); }
 .st-REGISTERING { background: #eab308; box-shadow: 0 0 8px #eab30888; }
 .st-TUNNEL_DOWN { background: #f97316; }
 .st-EPDG_UNRESOLVED { background: #f97316; }
@@ -162,11 +183,11 @@ body {
 /* Row-hover-reveal delete affordance (call log / conversation list). Pure CSS so it also
    works with keyboard focus (focus-within) and doesn't fight React's DOM reconciliation. */
 .row-del { opacity: 0; transition: opacity .15s; border: none; background: transparent;
-  color: #ef4444; cursor: pointer; font-size: 15px; padding: 2px 4px; }
+  color: var(--danger); cursor: pointer; font-size: 15px; padding: 2px 4px; display: inline-flex; }
 .hover-row:hover .row-del, .hover-row:focus-within .row-del { opacity: 1; }
-.row-del:focus-visible { opacity: 1; outline: 2px solid #ef4444; border-radius: 6px; }
-.btn-danger { background: #b91c1c; color: white; }
-.btn-danger:hover { background: #991b1b; }
+.row-del:focus-visible { opacity: 1; outline: 2px solid var(--danger); border-radius: 6px; }
+.btn-danger { background: var(--danger-solid); color: white; }
+.btn-danger:hover { background: color-mix(in srgb, var(--danger-solid) 85%, black); }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
 input, select, textarea {
   background: var(--input-bg); border: 1px solid var(--border-strong); border-radius: 9px;
@@ -275,7 +296,7 @@ a { color: inherit; }
 .logs-page-empty { overflow: auto; }
 .logs-chrome { flex-shrink: 0; min-width: 0; }
 .logs-chrome > .sim-selector { margin-bottom: 8px; }
-.logs-err { color: #ef4444; margin-bottom: 8px; font-size: 13px; }
+.logs-err { color: var(--danger); margin-bottom: 8px; font-size: 13px; }
 .logs-small-button { padding: 4px 9px; font-size: 12px; }
 .logs-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .logs-tabs { display: flex; gap: 6px; flex: 1 1 auto; min-width: 0; }
@@ -450,3 +471,31 @@ body { font-feature-settings: "ss01", "cv11"; letter-spacing: -0.005em; }
 .btn-ghost:hover { background: var(--hover); }
 label { font-weight: 500; }
 .app-nav-button { font-weight: 500; padding: 8px 10px; }
+
+/* status semantics: tinted pills and banners built from the --ok/--warn/--danger tokens */
+.pill {
+  display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px; border-radius: 999px;
+  font-size: 12px; font-weight: 500; white-space: nowrap; line-height: 1.6;
+  color: var(--pill, var(--text-dim)); background: color-mix(in srgb, var(--pill, var(--text-dim)) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--pill, var(--text-dim)) 28%, transparent);
+}
+.pill .dot { width: 6px; height: 6px; box-shadow: none; }
+.pill-ok { --pill: var(--ok); }
+.pill-warn { --pill: var(--warn); }
+.pill-danger { --pill: var(--danger); }
+.pill-orange { --pill: var(--orange); }
+.banner {
+  padding: 10px 12px; border-radius: var(--radius-sm); font-size: 13px; line-height: 1.45; color: var(--text-soft);
+  background: color-mix(in srgb, var(--tone, var(--warn)) 9%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--tone, var(--warn)) 35%, transparent);
+}
+.banner-warn { --tone: var(--warn); }
+.banner-danger { --tone: var(--danger); }
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center;
+  background: var(--overlay); -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+}
+.modal-backdrop > .card { box-shadow: 0 24px 60px -12px var(--shadow); }
+.segmented { display: inline-flex; gap: 2px; padding: 3px; border-radius: var(--radius-sm); background: var(--hover); border: 1px solid var(--border); }
+.segmented .btn { padding: 5px 12px; background: transparent; color: var(--text-dim); border: none; box-shadow: none; }
+.segmented .btn.is-active { background: var(--panel); color: var(--text); box-shadow: 0 1px 2px var(--shadow); }

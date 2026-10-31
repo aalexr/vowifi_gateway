@@ -251,7 +251,7 @@ export default function SimConfig({ instances, selected, refresh, cards, setSele
           </div>}
         <button className="btn btn-ghost" style={{ marginTop: 10 }} onClick={detect}>Detect card</button>
         {card && (
-          <div className="mono" style={{ fontSize: 12, color: card.present ? 'var(--text-dim)' : '#ef4444', marginTop: 12, lineHeight: 1.6 }}>
+          <div className="mono" style={{ fontSize: 12, color: card.present ? 'var(--text-dim)' : 'var(--danger)', marginTop: 12, lineHeight: 1.6 }}>
             {card.present ? (<>
               ICCID: {card.iccid || '—'}<br />IMSI: {card.imsi || '(locked)'}<br />
               {card.reader_port && <>USB port: {card.reader_port}<br /></>}
@@ -266,7 +266,7 @@ export default function SimConfig({ instances, selected, refresh, cards, setSele
         <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
           <button className="btn btn-primary" onClick={verifyPin} disabled={!pin}>Verify PIN</button>
           {form.id && form.has_pin &&
-            <button className="btn btn-ghost" style={{ color: '#ef4444' }} onClick={deleteSavedPin}>Delete saved PIN</button>}
+            <button className="btn btn-ghost" style={{ color: 'var(--danger)' }} onClick={deleteSavedPin}>Delete saved PIN</button>}
         </div>
         {form.id && (
           <div style={{ fontSize: 12, color: 'var(--text-mute)', marginTop: 8 }}>
@@ -275,7 +275,7 @@ export default function SimConfig({ instances, selected, refresh, cards, setSele
               : 'No PIN saved — you\'ll be asked for it when the line is started (if the SIM requires one).'}
           </div>
         )}
-        {pinMsg && <div style={{ fontSize: 13, marginTop: 10, color: pinMsg.includes('OK') || pinMsg.includes('read') || pinMsg.startsWith('Saved.') || pinMsg.includes('deleted') ? '#22c55e' : '#eab308' }}>{pinMsg}</div>}
+        {pinMsg && <div style={{ fontSize: 13, marginTop: 10, color: pinMsg.includes('OK') || pinMsg.includes('read') || pinMsg.startsWith('Saved.') || pinMsg.includes('deleted') ? 'var(--ok)' : 'var(--warn)' }}>{pinMsg}</div>}
       </div>
 
       {/* Instance form */}
@@ -461,7 +461,7 @@ export default function SimConfig({ instances, selected, refresh, cards, setSele
             </div>
           ))}
           {sipUserError && (
-            <div style={{ color: '#ef4444', fontSize: 12.5, marginTop: 6 }} role="alert">
+            <div style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 6 }} role="alert">
               {sipUserError}
             </div>
           )}

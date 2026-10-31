@@ -126,7 +126,7 @@ export default function Messages({ selected, subscribe, showToast, instances, ca
           setPeer(null); setMsgs([]); setComposing(true)
         }}>+ New message</button>
         {threads.length > 0 &&
-          <button className="btn btn-ghost" style={{ width: '100%', marginBottom: 10, color: '#ef4444', fontSize: 12 }}
+          <button className="btn btn-ghost" style={{ width: '100%', marginBottom: 10, color: 'var(--danger)', fontSize: 12 }}
             onClick={clearAll}>Clear all conversations</button>}
         {threads.map((t) => (
           <div key={t.peer} onClick={() => { setPeer(t.peer); setComposing(false) }} className="hover-row"
@@ -159,7 +159,7 @@ export default function Messages({ selected, subscribe, showToast, instances, ca
             selMode ? (
               <>
                 <span style={{ fontSize: 12, color: 'var(--text-mute)' }}>{selIds.size} selected</span>
-                <button className="btn btn-ghost" style={{ padding: '4px 10px', fontSize: 12, color: '#ef4444' }}
+                <button className="btn btn-ghost" style={{ padding: '4px 10px', fontSize: 12, color: 'var(--danger)' }}
                   disabled={!selIds.size} onClick={deleteSelected}>Delete</button>
                 <button className="btn btn-ghost" style={{ padding: '4px 10px', fontSize: 12 }}
                   onClick={() => { setSelMode(false); setSelIds(new Set()) }}>Cancel</button>
@@ -168,7 +168,7 @@ export default function Messages({ selected, subscribe, showToast, instances, ca
               <>
                 <button className="btn btn-ghost" style={{ padding: '4px 10px', fontSize: 12 }}
                   onClick={() => setSelMode(true)}>Select</button>
-                <button className="btn btn-ghost" title="Delete conversation" style={{ padding: '4px 10px', fontSize: 12, color: '#ef4444' }}
+                <button className="btn btn-ghost" title="Delete conversation" style={{ padding: '4px 10px', fontSize: 12, color: 'var(--danger)' }}
                   onClick={() => deleteThread(peer)}>Delete all</button>
               </>
             )
@@ -187,7 +187,7 @@ export default function Messages({ selected, subscribe, showToast, instances, ca
               : sent ? ' · Sent'
               : delivered ? ' · Delivered ✓'
               : ''
-            const statusColor = failed ? '#ef4444' : delivered ? '#22c55e' : 'var(--text-mute)'
+            const statusColor = failed ? 'var(--danger)' : delivered ? 'var(--ok)' : 'var(--text-mute)'
             const checked = selIds.has(m.id)
             return (
               <div key={m.id} className="msg-row" onClick={() => selMode && toggleSel(m.id)}
@@ -199,7 +199,7 @@ export default function Messages({ selected, subscribe, showToast, instances, ca
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6,
                     flexDirection: m.direction === 'out' ? 'row' : 'row-reverse' }}>
                     {failed && <span title={m.error || 'Delivery failed'}
-                      style={{ color: '#ef4444', fontWeight: 800, cursor: 'help', fontSize: 15 }}>❗</span>}
+                      style={{ color: 'var(--danger)', fontWeight: 800, cursor: 'help', fontSize: 15 }}>❗</span>}
                     <div className="msg-bubble" style={{
                       background: checked ? 'var(--active)' : failed ? 'rgba(239,68,68,.15)' : (m.direction === 'out' ? 'var(--primary)' : 'var(--hover)'),
                       border: failed ? '1px solid rgba(239,68,68,.55)' : '1px solid transparent',
@@ -212,7 +212,7 @@ export default function Messages({ selected, subscribe, showToast, instances, ca
                     {statusText}
                   </div>
                   {failed && m.error && (
-                    <div className="msg-bubble" style={{ fontSize: 10.5, color: '#ef4444', marginTop: 1,
+                    <div className="msg-bubble" style={{ fontSize: 10.5, color: 'var(--danger)', marginTop: 1,
                       textAlign: m.direction === 'out' ? 'right' : 'left', padding: 0, background: 'transparent' }}>{m.error}</div>
                   )}
                 </div>

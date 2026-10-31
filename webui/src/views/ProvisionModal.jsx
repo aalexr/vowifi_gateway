@@ -85,7 +85,7 @@ export default function ProvisionModal({ card, pin: pinProp, onClose, onDone }) 
   )
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: '#000a', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}
+    <div className="modal-backdrop"
       onClick={onClose}>
       <div className="card" style={{ padding: 24, width: 460, maxWidth: '92vw', maxHeight: '92vh', overflow: 'auto' }} onClick={(e) => e.stopPropagation()}>
         <h2 style={{ marginTop: 0 }}>Provision SIM</h2>
@@ -113,7 +113,7 @@ export default function ProvisionModal({ card, pin: pinProp, onClose, onDone }) 
               {radio('manual', 'Manual')}
             </div>
             {f.smscMode === 'auto'
-              ? <div className="mono" style={{ fontSize: 12, color: simSmsc ? 'var(--text-soft)' : '#eab308' }}>
+              ? <div className="mono" style={{ fontSize: 12, color: simSmsc ? 'var(--text-soft)' : 'var(--warn)' }}>
                   {simSmsc ? `${simSmsc} — read from SIM` : '⚠ SIM did not provide an SMSC; choose Manual'}
                 </div>
               : <input className="mono" value={f.smscManual} onChange={(e) => upd({ smscManual: e.target.value })} placeholder="+1..." />}
@@ -167,7 +167,7 @@ export default function ProvisionModal({ card, pin: pinProp, onClose, onDone }) 
                   <input type="number" className="mono" value={f.sipPort} min={portMin} max={portMax}
                     onChange={(e) => { upd({ sipPort: e.target.value.replace(/[^0-9]/g, '') }); setErr('') }}
                     placeholder={String(autoPort?.auto_sip_udp || '5060')} />
-                  <div style={{ fontSize: 11.5, color: f.sipPort && !portOk ? '#ef4444' : 'var(--text-mute)', marginTop: 4 }}>
+                  <div style={{ fontSize: 11.5, color: f.sipPort && !portOk ? 'var(--danger)' : 'var(--text-mute)', marginTop: 4 }}>
                     {f.sipPort && !portOk
                       ? `Enter a valid port (${portMin}–${portMax}).`
                       : `SIP UDP port on the host (${portMin}–${portMax}). TLS uses this +1; WebRTC/RTP derive from it. Checked for conflicts on submit.`}
@@ -187,7 +187,7 @@ export default function ProvisionModal({ card, pin: pinProp, onClose, onDone }) 
           </div>
           <label><input type="checkbox" style={{ width: 'auto', marginRight: 8 }} checked={f.webrtc} onChange={(e) => upd({ webrtc: e.target.checked })} />Enable browser softphone (WebRTC)</label>
         </div>
-        {err && <div style={{ color: '#ef4444', fontSize: 13, marginTop: 12 }}>{err}</div>}
+        {err && <div style={{ color: 'var(--danger)', fontSize: 13, marginTop: 12 }}>{err}</div>}
         <div style={{ display: 'flex', gap: 8, marginTop: 20, justifyContent: 'flex-end' }}>
           <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
           <button className="btn btn-primary" onClick={submit} disabled={busy || !f.imei || !pinOk || !manualOk || !portOk}>

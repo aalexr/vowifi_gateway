@@ -4,7 +4,7 @@ import { Softphone as Phone } from '../softphone.js'
 import SimSelector from './SimSelector.jsx'
 import { Phone as PhoneIcon, PhoneOff, PhoneIncoming, PhoneOutgoing, Mic, MicOff, Grid3x3, CircleDot, Delete, Trash2 } from 'lucide-react'
 
-const GREEN = '#22c55e', RED = '#ef4444'
+const GREEN = 'var(--ok-solid)', RED = 'var(--danger-solid)'
 const KEYS = [['1', ''], ['2', 'ABC'], ['3', 'DEF'], ['4', 'GHI'], ['5', 'JKL'],
   ['6', 'MNO'], ['7', 'PQRS'], ['8', 'TUV'], ['9', 'WXYZ'], ['*', ''], ['0', '+'], ['#', '']]
 
@@ -12,8 +12,8 @@ const fmtDur = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 
 function Avatar({ label, color = 'var(--primary)', size = 96 }) {
   return (
-    <div style={{ width: size, height: size, borderRadius: '50%', background: color + '22',
-      border: `2px solid ${color}55`, display: 'flex', alignItems: 'center', justifyContent: 'center',
+    <div style={{ width: size, height: size, borderRadius: '50%', background: `color-mix(in srgb, ${color} 13%, transparent)`,
+      border: `2px solid color-mix(in srgb, ${color} 33%, transparent)`, display: 'flex', alignItems: 'center', justifyContent: 'center',
       fontSize: size * 0.42, color, margin: '0 auto' }}><PhoneIcon size={size * 0.4} strokeWidth={1.6} /></div>
   )
 }
@@ -24,8 +24,8 @@ function RoundBtn({ icon, label, color, bg, onClick, active }) {
       <button onClick={onClick} style={{
         width: 58, height: 58, borderRadius: '50%', cursor: 'pointer', fontSize: 22,
         border: '1px solid ' + (active ? color : 'var(--border-strong)'),
-        background: bg || (active ? color + '22' : 'var(--hover)'),
-        color: active ? color : 'var(--text-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: bg || (active ? `color-mix(in srgb, ${color} 13%, transparent)` : 'var(--hover)'),
+        color: bg ? color : active ? color : 'var(--text-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>{icon}</button>
       <span style={{ fontSize: 11, color: 'var(--text-mute)' }}>{label}</span>
     </div>
@@ -226,7 +226,7 @@ export default function Softphone({ selected, subscribe, instances, cards, setSe
     </div>
   )
 
-  const regColor = reg === 'registered' ? GREEN : reg === 'failed' || reg === 'disconnected' ? RED : '#eab308'
+  const regColor = reg === 'registered' ? GREEN : reg === 'failed' || reg === 'disconnected' ? RED : 'var(--warn)'
   const inCall = call && (call.state === 'active' || call.state === 'calling' || call.state === 'ringing' || call.state === 'incoming' || call.state === 'ended')
   const endLabel = (c) => c === 'Rejected' ? 'Call declined' : c === 'Busy' ? 'Busy' : c === 'Canceled' || c === 'Canceled/Rejected' ? 'Call cancelled' : 'Call ended'
 
@@ -289,7 +289,7 @@ export default function Softphone({ selected, subscribe, instances, cards, setSe
         </div>
 
         {!prov?.enabled && (
-          <div style={{ color: '#f97316', fontSize: 13, margin: '12px 0' }}>
+          <div className="banner banner-warn" style={{ margin: '12px 0' }}>
             WebRTC is disabled for this SIM. Enable it in SIM Config (needs HTTPS/TLS) to use the browser phone.
           </div>
         )}
@@ -337,8 +337,8 @@ export default function Softphone({ selected, subscribe, instances, cards, setSe
               </div>
             )}
             <div style={{ display: 'flex', justifyContent: 'center', gap: 22, marginTop: 4, flexShrink: 0 }}>
-              <RoundBtn icon={muted ? <MicOff size={22} /> : <Mic size={22} />} label={muted ? 'Unmute' : 'Mute'} color="#60a5fa" onClick={toggleMute} active={muted} />
-              <RoundBtn icon={<Grid3x3 size={22} />} label="Keypad" color="#a78bfa" onClick={() => setKeypad((v) => !v)} active={keypad} />
+              <RoundBtn icon={muted ? <MicOff size={22} /> : <Mic size={22} />} label={muted ? 'Unmute' : 'Mute'} color="var(--primary)" onClick={toggleMute} active={muted} />
+              <RoundBtn icon={<Grid3x3 size={22} />} label="Keypad" color="var(--primary)" onClick={() => setKeypad((v) => !v)} active={keypad} />
               <RoundBtn icon={<CircleDot size={22} />} label={recording ? 'Stop' : 'Record'} color={RED} onClick={toggleRecord} active={recording} />
             </div>
             <div style={{ display: 'flex', justifyContent: 'center', marginTop: 2, flexShrink: 0 }}>
@@ -417,7 +417,7 @@ export default function Softphone({ selected, subscribe, instances, cards, setSe
           {calls.map((c) => {
             const s = (c.status || '').toLowerCase()
             const color = s === 'answered' ? GREEN : (s === 'rejected' || s === 'busy' || s === 'failed') ? RED
-              : (s === 'no answer' || s === 'cancelled' || s === 'missed') ? '#eab308' : 'var(--text-dim)'
+              : (s === 'no answer' || s === 'cancelled' || s === 'missed') ? 'var(--warn)' : 'var(--text-dim)'
             const DirIcon = c.direction === 'in' ? PhoneIncoming : PhoneOutgoing
             const dlabel = c.direction === 'in' ? 'Incoming' : 'Outgoing'
             const peer = (c.peer || '').trim()
@@ -426,13 +426,13 @@ export default function Softphone({ selected, subscribe, instances, cards, setSe
             const when = c.start_ts ? new Date(Number(c.start_ts) * 1000).toLocaleString() : ''
             return (
               <div key={c.id} onClick={() => callSelMode && toggleCallSel(c.id)} className="hover-row"
-                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8,
+                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap',
                   fontSize: 13.5, padding: '10px 12px', borderRadius: 10, cursor: callSelMode ? 'pointer' : 'default',
                   background: checked ? 'var(--active)' : 'var(--input-bg)' }}>
                 {callSelMode && <input type="checkbox" readOnly checked={checked} style={{ width: 'auto', flexShrink: 0 }} />}
-                <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ flex: '1 1 140px', minWidth: 0 }}>
                   <div className="mono" style={{ fontWeight: 600, color: peer ? undefined : 'var(--text-mute)' }}>{peerLabel}</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-mute)', display: 'flex', alignItems: 'center', gap: 4 }}><DirIcon size={11} aria-hidden="true" />{dlabel}{when ? ` · ${when}` : ''}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-mute)' }}><DirIcon size={11} aria-hidden="true" style={{ display: 'inline', verticalAlign: '-1px', marginRight: 4 }} />{dlabel}{when ? ` · ${when}` : ''}</div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <span style={{ color, fontWeight: 600, textTransform: 'capitalize' }}>{c.status || 'ringing'}</span>

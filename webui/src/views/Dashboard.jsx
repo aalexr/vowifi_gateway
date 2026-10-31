@@ -7,11 +7,16 @@ import { Plug } from 'lucide-react'
 function StateBadge({ st }) {
   const state = st?.state || 'STOPPED'
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600 }}>
+    <span className={`pill ${STATE_PILL[state] || ''}`}>
       <span className={`dot st-${state}`} />
       {st?.label || 'Unknown'}
     </span>
   )
+}
+
+const STATE_PILL = {
+  OK: 'pill-ok', REGISTERING: 'pill-warn', TUNNEL_DOWN: 'pill-orange', EPDG_UNRESOLVED: 'pill-orange',
+  PIN_PROBLEM: 'pill-danger', NO_CARD: 'pill-danger', ERROR: 'pill-danger',
 }
 
 const STEPS = [
@@ -30,7 +35,7 @@ function Pipeline({ st }) {
       {STEPS.map(([k, label], idx) => {
         const done = rank > idx
         const cur = rank === idx
-        const bg = done ? '#22c55e' : cur ? (st.state === 'OK' ? '#22c55e' : '#eab308') : 'var(--border-strong)'
+        const bg = done ? 'var(--ok-solid)' : cur ? (st.state === 'OK' ? 'var(--ok-solid)' : '#ca8a04') : 'var(--border-strong)'
         return (
           <div key={k} style={{ flex: 1, textAlign: 'center' }}>
             <div style={{ height: 5, borderRadius: 3, background: bg }} />
@@ -104,7 +109,7 @@ function UnprovisionedCard({ card, refresh, onProvision }) {
       <div onClick={(e) => e.stopPropagation()}>
         <div style={{ marginTop: 14, fontSize: 13, display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '6px 12px', color: 'var(--text-soft)' }}>
           {row('ICCID', card.iccid || '—', true)}
-          {row('Status', <span style={{ color: '#eab308' }}>🔒 SIM locked — PIN required</span>)}
+          {row('Status', <span style={{ color: 'var(--warn)' }}>🔒 SIM locked — PIN required</span>)}
           {card.pin_tries != null && row('PIN tries', card.pin_tries)}
         </div>
         <div style={{ marginTop: 14 }}>
@@ -119,7 +124,7 @@ function UnprovisionedCard({ card, refresh, onProvision }) {
             </button>
           </div>
           {pinInput && !pinOk && <div style={{ fontSize: 12, color: 'var(--text-mute)', marginTop: 6 }}>PIN must be 4–8 digits.</div>}
-          {err && <div style={{ fontSize: 12.5, color: '#ef4444', marginTop: 8 }}>{err}</div>}
+          {err && <div style={{ fontSize: 12.5, color: 'var(--danger)', marginTop: 8 }}>{err}</div>}
         </div>
       </div>
     )
@@ -135,7 +140,7 @@ function UnprovisionedCard({ card, refresh, onProvision }) {
         {card.mcc && card.mnc && row('Carrier', `${card.mcc}-${card.mnc}`)}
         {row('SMSC', card.smsc
           ? <span className="mono">{card.smsc} <span style={{ color: 'var(--text-mute)' }}>· from SIM</span></span>
-          : <span style={{ color: '#eab308' }}>⚠ could not read from SIM — enter manually when provisioning</span>)}
+          : <span style={{ color: 'var(--warn)' }}>⚠ could not read from SIM — enter manually when provisioning</span>)}
         {row('PIN', card.pin_enabled === false ? 'disabled' : 'unlocked ✓')}
       </div>
       <button className="btn btn-primary" style={{ marginTop: 16 }}
@@ -174,7 +179,7 @@ function StartPinModal({ inst, tries, error, onClose, onDone }) {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: '#000a', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}
+    <div className="modal-backdrop"
       onClick={onClose}>
       <div className="card" style={{ padding: 24, width: 380, maxWidth: '92vw' }} onClick={(e) => e.stopPropagation()}>
         <h2 style={{ marginTop: 0, fontSize: 18 }}>Enter SIM PIN</h2>
@@ -187,7 +192,7 @@ function StartPinModal({ inst, tries, error, onClose, onDone }) {
           onKeyDown={(e) => { if (e.key === 'Enter' && ok) submit() }}
           placeholder="4–8 digits" style={{ width: '100%' }} />
         {tries != null && !err && <div style={{ fontSize: 12, color: 'var(--text-mute)', marginTop: 6 }}>{tries} tries left.</div>}
-        {err && <div style={{ fontSize: 12.5, color: '#ef4444', marginTop: 8 }}>{err}</div>}
+        {err && <div style={{ fontSize: 12.5, color: 'var(--danger)', marginTop: 8 }}>{err}</div>}
         <div style={{ display: 'flex', gap: 8, marginTop: 18, justifyContent: 'flex-end' }}>
           <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
           <button className="btn btn-primary" disabled={busy || !ok} onClick={submit}>
@@ -279,7 +284,7 @@ export default function Dashboard({ instances, cards = [], noReaders, cardsKnown
                 </div>
                 {inst
                   ? <StateBadge st={inst.status} />
-                  : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, color: r.present ? '#eab308' : 'var(--text-mute)' }}>
+                  : <span className={`pill${r.present ? ' pill-warn' : ''}`}>
                       <span className={`dot st-${r.present ? 'REGISTERING' : 'NO_CARD'}`} />
                       {r.present ? 'SIM detected' : 'No SIM card'}
                     </span>}
@@ -290,12 +295,8 @@ export default function Dashboard({ instances, cards = [], noReaders, cardsKnown
                 <>
                   <Pipeline st={inst.status} />
                   {inst.status?.state !== 'OK' && inst.status?.state !== 'STOPPED' && inst.status?.reason && (
-                    <div style={{
-                      marginTop: 12, padding: '8px 11px', borderRadius: 8, fontSize: 12.5, lineHeight: 1.4,
-                      color: 'var(--text-soft)',
-                      background: inst.status.state === 'ERROR' ? 'rgba(239,68,68,.12)' : 'rgba(234,179,8,.12)',
-                      border: '1px solid ' + (inst.status.state === 'ERROR' ? 'rgba(239,68,68,.45)' : 'rgba(234,179,8,.4)'),
-                    }}>
+                    <div className={`banner ${inst.status.state === 'ERROR' ? 'banner-danger' : 'banner-warn'}`}
+                      style={{ marginTop: 12, fontSize: 12.5 }}>
                       {inst.status.reason}
                       {inst.status.retry && inst.status.retry.count > 0 && inst.status.state !== 'ERROR' &&
                         <span style={{ color: 'var(--text-mute)' }}> · attempt {inst.status.retry.count}/{inst.status.retry.max}</span>}
