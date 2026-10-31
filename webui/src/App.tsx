@@ -1,17 +1,17 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react'
-import { api, connectWs } from './api.js'
-import Dashboard from './views/Dashboard.jsx'
-import Softphone from './views/Softphone.jsx'
-import Messages from './views/Messages.jsx'
-import SimConfig from './views/SimConfig.jsx'
-import Settings from './views/Settings.jsx'
-import Logs from './views/Logs.jsx'
-import Esim from './views/Esim.jsx'
-import { LayoutDashboard, Phone, MessageSquare, Cpu, Smartphone, Settings as SettingsIcon, ScrollText, SunMoon, Sun, Moon } from 'lucide-react'
+import { api, connectWs } from './api'
+import Dashboard from './views/Dashboard'
+import Softphone from './views/Softphone'
+import Messages from './views/Messages'
+import SimConfig from './views/SimConfig'
+import Settings from './views/Settings'
+import Logs from './views/Logs'
+import Esim from './views/Esim'
+import { LayoutDashboard, Phone, MessageSquare, Cpu, Smartphone, Settings as SettingsIcon, ScrollText, SunMoon, Sun, Moon, type LucideIcon } from 'lucide-react'
 
 // [key, label, icon, alwaysAvailable] — views not marked alwaysAvailable are disabled
 // while no PC/SC reader is connected (they all operate on a physical SIM line).
-const NAV = [
+const NAV: [string, string, LucideIcon, boolean][] = [
   ['dashboard', 'Dashboard', LayoutDashboard, true],
   ['softphone', 'Softphone', Phone, false],
   ['messages', 'Messages', MessageSquare, false],
@@ -20,7 +20,7 @@ const NAV = [
   ['settings', 'Settings', SettingsIcon, true],
   ['logs', 'Logs', ScrollText, true],
 ]
-const THEMES = [['auto', SunMoon], ['light', Sun], ['dark', Moon]]
+const THEMES: [string, LucideIcon][] = [['auto', SunMoon], ['light', Sun], ['dark', Moon]]
 
 export default function App() {
   const [view, setView] = useState('dashboard')
@@ -30,7 +30,7 @@ export default function App() {
   const [selected, setSelected] = useState(null)
   const [toast, setToast] = useState(null)
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'auto')
-  const wsEvents = useRef({ handlers: new Set() })
+  const wsEvents = useRef<{ handlers: Set<(msg: any) => void> }>({ handlers: new Set() })
 
   // Apply + persist theme. 'auto' follows the OS (falls back to light if unavailable).
   useEffect(() => {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { api } from '../api.js'
+import { api } from '../api'
 
 const PIN_RE = /^\d{4,8}$/
 const PORT_RE = /^\d{1,5}$/

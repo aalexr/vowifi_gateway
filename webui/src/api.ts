@@ -1,8 +1,8 @@
 // Thin REST + WebSocket client for the manager API (same origin).
 const base = ''
 
-async function j(method, path, body) {
-  const opt = { method, headers: {} }
+async function j(method: string, path: string, body?: unknown) {
+  const opt: RequestInit = { method, headers: {} }
   if (body !== undefined) { opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body) }
   const r = await fetch(base + path, opt)
   const text = await r.text()
@@ -16,7 +16,7 @@ async function j(method, path, body) {
 }
 
 /** Build query string. Prefer reader NAME (stable); index is optional fallback. */
-function readerQuery(readerOrIndex, maybeName) {
+function readerQuery(readerOrIndex, maybeName?) {
   const q = new URLSearchParams()
   if (typeof readerOrIndex === 'string' && readerOrIndex) {
     q.set('reader', readerOrIndex)
@@ -50,7 +50,7 @@ export const api = {
   // `reader` (PC/SC reader NAME) lets the backend re-resolve the index at request time —
   // indices shift when another reader is unplugged, and a stale index could address the
   // wrong physical SIM.
-  verifyPin: (pin, reader_index = 0, reader) => j('POST', '/api/sim/verify-pin', { pin, reader_index, reader }),
+  verifyPin: (pin, reader_index = 0, reader?) => j('POST', '/api/sim/verify-pin', { pin, reader_index, reader }),
   changePin: (oldp, newp, reader_index = 0) => j('POST', '/api/sim/change-pin', { old: oldp, new: newp, reader_index }),
   setPinEnabled: (pin, enabled, reader_index = 0) => j('POST', '/api/sim/pin-enabled', { pin, enabled, reader_index }),
 
@@ -63,9 +63,9 @@ export const api = {
   provision: (body) => j('POST', '/api/provision', body),
   saveInstance: (inst) => j('POST', '/api/instances', inst),
   deleteInstance: (id) => j('DELETE', `/api/instances/${id}`),
-  start: (id, body) => j('POST', `/api/instances/${id}/start`, body || {}),
+  start: (id, body?) => j('POST', `/api/instances/${id}/start`, body || {}),
   stop: (id) => j('POST', `/api/instances/${id}/stop`),
-  reprovision: (id, body) => j('POST', `/api/instances/${id}/reprovision`, body || {}),
+  reprovision: (id, body?) => j('POST', `/api/instances/${id}/reprovision`, body || {}),
   clearPin: (id) => j('POST', `/api/instances/${id}/pin/clear`),
   status: (id) => j('GET', `/api/instances/${id}/status`),
   logs: (id, tail = 300) => j('GET', `/api/instances/${id}/logs?tail=${tail}`),
@@ -88,8 +88,8 @@ export const api = {
   // eSIM / LPA (lpac) — first arg is usually the PC/SC reader NAME (string).
   // Optional se_id / aid target a specific Secure Element on dual-SE cards.
   esimStatus: () => j('GET', '/api/esim/status'),
-  esimChip: (readerOrIndex, maybeName) => j('GET', `/api/esim/chip?${readerQuery(readerOrIndex, maybeName)}`),
-  esimProfiles: (readerOrIndex, maybeName) => j('GET', `/api/esim/profiles?${readerQuery(readerOrIndex, maybeName)}`),
+  esimChip: (readerOrIndex, maybeName?) => j('GET', `/api/esim/chip?${readerQuery(readerOrIndex, maybeName)}`),
+  esimProfiles: (readerOrIndex, maybeName?) => j('GET', `/api/esim/profiles?${readerQuery(readerOrIndex, maybeName)}`),
   esimEnable: (iccid, readerOrBody) => j(
     'POST',
     `/api/esim/profiles/${encodeURIComponent(iccid)}/enable`,
@@ -120,7 +120,7 @@ export const api = {
   esimDownload: (body) => j('POST', '/api/esim/download', body),
   esimDownloadCancel: (readerOrBody) => j('POST', '/api/esim/download/cancel', readerBody(readerOrBody)),
   esimDiscovery: (body) => j('POST', '/api/esim/discovery', body || {}),
-  esimNotifications: (readerOrIndex, maybeName) => j(
+  esimNotifications: (readerOrIndex, maybeName?) => j(
     'GET',
     `/api/esim/notifications?${readerQuery(readerOrIndex, maybeName)}`,
   ),

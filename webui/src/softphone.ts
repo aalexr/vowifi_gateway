@@ -5,6 +5,16 @@ import JsSIP from 'jssip'
 try { JsSIP.debug.enable('JsSIP:*') } catch {}
 
 export class Softphone {
+  onEvent: (type: string, data?: any) => void
+  ua: any = null
+  session: any = null
+  remoteAudio: HTMLAudioElement | null
+  _dead = false
+  _unlocked = false
+  _rec: MediaRecorder | null = null
+  _recCtx: AudioContext | null = null
+  _recChunks: Blob[] = []
+
   // audioEl: a persistent <audio> element rendered by React and handed in via ref. Using one
   // stable, DOM-attached element (instead of a per-call `new Audio()`) is what makes remote
   // audio reliable under Chrome/Edge autoplay policy: the element is primed once inside a user
@@ -21,7 +31,7 @@ export class Softphone {
     this._recChunks = []
   }
 
-  emit(type, data) { try { this.onEvent(type, data) } catch {} }
+  emit(type, data?) { try { this.onEvent(type, data) } catch {} }
 
   // Point the class at the React-owned <audio> element. Called from the component's ref effect.
   setAudioEl(el) { if (el) this.remoteAudio = el }
@@ -227,7 +237,8 @@ export class Softphone {
   async startRecording() {
     if (!this.session || !this.session.connection || this._rec) return false
     const pc = this.session.connection
-    const Ctx = window.AudioContext || window.webkitAudioContext
+    const Ctx = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+    if (!Ctx) return false
     const ctx = new Ctx()
     const dest = ctx.createMediaStreamDestination()
     const local = pc.getSenders().map((s) => s.track).filter((t) => t && t.kind === 'audio')

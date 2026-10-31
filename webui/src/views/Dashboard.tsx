@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
-import { api } from '../api.js'
-import ProvisionModal from './ProvisionModal.jsx'
-import SipInfoModal from './SipInfoModal.jsx'
+import { api } from '../api'
+import ProvisionModal from './ProvisionModal'
+import SipInfoModal from './SipInfoModal'
 import { Plug } from 'lucide-react'
 
 function StateBadge({ st }) {
@@ -98,7 +98,7 @@ function UnprovisionedCard({ card, refresh, onProvision }) {
     setBusy(false)
   }
 
-  const row = (k, v, mono) => (<>
+  const row = (k, v, mono = false) => (<>
     <span style={{ color: 'var(--text-mute)' }}>{k}</span>
     <span className={mono ? 'mono' : ''} style={mono ? { fontSize: 11 } : undefined}>{v}</span>
   </>)

@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react'
-import { api } from '../api.js'
-import SimSelector from './SimSelector.jsx'
+import { api } from '../api'
+import SimSelector from './SimSelector'
 
 // Map ANSI SGR color codes to on-theme colors.
 const FG = {

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
-import { api } from '../api.js'
-import SimSelector from './SimSelector.jsx'
+import { api } from '../api'
+import SimSelector from './SimSelector'
 
 const PANI_ACCESS_TYPES = [
   'IEEE-802.11', 'IEEE-802.11a', 'IEEE-802.11b', 'IEEE-802.11g', 'IEEE-802.11n',
@@ -20,7 +20,7 @@ const PREVIEW_MCC_ISO = {
   '520': 'TH', '525': 'SG', '530': 'NZ', '602': 'EG', '655': 'ZA', '724': 'BR',
 }
 
-const emptyInstance = () => ({
+const emptyInstance = (): Record<string, any> => ({
   id: '', name: '', imsi: '', mcc: '', mnc: '', imei: '', imeisv: '', pin: '', reader: '',
   reader_index: 0, reader_port: '', msisdn: '', smsc: '', enabled: true, apn: 'ims', idr_mode: 'apn', cp_mode: 'auto',
   use_reauth_id: true,
@@ -143,7 +143,7 @@ export default function SimConfig({ instances, selected, refresh, cards, setSele
         setPinMsg('No SIM card in this reader.')
         return
       }
-      const patch = { imsi: c.imsi || form.imsi, mcc: c.mcc || form.mcc, mnc: c.mnc || form.mnc }
+      const patch: Record<string, any> = { imsi: c.imsi || form.imsi, mcc: c.mcc || form.mcc, mnc: c.mnc || form.mnc }
       if (c.smsc && smscMode === 'auto') patch.smsc = c.smsc   // SMSC from the SIM (EF_SMSP)
       if (c.imsi) patch.reader = `imsi:${c.imsi}`
       // Bind the line to the reader's stable physical USB port (from the detected card, else the
@@ -162,7 +162,7 @@ export default function SimConfig({ instances, selected, refresh, cards, setSele
       const r = await api.verifyPin(pin, readerIdx())
       setPinMsg(r.ok ? 'PIN OK ✓' : `Failed: ${r.error} (${r.tries} tries left)`)
       if (r.ok) {
-        const p = { pin }
+        const p: Record<string, any> = { pin }
         if (r.card?.smsc && smscMode === 'auto') p.smsc = r.card.smsc   // now-readable SMSC from SIM
         upd(p)
         await detect()
@@ -175,7 +175,7 @@ export default function SimConfig({ instances, selected, refresh, cards, setSele
     try {
       const sipError = sipUsernameConflict(form.sip)
       if (sipError) throw new Error(sipError)
-      const body = { ...form, mnc: String(form.mnc).padStart(3, '0') }
+      const body: Record<string, any> = { ...form, mnc: String(form.mnc).padStart(3, '0') }
       // Strip runtime-only fields that ride along on the instance object from /api/instances
       // (they are computed per-request, not config — never persist them).
       delete body.status; delete body.has_pin
@@ -190,7 +190,7 @@ export default function SimConfig({ instances, selected, refresh, cards, setSele
         body.sip = {
           ...body.sip,
           external: (body.sip.external || []).map((account) => {
-            const row = { username: account.username || '' }
+            const row: { username: string; password?: string } = { username: account.username || '' }
             if (String(account.password || '').trim()) row.password = account.password
             return row
           }),

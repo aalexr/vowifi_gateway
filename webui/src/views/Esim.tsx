@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { api } from '../api.js'
+import { api } from '../api'
 import { X } from 'lucide-react'
 
 const DOWNLOAD_STEPS = [
@@ -177,7 +177,7 @@ function DownloadModal({ reader, ses, imeiDefault, onClose, onStarted, showToast
   const submit = async () => {
     setErr('')
     if (dual && !seId) return setErr('Select which eUICC (SE) to install onto.')
-    const body = {
+    const body: Record<string, string | undefined> = {
       reader,
       se_id: seId || ses?.[0]?.id || 'default',
       imei: imei.trim() || undefined,

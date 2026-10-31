@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react'
-import { api } from '../api.js'
-import SimSelector from './SimSelector.jsx'
+import { api } from '../api'
+import SimSelector from './SimSelector'
 import { ArrowLeft, Trash2 } from 'lucide-react'
 
 export default function Messages({ selected, subscribe, showToast, instances, cards, setSelected }) {
@@ -82,7 +82,7 @@ export default function Messages({ selected, subscribe, showToast, instances, ca
     } catch (e) { toast('Delete failed: ' + e.message) }
   }
 
-  const deleteThread = async (p, e) => {
+  const deleteThread = async (p, e?) => {
     if (e) e.stopPropagation()
     if (!confirm(`Delete the entire conversation with ${p}? This removes all its messages.`)) return
     const forId = id

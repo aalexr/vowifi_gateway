@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
-import { api } from '../api.js'
-import { Softphone as Phone } from '../softphone.js'
-import SimSelector from './SimSelector.jsx'
+import { api } from '../api'
+import { Softphone as Phone } from '../softphone'
+import SimSelector from './SimSelector'
 import { Phone as PhoneIcon, PhoneOff, PhoneIncoming, PhoneOutgoing, Mic, MicOff, Grid3x3, CircleDot, Delete, Trash2 } from 'lucide-react'
 
 const GREEN = 'var(--ok-solid)', RED = 'var(--danger-solid)'
@@ -18,7 +18,7 @@ function Avatar({ label, color = 'var(--primary)', size = 96 }) {
   )
 }
 
-function RoundBtn({ icon, label, color, bg, onClick, active }) {
+function RoundBtn({ icon, label, color, bg = undefined, onClick, active = false }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
       <button onClick={onClick} style={{

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { api } from '../api.js'
+import { api } from '../api'
 
 // Connection parameters for a STANDARD SIP client (not the browser WebRTC softphone).
 // Maps 1:1 to the fields a generic SIP softphone asks for:
@@ -22,7 +22,7 @@ export default function SipInfoModal({ instance, onClose, setView, setSelected }
     try { await navigator.clipboard.writeText(value); setCopied(label); setTimeout(() => setCopied(''), 1500) } catch {}
   }
 
-  const Field = ({ label, value, hint, mono = true }) => (
+  const Field = ({ label, value, hint = '', mono = true }) => (
     <div style={{ marginBottom: 12 }}>
       <div style={{ fontSize: 12, color: 'var(--text-mute)', marginBottom: 3 }}>{label}</div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
