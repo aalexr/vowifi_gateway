@@ -7,18 +7,20 @@ import SimConfig from './views/SimConfig.jsx'
 import Settings from './views/Settings.jsx'
 import Logs from './views/Logs.jsx'
 import Esim from './views/Esim.jsx'
+import { LayoutDashboard, Phone, MessageSquare, Cpu, Smartphone, Settings as SettingsIcon, ScrollText, SunMoon, Sun, Moon } from 'lucide-react'
 
 // [key, label, icon, alwaysAvailable] — views not marked alwaysAvailable are disabled
 // while no PC/SC reader is connected (they all operate on a physical SIM line).
 const NAV = [
-  ['dashboard', 'Dashboard', '▤', true],
-  ['softphone', 'Softphone', '☎', false],
-  ['messages', 'Messages', '✉', false],
-  ['sims', 'SIM Config', '▣', false],
-  ['esim', 'eSIM', '◎', false],
-  ['settings', 'Settings', '⚙', true],
-  ['logs', 'Logs', '≣', true],
+  ['dashboard', 'Dashboard', LayoutDashboard, true],
+  ['softphone', 'Softphone', Phone, false],
+  ['messages', 'Messages', MessageSquare, false],
+  ['sims', 'SIM Config', Cpu, false],
+  ['esim', 'eSIM', Smartphone, false],
+  ['settings', 'Settings', SettingsIcon, true],
+  ['logs', 'Logs', ScrollText, true],
 ]
+const THEMES = [['auto', SunMoon], ['light', Sun], ['dark', Moon]]
 
 export default function App() {
   const [view, setView] = useState('dashboard')
@@ -109,42 +111,36 @@ export default function App() {
 
   return (
     <div className="app-shell" style={{ display: 'flex', height: '100%' }}>
-      <aside className="app-sidebar" style={{ width: 220, background: 'var(--sidebar)', borderRight: '1px solid var(--border)', padding: 16, display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <div className="app-brand" style={{ fontWeight: 800, fontSize: 18, padding: '4px 8px 16px', letterSpacing: .5 }}>
-          <span style={{ color: '#3b82f6' }}>Vo</span>WiFi<span style={{ color: 'var(--text-mute)', fontWeight: 500 }}> gateway</span>
+      <aside className="app-sidebar">
+        <div className="app-brand">
+          <span className="app-brand-accent">Vo</span>WiFi<span className="app-brand-sub"> gateway</span>
         </div>
-        {NAV.map(([k, label, icon, always]) => {
+        {NAV.map(([k, label, Icon, always]) => {
           const disabled = noReaders && !always
           return (
-            <button className="app-nav-button" key={k} onClick={() => !disabled && setView(k)} disabled={disabled}
-              title={disabled ? 'No PC/SC reader detected — connect a card reader to enable' : undefined}
-              style={{ textAlign: 'left', padding: '10px 12px', borderRadius: 10, cursor: disabled ? 'not-allowed' : 'pointer',
-                background: view === k ? 'var(--active)' : 'transparent', color: view === k ? '#fff' : 'var(--text-dim)',
-                opacity: disabled ? .35 : 1,
-                border: 'none', fontSize: 14, fontWeight: 600, display: 'flex', gap: 10, alignItems: 'center' }}>
-              <span style={{ width: 18, textAlign: 'center' }}>{icon}</span><span className="app-nav-label">{label}</span>
+            <button className={`app-nav-button${view === k ? ' is-active' : ''}`} key={k}
+              onClick={() => !disabled && setView(k)} disabled={disabled}
+              title={disabled ? 'No PC/SC reader detected — connect a card reader to enable' : undefined}>
+              <Icon size={18} strokeWidth={1.9} aria-hidden="true" /><span className="app-nav-label">{label}</span>
             </button>
           )
         })}
-        <div className="app-theme-picker" style={{ marginTop: 'auto', display: 'flex', gap: 6, padding: 8 }}>
-          {[['auto', '🌗'], ['light', '☀'], ['dark', '🌙']].map(([t, icon]) => (
-            <button key={t} onClick={() => setTheme(t)} title={`${t} theme`}
-              style={{
-                flex: 1, padding: '6px 0', borderRadius: 8, cursor: 'pointer', fontSize: 11,
-                fontWeight: 600, textTransform: 'capitalize', border: '1px solid var(--border)',
-                background: theme === t ? 'var(--primary)' : 'transparent',
-                color: theme === t ? '#fff' : 'var(--text-dim)',
-              }}>{icon} {t}</button>
+        <div className="app-theme-picker" role="radiogroup" aria-label="Theme">
+          {THEMES.map(([t, Icon]) => (
+            <button key={t} onClick={() => setTheme(t)} title={`${t} theme`} role="radio" aria-checked={theme === t}
+              className={theme === t ? 'is-active' : ''}>
+              <Icon size={14} aria-hidden="true" /><span>{t}</span>
+            </button>
           ))}
         </div>
-        <div className="app-instance-count" style={{ fontSize: 11, color: 'var(--text-faint)', padding: '0 8px 8px' }}>
+        <div className="app-instance-count">
           {instances.length} SIM{instances.length !== 1 ? 's' : ''} configured
         </div>
       </aside>
 
       <main className="app-main" style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
         <div className="app-header" style={{ display: 'flex', alignItems: 'center', marginBottom: 16, gap: 16, flexShrink: 0, padding: '24px 24px 0' }}>
-          <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, textTransform: 'capitalize' }}>{view}</h1>
+          <h1 className="app-title">{NAV.find(([k]) => k === view)?.[1]}</h1>
           {/* per-page SIM selectors (SimSelector) handle multi-SIM switching on the views that
               operate on a single line — softphone / messages / logs / SIM config */}
         </div>
@@ -159,7 +155,7 @@ export default function App() {
       </main>
 
       {toast && (
-        <div style={{ position: 'fixed', bottom: 24, right: 24, background: '#1d4ed8', color: '#fff', padding: '12px 18px', borderRadius: 12, boxShadow: '0 8px 30px #0008', fontWeight: 600 }}>
+        <div className="toast" role="status">
           {toast}
         </div>
       )}
