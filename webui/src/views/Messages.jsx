@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { api } from '../api.js'
 import SimSelector from './SimSelector.jsx'
+import { ArrowLeft, Trash2 } from 'lucide-react'
 
 export default function Messages({ selected, subscribe, showToast, instances, cards, setSelected }) {
   const id = selected?.id
@@ -136,7 +137,7 @@ export default function Messages({ selected, subscribe, showToast, instances, ca
               <div style={{ fontSize: 12, color: 'var(--text-mute)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.last_body}</div>
             </div>
             <button className="row-del" title="Delete conversation" aria-label={`Delete conversation with ${t.peer}`}
-              onClick={(e) => deleteThread(t.peer, e)}>🗑</button>
+              onClick={(e) => deleteThread(t.peer, e)}><Trash2 size={15} /></button>
           </div>
         ))}
         {threads.length === 0 && <div style={{ color: 'var(--text-mute)', fontSize: 13, padding: 8 }}>No conversations yet.</div>}
@@ -146,7 +147,7 @@ export default function Messages({ selected, subscribe, showToast, instances, ca
         <div style={{ padding: 14, borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, minWidth: 0, flexWrap: 'wrap' }}>
           <button type="button" className="btn btn-ghost messages-back" onClick={() => {
             setPeer(null); setComposing(false); setMsgs([])
-          }}>← Back</button>
+          }}><ArrowLeft size={14} style={{ marginRight: 4 }} />Back</button>
           {peer ? <span className="mono" style={{
             fontWeight: 600, flex: '1 1 120px', minWidth: 0, overflow: 'hidden',
             textOverflow: 'ellipsis', whiteSpace: 'nowrap',

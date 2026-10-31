@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '../api.js'
+import { X } from 'lucide-react'
 
 const DOWNLOAD_STEPS = [
   ['es10a_get_euicc_configured_addresses', 'Read default SM-DP+'],
@@ -211,7 +212,7 @@ function DownloadModal({ reader, ses, imeiDefault, onClose, onStarted, showToast
       <div className="card" style={{ width: 480, maxWidth: '92vw', padding: 20 }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <h2 style={{ margin: 0, fontSize: 18 }}>Download eSIM profile</h2>
-          <button className="btn btn-ghost" onClick={onClose}>✕</button>
+          <button className="btn btn-ghost" onClick={onClose} aria-label="Close"><X size={16} /></button>
         </div>
         {dual && (
           <div style={{ marginBottom: 14 }}>

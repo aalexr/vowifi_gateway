@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react'
 import { api } from '../api.js'
 import { Softphone as Phone } from '../softphone.js'
 import SimSelector from './SimSelector.jsx'
+import { Phone as PhoneIcon, PhoneOff, PhoneIncoming, PhoneOutgoing, Mic, MicOff, Grid3x3, CircleDot, Delete, Trash2 } from 'lucide-react'
 
 const GREEN = '#22c55e', RED = '#ef4444'
 const KEYS = [['1', ''], ['2', 'ABC'], ['3', 'DEF'], ['4', 'GHI'], ['5', 'JKL'],
@@ -13,7 +14,7 @@ function Avatar({ label, color = 'var(--primary)', size = 96 }) {
   return (
     <div style={{ width: size, height: size, borderRadius: '50%', background: color + '22',
       border: `2px solid ${color}55`, display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontSize: size * 0.42, color, margin: '0 auto' }}>☎</div>
+      fontSize: size * 0.42, color, margin: '0 auto' }}><PhoneIcon size={size * 0.4} strokeWidth={1.6} /></div>
   )
 }
 
@@ -242,13 +243,13 @@ export default function Softphone({ selected, subscribe, instances, cards, setSe
         <div style={{ display: 'flex', justifyContent: 'center', gap: 56, marginTop: 34 }}>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
             <button onClick={decline} style={{ width: 68, height: 68, borderRadius: '50%', border: 'none',
-              cursor: 'pointer', fontSize: 26, background: RED, color: '#fff' }}>✕</button>
+              cursor: 'pointer', fontSize: 26, background: RED, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><PhoneOff size={28} /></button>
             <span style={{ fontSize: 13, color: 'var(--text-soft)' }}>Decline</span>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
             <button onClick={answer} style={{ width: 68, height: 68, borderRadius: '50%', border: 'none',
               cursor: 'pointer', fontSize: 26, background: GREEN, color: '#fff',
-              boxShadow: `0 0 0 0 ${GREEN}`, animation: 'ringpulse 1.4s infinite' }}>✆</button>
+              boxShadow: `0 0 0 0 ${GREEN}`, animation: 'ringpulse 1.4s infinite', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><PhoneIcon size={28} /></button>
             <span style={{ fontSize: 13, color: 'var(--text-soft)' }}>Answer</span>
           </div>
         </div>
@@ -304,7 +305,7 @@ export default function Softphone({ selected, subscribe, instances, cards, setSe
               <div style={{ fontSize: 13, color: 'var(--text-mute)', marginTop: 4 }}>{call.state === 'ringing' ? 'Ringing…' : 'Calling…'}</div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'center', marginTop: 10 }}>
-              <RoundBtn icon="✕" label="End" color="#fff" bg={RED} onClick={hangup} />
+              <RoundBtn icon={<PhoneOff size={24} />} label="End" color="#fff" bg={RED} onClick={hangup} />
             </div>
           </div>
         )}
@@ -336,12 +337,12 @@ export default function Softphone({ selected, subscribe, instances, cards, setSe
               </div>
             )}
             <div style={{ display: 'flex', justifyContent: 'center', gap: 22, marginTop: 4, flexShrink: 0 }}>
-              <RoundBtn icon={muted ? '🔇' : '🎙'} label={muted ? 'Unmute' : 'Mute'} color="#60a5fa" onClick={toggleMute} active={muted} />
-              <RoundBtn icon="⌨" label="Keypad" color="#a78bfa" onClick={() => setKeypad((v) => !v)} active={keypad} />
-              <RoundBtn icon="⏺" label={recording ? 'Stop' : 'Record'} color={RED} onClick={toggleRecord} active={recording} />
+              <RoundBtn icon={muted ? <MicOff size={22} /> : <Mic size={22} />} label={muted ? 'Unmute' : 'Mute'} color="#60a5fa" onClick={toggleMute} active={muted} />
+              <RoundBtn icon={<Grid3x3 size={22} />} label="Keypad" color="#a78bfa" onClick={() => setKeypad((v) => !v)} active={keypad} />
+              <RoundBtn icon={<CircleDot size={22} />} label={recording ? 'Stop' : 'Record'} color={RED} onClick={toggleRecord} active={recording} />
             </div>
             <div style={{ display: 'flex', justifyContent: 'center', marginTop: 2, flexShrink: 0 }}>
-              <RoundBtn icon="✕" label="Hang up" color="#fff" bg={RED} onClick={hangup} />
+              <RoundBtn icon={<PhoneOff size={24} />} label="Hang up" color="#fff" bg={RED} onClick={hangup} />
             </div>
           </div>
         )}
@@ -376,11 +377,13 @@ export default function Softphone({ selected, subscribe, instances, cards, setSe
               <button className="call-fab" onClick={placeCall} disabled={reg !== 'registered' || !num} style={{
                 width: 64, height: 64, borderRadius: '50%', border: 'none', cursor: 'pointer', fontSize: 26,
                 background: (reg === 'registered' && num) ? GREEN : 'var(--border-strong)', color: '#fff',
-              }}>✆</button>
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}><PhoneIcon size={26} /></button>
               <button className="icon-action" onClick={() => setNum((n) => n.slice(0, -1))} style={{
                 width: 58, height: 58, borderRadius: '50%', border: 'none', background: 'transparent',
                 color: 'var(--text-mute)', cursor: 'pointer', fontSize: 22, visibility: num ? 'visible' : 'hidden',
-              }}>⌫</button>
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }} aria-label="Delete last digit"><Delete size={24} /></button>
             </div>
           </div>
         )}
@@ -415,7 +418,8 @@ export default function Softphone({ selected, subscribe, instances, cards, setSe
             const s = (c.status || '').toLowerCase()
             const color = s === 'answered' ? GREEN : (s === 'rejected' || s === 'busy' || s === 'failed') ? RED
               : (s === 'no answer' || s === 'cancelled' || s === 'missed') ? '#eab308' : 'var(--text-dim)'
-            const dlabel = c.direction === 'in' ? '↙ Incoming' : '↗ Outgoing'
+            const DirIcon = c.direction === 'in' ? PhoneIncoming : PhoneOutgoing
+            const dlabel = c.direction === 'in' ? 'Incoming' : 'Outgoing'
             const peer = (c.peer || '').trim()
             const peerLabel = peer || 'Private number'
             const checked = callSel.has(c.id)
@@ -428,7 +432,7 @@ export default function Softphone({ selected, subscribe, instances, cards, setSe
                 {callSelMode && <input type="checkbox" readOnly checked={checked} style={{ width: 'auto', flexShrink: 0 }} />}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div className="mono" style={{ fontWeight: 600, color: peer ? undefined : 'var(--text-mute)' }}>{peerLabel}</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-mute)' }}>{dlabel}{when ? ` · ${when}` : ''}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-mute)', display: 'flex', alignItems: 'center', gap: 4 }}><DirIcon size={11} aria-hidden="true" />{dlabel}{when ? ` · ${when}` : ''}</div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <span style={{ color, fontWeight: 600, textTransform: 'capitalize' }}>{c.status || 'ringing'}</span>
@@ -438,7 +442,7 @@ export default function Softphone({ selected, subscribe, instances, cards, setSe
                         e.stopPropagation(); phone.current?.unlockAudio(); setNum(peer); phone.current?.call(peer)
                       }}>Call</button>
                     <button className="row-del" title="Delete this call" aria-label="Delete this call"
-                      onClick={(e) => deleteOneCall(c.id, e)}>🗑</button>
+                      onClick={(e) => deleteOneCall(c.id, e)}><Trash2 size={15} /></button>
                   </>}
                 </div>
               </div>

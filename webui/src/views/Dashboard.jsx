@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { api } from '../api.js'
 import ProvisionModal from './ProvisionModal.jsx'
 import SipInfoModal from './SipInfoModal.jsx'
+import { Plug } from 'lucide-react'
 
 function StateBadge({ st }) {
   const state = st?.state || 'STOPPED'
@@ -239,7 +240,7 @@ export default function Dashboard({ instances, cards = [], noReaders, cardsKnown
           this live, so the banner disappears the moment a reader is plugged in. */}
       {noReaders && (
         <div className="card" style={{ padding: '32px 28px', textAlign: 'center', marginBottom: 16 }}>
-          <div style={{ fontSize: 36 }}>🔌</div>
+          <div style={{ color: 'var(--text-mute)', display: 'flex', justifyContent: 'center' }}><Plug size={36} strokeWidth={1.5} /></div>
           <div style={{ fontSize: 16, fontWeight: 700, marginTop: 10 }}>No PC/SC smart-card reader found</div>
           <div style={{ fontSize: 13, color: 'var(--text-mute)', marginTop: 8, lineHeight: 1.6, maxWidth: 520, marginLeft: 'auto', marginRight: 'auto' }}>
             Connect a USB smart-card reader with your SIM inserted — it is detected automatically
