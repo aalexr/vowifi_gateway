@@ -28,7 +28,7 @@ The control-plane WebUI — dashboard, browser softphone, SMS messaging, and eSI
 
 - **Dashboard** — live per-SIM status (SIM → ePDG DNS → tunnel → IMS reg → working), carrier/number/IMSI/ICCID/SMSC/P-CSCF, PIN state, and per-line controls (stop, re-register, re-provision, SIP info, configure).
 - **Softphone** — browser-based WebRTC dialer for placing and receiving calls on the registered line, no external client needed.
-- **Messages** — per-line SMS inbox/outbox, bridging SIP MESSAGE ↔ carrier SMS.
+- **Messages** — per-line SMS inbox/outbox, bridging SIP MESSAGE ↔ carrier SMS. Long (concatenated) incoming SMS are joined into one message that fills in as the parts arrive (`[…]` marks a part not received yet); SIP clients still get each part separately.
 - **eSIM** — local LPA (lpac) for eUICC chips: EID / free space, profile list (enable / disable / delete / nickname), activation-code download with progress, and pending notifications. Dual-SE cards (e.g. ESTKme Max / Plus+) show EID1/EID2 and require an explicit SE pick before download. Loading eSIM info needs exclusive PC/SC access — stop the VoWiFi line on that reader first.
 
 ---

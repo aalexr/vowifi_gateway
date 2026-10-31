@@ -1582,6 +1582,17 @@ def _call_disposition(dialstatus: str, cause: int, direction: str = "out") -> st
     return (dialstatus.lower() if dialstatus else "cancelled")
 
 
+def _parse_sms_concat(value: str) -> tuple[int, int, int] | None:
+    """'ref:total:seq' from the engine's SMS_CONCAT -> (ref, total, seq); None if not a part."""
+    try:
+        ref, total, seq = (int(x) for x in value.split(":"))
+    except ValueError:
+        return None
+    if total < 2 or not 1 <= seq <= total:
+        return None
+    return ref, total, seq
+
+
 @app.post("/api/engine/event")
 async def api_engine_event(payload: dict):
     """Receives notify.py callbacks from engine containers."""
@@ -1608,6 +1619,23 @@ async def api_engine_event(payload: dict):
             log.info("dropping empty-body inbound SMS from %r (internal signalling / binary/OTA "
                      "SIM message — no displayable text)", sender)
             return {"ok": True, "dropped": "empty_body"}
+        # Concatenated SMS: the engine passes "ref:total:seq" (UDH concat IE) as a 3rd arg and
+        # each part arrives as its own event. Join them into one message row that fills in as
+        # parts land; push once, when the last part completes it.
+        concat = _parse_sms_concat(args[2] if len(args) > 2 else "")
+        if concat:
+            ref, total, seq = concat
+            rec, created, changed, complete = store.add_message_part(
+                iid, sender, ref, total, seq, text)
+            if not changed:
+                log.info("ignoring re-delivered SMS part %d/%d (ref %d) from %r",
+                         seq, total, ref, sender)
+                return {"ok": True, "duplicate": True}
+            await hub.broadcast({"type": "sms", "instance": iid, "message": rec,
+                                 "update": not created})
+            if complete:
+                _dispatch_push(notify_push.EV_INCOMING_SMS, iid, sender, rec["body"])
+            return {"ok": True}
         rec = store.add_message(iid, "in", sender, text)
         await hub.broadcast({"type": "sms", "instance": iid, "message": rec})
         _dispatch_push(notify_push.EV_INCOMING_SMS, iid, sender, text)

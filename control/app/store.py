@@ -47,6 +47,18 @@ def init():
                 start_ts INTEGER NOT NULL,
                 end_ts INTEGER
             );
+            -- Parts of inbound concatenated SMS, joined into one messages row (msg_id).
+            CREATE TABLE IF NOT EXISTS sms_parts (
+                instance TEXT NOT NULL,
+                peer TEXT NOT NULL,
+                ref INTEGER NOT NULL,           -- UDH concat reference
+                total INTEGER NOT NULL,
+                seq INTEGER NOT NULL,           -- 1-based part number
+                body TEXT NOT NULL,
+                msg_id INTEGER NOT NULL,
+                ts INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_parts_group ON sms_parts(instance, peer, ref, total, ts);
             """
         )
         # migration: per-message failure detail (added later)
@@ -71,6 +83,66 @@ def add_message(instance: str, direction: str, peer: str, body: str, status: str
         mid = cur.lastrowid
     return {"id": mid, "instance": str(instance), "direction": direction,
             "peer": peer, "body": body, "status": status, "error": None, "ts": ts}
+
+
+# A concat reference is only 8/16 bits and senders reuse it, so parts only join a group that
+# started recently; older part rows are pruned.
+_PART_GROUP_WINDOW_S = 24 * 3600
+_PART_KEEP_S = 7 * 24 * 3600
+PART_GAP = "[…]"
+
+
+def add_message_part(instance: str, peer: str, ref: int, total: int, seq: int,
+                     body: str) -> tuple[dict, bool, bool, bool]:
+    """Store one part of an inbound concatenated SMS and (re)build its message row.
+
+    Every part updates the same messages row, whose body is the parts joined in order with
+    PART_GAP for parts not received yet, so nothing is hidden while the rest is in flight.
+    Returns (record, created, changed, complete): created when this part started a new row;
+    changed is False for a re-delivered part (the SMSC resends a part whose RP-ACK it never
+    got).
+    """
+    instance = str(instance)
+    now = int(time.time())
+    with _lock, _conn() as c:
+        c.execute("DELETE FROM sms_parts WHERE ts < ?", (now - _PART_KEEP_S,))
+        row = c.execute(
+            "SELECT msg_id FROM sms_parts WHERE instance=? AND peer=? AND ref=? AND total=? "
+            "AND ts >= ? ORDER BY ts DESC LIMIT 1",
+            (instance, peer, ref, total, now - _PART_GROUP_WINDOW_S)).fetchone()
+        msg_id = row["msg_id"] if row else None
+        if msg_id is not None:
+            same = c.execute(
+                "SELECT body FROM sms_parts WHERE msg_id=? AND seq=?", (msg_id, seq)).fetchone()
+            if same is not None:
+                if same["body"] != body:
+                    msg_id = None       # reference reused by a new message
+                else:
+                    m = c.execute("SELECT * FROM messages WHERE id=?", (msg_id,)).fetchone()
+                    if m is not None:
+                        have = c.execute("SELECT COUNT(DISTINCT seq) FROM sms_parts WHERE msg_id=?",
+                                         (msg_id,)).fetchone()[0]
+                        return dict(m), False, False, have >= total
+                    msg_id = None       # the message was deleted meanwhile
+        if msg_id is not None and c.execute(
+                "SELECT 1 FROM messages WHERE id=?", (msg_id,)).fetchone() is None:
+            msg_id = None
+        created = msg_id is None
+        if created:
+            cur = c.execute(
+                "INSERT INTO messages(instance,direction,peer,body,status,ts) VALUES(?,?,?,?,?,?)",
+                (instance, "in", peer, body, "ok", now))
+            msg_id = cur.lastrowid
+        c.execute(
+            "INSERT INTO sms_parts(instance,peer,ref,total,seq,body,msg_id,ts) "
+            "VALUES(?,?,?,?,?,?,?,?)",
+            (instance, peer, ref, total, seq, body, msg_id, now))
+        parts = {r["seq"]: r["body"] for r in c.execute(
+            "SELECT seq, body FROM sms_parts WHERE msg_id=?", (msg_id,))}
+        full = "".join(parts.get(s, PART_GAP) for s in range(1, total + 1))
+        c.execute("UPDATE messages SET body=? WHERE id=?", (full, msg_id))
+        m = c.execute("SELECT * FROM messages WHERE id=?", (msg_id,)).fetchone()
+    return dict(m), created, True, len(parts) >= total
 
 
 def list_threads(instance: str) -> list:

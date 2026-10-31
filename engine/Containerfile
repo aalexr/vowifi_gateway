@@ -51,7 +51,7 @@ RUN cd /tmp && \
 # (MT-SMS RP-ACK routing, reg-event SUBSCRIBE, REGISTER extras, UPDATE after PRACK). Change
 # Asterisk there, then bump ASTERISK_REF to the new commit. pjproject: sysmocom/2.14, unpatched.
 ARG ASTERISK_REPO=https://github.com/aalexr/asterisk.git
-ARG ASTERISK_REF=65fe610277aac45e414e0d39eea1e9d716705c5c
+ARG ASTERISK_REF=da178cfb4e7d031899d6ebf90e3efddbee41f52f
 ARG PJPROJECT_REPO=https://gitea.sysmocom.de/sysmocom/pjproject.git
 ARG PJPROJECT_REF=20537ab1e6beb2baf9ec15599e0217a601cf7ce5
 RUN git init -q pjproject && \
