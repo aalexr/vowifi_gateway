@@ -280,7 +280,12 @@ ensure_pcscd() {
     # Install the CCID USB driver from the distro (its IFDHandler ABI is stable across pcscd
     # 2.x, so the distro driver works with our source-built pcscd), plus build deps.
     info "host pcscd is '${installed_ver:-none}', pinning to $PCSC_VERSION (building from source)…"
-    if   have apt-get; then pkg_install libccid libudev-dev libsystemd-dev meson ninja-build flex pkg-config gcc wget ca-certificates
+    if   have apt-get; then
+      # Debian 13+/Ubuntu 24.04+ moved systemd.pc (meson's "systemd" dependency) out of the
+      # systemd package into systemd-dev; older releases don't have that package at all.
+      systemd_dev=""
+      apt-cache show systemd-dev >/dev/null 2>&1 && systemd_dev=systemd-dev
+      pkg_install libccid libudev-dev libsystemd-dev $systemd_dev meson ninja-build flex pkg-config gcc wget ca-certificates
     elif have dnf || have yum; then pkg_install ccid systemd-devel meson ninja-build flex pkgconf-pkg-config gcc perl-podlators wget
     elif have pacman;  then pkg_install ccid meson ninja flex pkgconf gcc wget
     elif have zypper;  then pkg_install pcsc-ccid systemd-devel meson ninja flex pkg-config gcc wget
