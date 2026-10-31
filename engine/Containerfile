@@ -54,7 +54,36 @@ ARG ASTERISK_REPO=https://github.com/aalexr/asterisk.git
 ARG ASTERISK_REF=09b22e20a4b5080714cf46a57082f92426083666
 ARG PJPROJECT_REPO=https://gitea.sysmocom.de/sysmocom/pjproject.git
 ARG PJPROJECT_REF=20537ab1e6beb2baf9ec15599e0217a601cf7ce5
-RUN git init -q pjproject && \
+# Prebuilt Asterisk: the fork's VowifiBuild workflow builds every pushed commit on this same
+# Fedora base (x86_64 + aarch64) and publishes the installed tree to the release
+# build-<ASTERISK_REF>. With ASTERISK_PREBUILT=auto (default) the tarball for this
+# ASTERISK_REF/PJPROJECT_REF/arch is unpacked if it exists, otherwise Asterisk is compiled below
+# (~10-15 min on a Pi). ASTERISK_PREBUILT=never always compiles; =always fails if none exists.
+# Only used for the default ASTERISK_REPO, so a test build of another repo always compiles.
+ARG ASTERISK_PREBUILT=auto
+ARG ASTERISK_RELEASES=https://github.com/aalexr/asterisk/releases/download
+RUN set -e; \
+    asset="asterisk-fedora40-$(uname -m)-pj$(printf %.12s "$PJPROJECT_REF").tar.gz"; \
+    url="$ASTERISK_RELEASES/build-$ASTERISK_REF"; \
+    if [ "$ASTERISK_PREBUILT" = never ] || [ "$ASTERISK_REPO" != https://github.com/aalexr/asterisk.git ]; then \
+        echo "prebuilt Asterisk: skipped"; exit 0; \
+    fi; \
+    mkdir -p /tmp/ast-prebuilt && cd /tmp/ast-prebuilt; \
+    if wget -q "$url/SHA256SUMS" && wget -q "$url/$asset"; then \
+        grep " $asset\$" SHA256SUMS | sha256sum -c -; \
+        tar -xzf "$asset" -C /; \
+        ldconfig; \
+        grep -qx "ASTERISK_SHA=$ASTERISK_REF" /usr/share/doc/asterisk-vowifi/BUILDINFO; \
+        grep -qx "PJPROJECT_REF=$PJPROJECT_REF" /usr/share/doc/asterisk-vowifi/BUILDINFO; \
+        echo "prebuilt Asterisk: using $url/$asset"; \
+    elif [ "$ASTERISK_PREBUILT" = always ]; then \
+        echo "prebuilt Asterisk: $url/$asset not found" >&2; exit 1; \
+    else \
+        echo "prebuilt Asterisk: $url/$asset not found, building from source"; \
+    fi; \
+    rm -rf /tmp/ast-prebuilt
+RUN if [ -f /usr/share/doc/asterisk-vowifi/BUILDINFO ]; then exit 0; fi && \
+    git init -q pjproject && \
     git -C pjproject fetch -q --depth=1 "$PJPROJECT_REPO" "$PJPROJECT_REF" && \
     git -C pjproject checkout -q FETCH_HEAD && \
     git init -q asterisk && \
