@@ -32,7 +32,7 @@ systemd service, Podman only for engines) and **container** (control plane in a 
 - `engine/render.py` + `engine/templates/*.j2` — `/config/instance.json` → Asterisk configs + `engine.env`.
 - Asterisk changes live in the fork [aalexr/asterisk](https://github.com/aalexr/asterisk), branch `vowifi/20.7.0` (sysmocom/20.7.0 + our commits); `engine/Containerfile` builds it pinned by SHA (`ASTERISK_REF`). Commit there, then bump `ASTERISK_REF`.
 - `patches/ccid/*.patch` — opt-in host CCID driver patches (`install.sh patch|patch2|patchall`).
-- `webui/src/views/*.jsx` — one file per tab/modal; `api.js` = fetch/WS helpers; `softphone.js` = JsSIP wrapper.
+- `webui/src/views/*.tsx` — one file per tab; `webui/src/components/<group>/` — one file per React component (plus `utils.ts`/`constants.ts` helpers) grouped by owning view (`dashboard`, `esim`, `settings`, `simconfig`, `softphone`) or `common` for shared ones; `api.ts` = fetch/WS helpers; `softphone.ts` = JsSIP wrapper. TypeScript (`npm run typecheck`).
 - `data/` — runtime state (configs, SQLite, logs, certs, saved PINs/secrets). **Gitignored; never commit its contents.**
 
 ## Build, run, verify

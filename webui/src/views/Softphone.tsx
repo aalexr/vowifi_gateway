@@ -1,36 +1,11 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
 import { api } from '../api'
 import { Softphone as Phone } from '../softphone'
-import SimSelector from './SimSelector'
+import SimSelector from '../components/common/SimSelector'
 import { Phone as PhoneIcon, PhoneOff, PhoneIncoming, PhoneOutgoing, Mic, MicOff, Grid3x3, CircleDot, Delete, Trash2 } from 'lucide-react'
-
-const GREEN = 'var(--ok-solid)', RED = 'var(--danger-solid)'
-const KEYS = [['1', ''], ['2', 'ABC'], ['3', 'DEF'], ['4', 'GHI'], ['5', 'JKL'],
-  ['6', 'MNO'], ['7', 'PQRS'], ['8', 'TUV'], ['9', 'WXYZ'], ['*', ''], ['0', '+'], ['#', '']]
-
-const fmtDur = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
-
-function Avatar({ label, color = 'var(--primary)', size = 96 }) {
-  return (
-    <div style={{ width: size, height: size, borderRadius: '50%', background: `color-mix(in srgb, ${color} 13%, transparent)`,
-      border: `2px solid color-mix(in srgb, ${color} 33%, transparent)`, display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontSize: size * 0.42, color, margin: '0 auto' }}><PhoneIcon size={size * 0.4} strokeWidth={1.6} /></div>
-  )
-}
-
-function RoundBtn({ icon, label, color, bg = undefined, onClick, active = false }) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-      <button onClick={onClick} style={{
-        width: 58, height: 58, borderRadius: '50%', cursor: 'pointer', fontSize: 22,
-        border: '1px solid ' + (active ? color : 'var(--border-strong)'),
-        background: bg || (active ? `color-mix(in srgb, ${color} 13%, transparent)` : 'var(--hover)'),
-        color: bg ? color : active ? color : 'var(--text-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}>{icon}</button>
-      <span style={{ fontSize: 11, color: 'var(--text-mute)' }}>{label}</span>
-    </div>
-  )
-}
+import { GREEN, KEYS, fmtDur, RED } from '../components/softphone/constants'
+import Avatar from '../components/softphone/Avatar'
+import RoundBtn from '../components/softphone/RoundBtn'
 
 export default function Softphone({ selected, subscribe, instances, cards, setSelected, showToast }) {
   const id = selected?.id

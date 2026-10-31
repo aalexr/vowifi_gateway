@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { api } from '../api'
+import { api } from '../../api'
 
 // Connection parameters for a STANDARD SIP client (not the browser WebRTC softphone).
 // Maps 1:1 to the fields a generic SIP softphone asks for:

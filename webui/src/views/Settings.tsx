@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { api } from '../api'
-import PushInfoModal from './PushInfoModal'
+import PushInfoModal from '../components/settings/PushInfoModal'
 
 export default function Settings() {
   const [s, setS] = useState(null)

@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { api } from '../api'
-import SimSelector from './SimSelector'
+import SimSelector from '../components/common/SimSelector'
 import { ArrowLeft, Trash2 } from 'lucide-react'
 
 export default function Messages({ selected, subscribe, showToast, instances, cards, setSelected }) {
