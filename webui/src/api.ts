@@ -51,12 +51,54 @@ export interface PinResult {
   card?: DetectedCard;
 }
 
+/** `state` values written by engine/pin_keeper.py. */
+export type PinKeeperState =
+  | "NO_READER"
+  | "NO_CARD"
+  | "PIN_DISABLED"
+  | "VERIFIED"
+  | "WRONG_PIN"
+  | "PIN_BLOCKED"
+  | "ERROR";
+
+/** Contents of the engine's run/pin_status.json (engine/pin_keeper.py `write_status`). */
+export interface PinStatus {
+  state: PinKeeperState;
+  tries_left: number | null;
+  reader: string | null;
+  detail: string | null;
+  ts: number;
+}
+
+/** Outbound registration state from ami.py `registration_state()`. */
+export type RegistrationState =
+  "Registered" | "Rejected" | "Unregistered" | "unknown";
+
+/**
+ * Raw signals behind a status (control/app/status.py `compute`). Keys are filled in as the
+ * state machine progresses, so later ones are absent when an earlier stage failed; status
+ * pushed over the WS on card removal carries an empty object.
+ */
+export interface StatusDetail {
+  msisdn?: string | null;
+  smsc?: string | null;
+  iccid?: string | null;
+  /** pin_status.json; `{}` while the engine hasn't written it yet. */
+  pin?: Partial<PinStatus>;
+  /** IKE failure classification (a `tunnel_*` reason code) while TUNNEL_DOWN. */
+  ike_reason?: string;
+  pcscf?: string | null;
+  registration?: RegistrationState;
+  /** IMS reg-event state "<state>;<event>", e.g. "active;created". */
+  reg_event?: string;
+}
+
 export interface InstanceStatus {
   state: StatusState;
   label: string;
   reason_code: string;
   reason: string;
-  detail: Record<string, unknown>;
+  detail: StatusDetail;
   retry?: { count: number; max: number };
   frozen?: boolean;
   retrying_network?: boolean;

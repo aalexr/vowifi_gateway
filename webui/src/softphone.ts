@@ -377,7 +377,7 @@ export class Softphone {
     return true;
   }
 
-  stopRecording() {
+  stopRecording(): Promise<Blob | null> {
     return new Promise((resolve) => {
       if (!this._rec) {
         resolve(null);
