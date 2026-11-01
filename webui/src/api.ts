@@ -274,27 +274,74 @@ export type DeleteMessagesRequest =
 
 export type DeleteCallsRequest = { ids: unknown[] } | { all: true };
 
-export interface EsimProfile {
+/** Fields lpa.py `load_all_ses` adds to each lpac profile/notification entry. */
+interface EsimSeTag {
+  seId?: string;
+  seLabel?: string;
+  seEid?: string | null;
+}
+
+/** One entry of lpac `profile list` (passed through by control/app/lpa.py). */
+export interface EsimProfile extends EsimSeTag {
   iccid: string;
+  isdpAid?: string;
+  profileState?: "enabled" | "disabled" | string;
+  profileNickname?: string | null;
+  serviceProviderName?: string | null;
+  profileName?: string | null;
+  profileClass?: string | null;
+  iconType?: string | null;
+  icon?: string | null;
   [key: string]: unknown;
 }
 
-export interface EsimNotification {
-  seq: number;
+/** One entry of lpac `notification list`. `seq`/`operation`/`address` are older aliases. */
+export interface EsimNotification extends EsimSeTag {
+  seqNumber?: number;
+  seq?: number;
   iccid?: string;
+  profileManagementOperation?: string;
+  operation?: string;
+  notificationAddress?: string;
+  address?: string;
   [key: string]: unknown;
 }
 
+/** lpac es8p metadata of a profile being downloaded (the "preview" progress event). */
+export interface EsimDownloadPreview {
+  iccid?: string;
+  serviceProviderName?: string;
+  profileName?: string;
+  profileClass?: string;
+  iconType?: string;
+  icon?: string;
+  [key: string]: unknown;
+}
+
+/** Normalised lpac `chip info` (lpa.py `chip_info`). */
+export interface EsimChipInfo {
+  eid: string;
+  defaultDpAddress?: string | null;
+  rootDsAddress?: string | null;
+  freeNonVolatileMemory?: number | null;
+  freeVolatileMemory?: number | null;
+  sasAccreditationNumber?: string | null;
+  raw?: unknown;
+}
+
+/** A Secure Element on the card (lpa.py `load_all_ses`); dual-SE cards have two. */
 export interface EsimSecureElement {
   id: string;
   label?: string;
   aid?: string | null;
-  eid?: string;
-  chip?: Record<string, unknown> | null;
-  freeSpace?: number;
+  eid?: string | null;
+  chip?: EsimChipInfo | null;
+  freeSpace?: number | null;
+  defaultDpAddress?: string | null;
+  rootDsAddress?: string | null;
   profiles?: EsimProfile[];
   notifications?: EsimNotification[];
-  error?: string;
+  error?: string | null;
 }
 
 export interface EsimStatus {
@@ -341,12 +388,42 @@ export type WebSocketMessage =
       event: string;
       step?: string;
       data?: unknown;
-      metadata?: Record<string, unknown>;
+      /** Set (= `data`) whenever lpac's progress data is an object. */
+      metadata?: EsimDownloadPreview;
       result?: unknown;
       card?: DetectedCard;
       error?: string;
       imei?: string;
     };
+
+/** Structured FastAPI error detail, e.g. {code: "pin_required", message, tries}. */
+export interface ApiErrorDetail {
+  code?: string;
+  message?: string;
+  tries?: number;
+  [key: string]: unknown;
+}
+
+/** What `j()` throws on a non-2xx response: an Error carrying the HTTP status and body. */
+export interface ApiError extends Error {
+  status?: number;
+  data?: {
+    detail?: ApiErrorDetail | string;
+    error?: string;
+    [key: string]: unknown;
+  };
+}
+
+/** Narrow a caught value to an ApiError (wrapping non-Error throws) for use in catch blocks. */
+export function asApiError(e: unknown): ApiError {
+  return e instanceof Error ? (e as ApiError) : new Error(String(e));
+}
+
+/** The structured `detail` object of an API error, if the server sent one. */
+export function apiErrorDetail(e: unknown): ApiErrorDetail | undefined {
+  const d = asApiError(e).data?.detail;
+  return d && typeof d === "object" ? d : undefined;
+}
 
 async function j<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = {};
@@ -559,7 +636,7 @@ export const api = {
       reader_index: number;
       dual: boolean;
       ses: EsimSecureElement[];
-      chip?: Record<string, unknown>;
+      chip?: EsimChipInfo;
       imei: string;
       line_running: boolean;
       matched_instance?: InstanceId | null;

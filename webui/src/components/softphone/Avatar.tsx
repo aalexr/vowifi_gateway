@@ -1,7 +1,18 @@
 import React from "react";
 import { Phone as PhoneIcon } from "lucide-react";
 
-export default function Avatar({ label, color = "var(--primary)", size = 96 }) {
+interface AvatarProps {
+  /** Peer number; currently not rendered (the avatar shows a phone glyph). */
+  label?: string;
+  color?: string;
+  size?: number;
+}
+
+export default function Avatar({
+  label,
+  color = "var(--primary)",
+  size = 96,
+}: AvatarProps) {
   return (
     <div
       style={{

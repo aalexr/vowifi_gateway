@@ -1,7 +1,22 @@
 import React, { useState, useEffect } from "react";
-import { api } from "../../api";
+import {
+  api,
+  asApiError,
+  type EsimDownloadRequest,
+  type EsimSecureElement,
+} from "../../api";
 import { X } from "lucide-react";
 import { parseActivationCode, formatBytes } from "./utils";
+
+interface DownloadModalProps {
+  /** PC/SC reader name to install onto. */
+  reader: string;
+  ses?: EsimSecureElement[];
+  imeiDefault?: string;
+  onClose: () => void;
+  onStarted?: () => void;
+  showToast?: (msg: React.ReactNode) => void;
+}
 
 export default function DownloadModal({
   reader,
@@ -10,7 +25,7 @@ export default function DownloadModal({
   onClose,
   onStarted,
   showToast,
-}) {
+}: DownloadModalProps) {
   const dual = (ses || []).length > 1;
   const [mode, setMode] = useState("code"); // code | manual
   const [activation, setActivation] = useState("");
@@ -34,7 +49,7 @@ export default function DownloadModal({
     setErr("");
     if (dual && !seId)
       return setErr("Select which eUICC (SE) to install onto.");
-    const body: Record<string, string | undefined> = {
+    const body: EsimDownloadRequest = {
       reader,
       se_id: seId || ses?.[0]?.id || "default",
       imei: imei.trim() || undefined,
@@ -55,7 +70,7 @@ export default function DownloadModal({
       onStarted?.();
       onClose();
     } catch (e) {
-      setErr(e.message);
+      setErr(asApiError(e).message);
     }
     setBusy(false);
   };

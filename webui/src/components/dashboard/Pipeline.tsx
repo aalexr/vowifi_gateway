@@ -1,13 +1,14 @@
 import React from "react";
+import type { InstanceStatus, StatusState } from "../../api";
 
-export const STEPS = [
+export const STEPS: [StatusState, string][] = [
   ["NO_CARD", "SIM"],
   ["EPDG_UNRESOLVED", "ePDG DNS"],
   ["TUNNEL_DOWN", "Tunnel"],
   ["REGISTERING", "IMS reg"],
   ["OK", "Working"],
 ];
-export const RANK = {
+export const RANK: Partial<Record<StatusState, number>> = {
   STOPPED: -1,
   NO_CARD: 0,
   PIN_PROBLEM: 0,
@@ -17,8 +18,8 @@ export const RANK = {
   OK: 4,
 };
 
-export default function Pipeline({ st }) {
-  const rank = RANK[st?.state] ?? -1;
+export default function Pipeline({ st }: { st?: InstanceStatus | null }) {
+  const rank = (st && RANK[st.state]) ?? -1;
   return (
     <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
       {STEPS.map(([k, label], idx) => {
@@ -27,7 +28,7 @@ export default function Pipeline({ st }) {
         const bg = done
           ? "var(--ok-solid)"
           : cur
-            ? st.state === "OK"
+            ? st?.state === "OK"
               ? "var(--ok-solid)"
               : "#ca8a04"
             : "var(--border-strong)";

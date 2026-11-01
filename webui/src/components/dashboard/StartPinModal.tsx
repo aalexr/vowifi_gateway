@@ -1,10 +1,29 @@
 import React, { useState } from "react";
-import { api } from "../../api";
+import {
+  api,
+  apiErrorDetail,
+  asApiError,
+  type InstanceConfig,
+} from "../../api";
 import { PIN_RE } from "./utils";
 
 // A PIN prompt shown when starting a line whose card needs a PIN we don't have (deleted,
 // or the saved one no longer verifies). Verifies + saves the PIN, then starts the line.
-export default function StartPinModal({ inst, tries, error, onClose, onDone }) {
+interface StartPinModalProps {
+  inst: InstanceConfig;
+  tries?: number | null;
+  error?: string;
+  onClose: () => void;
+  onDone?: () => void | Promise<void>;
+}
+
+export default function StartPinModal({
+  inst,
+  tries,
+  error,
+  onClose,
+  onDone,
+}: StartPinModalProps) {
   const [pin, setPin] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(error || "");
@@ -21,10 +40,12 @@ export default function StartPinModal({ inst, tries, error, onClose, onDone }) {
       await api.start(inst.id, { pin });
       onDone && (await onDone());
       onClose();
-    } catch (e) {
-      const code = e?.data?.detail?.code;
+    } catch (err) {
+      const e = asApiError(err);
+      const detail = apiErrorDetail(e);
+      const code = detail?.code;
       if (code === "pin_invalid" || /PIN error/i.test(e.message)) {
-        const t = e?.data?.detail?.tries;
+        const t = detail?.tries;
         setErr(`Wrong PIN${t != null ? ` — ${t} tries left` : ""}.`);
       } else if (code === "no_card")
         setErr("SIM card is not present in the reader.");

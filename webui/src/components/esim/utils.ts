@@ -1,4 +1,13 @@
-export const DOWNLOAD_STEPS = [
+import type {
+  DetectedCard,
+  EsimProfile,
+  EsimSecureElement,
+  InstanceConfig,
+  ReaderSelection,
+} from "../../api";
+
+/** lpac download progress steps in order: [lpac step name, UI label]. */
+export const DOWNLOAD_STEPS: [string, string][] = [
   ["es10a_get_euicc_configured_addresses", "Read default SM-DP+"],
   ["es10b_get_euicc_challenge_and_info", "Get eUICC challenge"],
   ["es9p_initiate_authentication", "Authenticate with SM-DP+"],
@@ -11,7 +20,7 @@ export const DOWNLOAD_STEPS = [
 ];
 
 /** Map lpac progress/error names onto the pipeline. Ignore cancel_session etc. */
-export function resolveDownloadStep(step) {
+export function resolveDownloadStep(step: unknown): string | null {
   const s = String(step || "");
   if (!s || s === "started" || s === "completed" || s === "cancelling")
     return null;
@@ -20,14 +29,17 @@ export function resolveDownloadStep(step) {
   const idx = DOWNLOAD_STEPS.findIndex(([k]) => k === s || k === base);
   return idx >= 0 ? DOWNLOAD_STEPS[idx][0] : null;
 }
-export function isNonEuiccError(msg) {
+export function isNonEuiccError(msg: unknown) {
   const s = String(msg || "");
   return /euicc_init|does not appear to be an eUICC|not an eUICC|ordinary USIM/i.test(
     s,
   );
 }
 
-export function copyText(text, showToast) {
+export function copyText(
+  text: string | null | undefined,
+  showToast?: (msg: string) => void,
+) {
   if (!text) return;
   navigator.clipboard?.writeText(text).then(
     () => showToast?.("Copied"),
@@ -35,7 +47,7 @@ export function copyText(text, showToast) {
   );
 }
 
-export function parseActivationCode(raw) {
+export function parseActivationCode(raw: string | null | undefined) {
   let s = (raw || "").trim();
   if (!s) return null;
   if (/^LPA:/i.test(s)) s = s.slice(4);
@@ -48,14 +60,14 @@ export function parseActivationCode(raw) {
   };
 }
 /** Match sigmo: nickname takes priority, else profileName. */
-export function profileDisplayName(p) {
+export function profileDisplayName(p: EsimProfile) {
   const nick = (p.profileNickname || "").trim();
   if (nick) return nick;
   return (
     (p.profileName || p.serviceProviderName || "Profile").trim() || "Profile"
   );
 }
-export function formatBytes(bytes) {
+export function formatBytes(bytes: number | string | null | undefined) {
   if (bytes == null || Number.isNaN(Number(bytes))) return "—";
   const n = Number(bytes);
   if (n === 0) return "0 B";
@@ -65,14 +77,20 @@ export function formatBytes(bytes) {
   return `${Math.round((n / k ** i) * 100) / 100} ${sizes[i]}`;
 }
 
-export function seTarget(reader, se) {
+export function seTarget(
+  reader: string,
+  se?: (Partial<EsimSecureElement> & { seId?: string }) | null,
+): ReaderSelection {
   return {
     reader,
     se_id: se?.id || se?.seId,
     aid: se?.aid || undefined,
   };
 }
-export function instanceForCard(card, instances) {
+export function instanceForCard<T extends InstanceConfig>(
+  card: DetectedCard | null | undefined,
+  instances: T[],
+): T | null {
   if (!card) return null;
   if (card.matched != null) {
     const byId = instances.find((i) => String(i.id) === String(card.matched));
@@ -84,7 +102,7 @@ export function instanceForCard(card, instances) {
   return null;
 }
 
-export function isLineRunning(inst) {
+export function isLineRunning(inst: InstanceConfig | null | undefined) {
   const st = inst?.status?.state;
   return !!(st && st !== "STOPPED");
 }

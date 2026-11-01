@@ -1,5 +1,28 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { api } from "../api";
+import {
+  api,
+  asApiError,
+  type EsimDownloadPreview,
+  type EsimNotification,
+  type EsimProfile,
+  type EsimSecureElement,
+  type EsimStatus,
+} from "../api";
+
+/** Live state of an in-flight profile download, driven by `esim_download` WS events. */
+interface DownloadState {
+  step?: string | null;
+  event: string;
+  metadata?: EsimDownloadPreview;
+  error?: string;
+  done?: boolean;
+  result?: unknown;
+}
+
+interface RenameTarget {
+  se: EsimSecureElement;
+  profile: EsimProfile;
+}
 import {
   resolveDownloadStep,
   isNonEuiccError,
@@ -31,15 +54,15 @@ export default function Esim({
     [cards],
   );
   const [reader, setReader] = useState("");
-  const [status, setStatus] = useState(null);
-  const [ses, setSes] = useState([]);
+  const [status, setStatus] = useState<Partial<EsimStatus> | null>(null);
+  const [ses, setSes] = useState<EsimSecureElement[]>([]);
   const [meta, setMeta] = useState({ imei: "" });
   const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
   const [showDl, setShowDl] = useState(false);
-  const [dl, setDl] = useState(null); // {step, event, metadata, error, done}
-  const [renameTarget, setRenameTarget] = useState(null); // { se, profile }
+  const [dl, setDl] = useState<DownloadState | null>(null);
+  const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null);
   const [busyOp, setBusyOp] = useState("");
 
   useEffect(() => {
@@ -125,7 +148,8 @@ export default function Esim({
         setErr("");
       }
       setLoaded(true);
-    } catch (e) {
+    } catch (err) {
+      const e = asApiError(err);
       // Non-eUICC cards surface as a calm empty state, not a red error banner.
       setErr(isNonEuiccError(e.message) ? "" : e.message);
       setSes([]);
@@ -154,7 +178,7 @@ export default function Esim({
         showToast?.(`Line ${matchedInst.id} stopped`);
         await refresh?.();
       } catch (e) {
-        showToast?.(e.message);
+        showToast?.(asApiError(e).message);
         setBusyOp("");
         return;
       }
@@ -187,7 +211,7 @@ export default function Esim({
           ...(d || {}),
           step: known || d?.step || "started",
           event: msg.event,
-          metadata: msg.metadata || msg.data || d?.metadata,
+          metadata: msg.metadata || d?.metadata,
           done: false,
         }));
       } else if (msg.event === "completed") {
@@ -226,19 +250,20 @@ export default function Esim({
       showToast?.(`Line ${matchedInst.id} stopped`);
       await refresh?.();
     } catch (e) {
-      showToast?.(e.message);
+      showToast?.(asApiError(e).message);
     }
     setBusyOp("");
   };
 
-  const runProfileOp = async (label, fn) => {
+  const runProfileOp = async (label: string, fn: () => Promise<unknown>) => {
     setBusyOp(label);
     try {
       await fn();
       showToast?.(label + " OK");
       await loadAll();
       await refresh?.();
-    } catch (e) {
+    } catch (err) {
+      const e = asApiError(err);
       showToast?.(e.message);
       setErr(e.message);
     }
@@ -656,7 +681,7 @@ export default function Esim({
                         gap: 8,
                       }}
                     >
-                      {seProfiles.map((p) => {
+                      {seProfiles.map((p: EsimProfile) => {
                         const enabled =
                           String(p.profileState || "").toLowerCase() ===
                           "enabled";
@@ -845,14 +870,12 @@ export default function Esim({
                   <div
                     style={{ display: "flex", flexDirection: "column", gap: 8 }}
                   >
-                    {notes.map((n) => {
-                      const target = {
-                        ...seTarget(reader, se),
-                        seq: n.seqNumber ?? n.seq,
-                      };
+                    {notes.map((n: EsimNotification) => {
+                      const seq = n.seqNumber ?? n.seq;
+                      const target = { ...seTarget(reader, se), seq };
                       return (
                         <div
-                          key={`${se.id}:${n.seqNumber ?? n.seq}`}
+                          key={`${se.id}:${seq}`}
                           style={{
                             display: "flex",
                             justifyContent: "space-between",
@@ -866,7 +889,7 @@ export default function Esim({
                         >
                           <div>
                             <div style={{ fontWeight: 600 }}>
-                              #{n.seqNumber ?? n.seq} ·{" "}
+                              #{seq} ·{" "}
                               {n.profileManagementOperation ||
                                 n.operation ||
                                 "notify"}
@@ -892,11 +915,12 @@ export default function Esim({
                             </button>
                             <button
                               className="btn btn-ghost"
-                              disabled={!!busyOp || lineRunning}
+                              disabled={!!busyOp || lineRunning || seq == null}
                               onClick={() =>
+                                seq != null &&
                                 runProfileOp("Remove", () =>
                                   api.esimNotificationRemove(
-                                    n.seqNumber ?? n.seq,
+                                    seq,
                                     seTarget(reader, se),
                                   ),
                                 )

@@ -1,11 +1,16 @@
 import React, { useEffect, useState } from "react";
-import { api } from "../api";
+import { api, asApiError, type Settings as SettingsData } from "../api";
 import PushInfoModal from "../components/settings/PushInfoModal";
 
+type PushEvent = keyof NonNullable<
+  NonNullable<SettingsData["webhook"]>["events"]
+>;
+
 export default function Settings() {
-  const [s, setS] = useState(null);
+  const [s, setS] = useState<SettingsData | null>(null);
   const [msg, setMsg] = useState("");
-  const [info, setInfo] = useState(""); // '' | 'webhook' | 'telegram' — which help modal is open
+  // Which push-channel help modal is open, if any.
+  const [info, setInfo] = useState<"" | "webhook" | "telegram">("");
 
   useEffect(() => {
     api
@@ -15,11 +20,16 @@ export default function Settings() {
   }, []);
   if (!s) return <div style={{ color: "var(--text-dim)" }}>Loading…</div>;
 
-  const upd = (patch) => setS((x) => ({ ...x, ...patch }));
-  const updTls = (patch) =>
-    setS((x) => ({ ...x, tls: { ...x.tls, ...patch } }));
-  const updDebug = (patch) =>
-    setS((x) => ({ ...x, debug: { ...x.debug, ...patch } }));
+  // All editors run after the settings loaded, so the updaters only ever see a non-null `x`.
+  const patchS = (fn: (x: SettingsData) => SettingsData) =>
+    setS((x) => (x ? fn(x) : x));
+  const upd = (patch: Partial<SettingsData>) =>
+    patchS((x) => ({ ...x, ...patch }));
+  const updTls = (patch: Partial<NonNullable<SettingsData["tls"]>>) =>
+    patchS((x) => ({ ...x, tls: { ...x.tls, ...patch } }));
+  const updDebug = (patch: Partial<NonNullable<SettingsData["debug"]>>) =>
+    patchS((x) => ({ ...x, debug: { ...x.debug, ...patch } }));
+  const tls = s.tls || {};
   // webhook / telegram helpers: patch the channel object and its nested `events` map.
   const wh = s.webhook || { enabled: false, url: "", events: {} };
   const tg = s.telegram || {
@@ -28,17 +38,17 @@ export default function Settings() {
     chat_id: "",
     events: {},
   };
-  const updWh = (patch) =>
-    setS((x) => ({ ...x, webhook: { ...wh, ...patch } }));
-  const updWhEv = (k, v) =>
-    setS((x) => ({
+  const updWh = (patch: Partial<typeof wh>) =>
+    patchS((x) => ({ ...x, webhook: { ...wh, ...patch } }));
+  const updWhEv = (k: PushEvent, v: boolean) =>
+    patchS((x) => ({
       ...x,
       webhook: { ...wh, events: { ...(wh.events || {}), [k]: v } },
     }));
-  const updTg = (patch) =>
-    setS((x) => ({ ...x, telegram: { ...tg, ...patch } }));
-  const updTgEv = (k, v) =>
-    setS((x) => ({
+  const updTg = (patch: Partial<typeof tg>) =>
+    patchS((x) => ({ ...x, telegram: { ...tg, ...patch } }));
+  const updTgEv = (k: PushEvent, v: boolean) =>
+    patchS((x) => ({
       ...x,
       telegram: { ...tg, events: { ...(tg.events || {}), [k]: v } },
     }));
@@ -51,7 +61,7 @@ export default function Settings() {
         "Saved. Restart the control surface for TLS/port changes. Stop → Start (or re-provision) lines for advertise-address, ring-timeout, and other engine settings.",
       );
     } catch (e) {
-      setMsg("Error: " + e.message);
+      setMsg("Error: " + asApiError(e).message);
     }
   };
 
@@ -90,7 +100,7 @@ export default function Settings() {
           <input
             type="checkbox"
             style={{ width: "auto", marginRight: 8 }}
-            checked={!!s.tls.self_signed}
+            checked={!!tls.self_signed}
             onChange={(e) => updTls({ self_signed: e.target.checked })}
           />
           Use self-signed certificate
@@ -101,13 +111,13 @@ export default function Settings() {
             gridTemplateColumns: "1fr 1fr",
             gap: 10,
             marginTop: 10,
-            opacity: s.tls.self_signed ? 0.5 : 1,
+            opacity: tls.self_signed ? 0.5 : 1,
           }}
         >
           <div>
             <label>Domain</label>
             <input
-              value={s.tls.domain || ""}
+              value={tls.domain || ""}
               onChange={(e) => updTls({ domain: e.target.value })}
               placeholder="gw.example.com"
             />
@@ -117,7 +127,7 @@ export default function Settings() {
             <label>Cert path</label>
             <input
               className="mono"
-              value={s.tls.cert_path || ""}
+              value={tls.cert_path || ""}
               onChange={(e) => updTls({ cert_path: e.target.value })}
               placeholder="/path/fullchain.pem"
             />
@@ -126,7 +136,7 @@ export default function Settings() {
             <label>Key path</label>
             <input
               className="mono"
-              value={s.tls.key_path || ""}
+              value={tls.key_path || ""}
               onChange={(e) => updTls({ key_path: e.target.value })}
               placeholder="/path/privkey.pem"
             />

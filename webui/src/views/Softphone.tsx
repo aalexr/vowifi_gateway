@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { api, CallRecord } from "../api";
+import { api, asApiError, CallRecord, type InstanceId } from "../api";
+
+type SoftphoneProvisioning = Awaited<ReturnType<typeof api.softphone>>;
 import { Softphone as Phone } from "../softphone";
 import SimSelector from "../components/common/SimSelector";
 import {
@@ -36,7 +38,7 @@ export default function Softphone({
   showToast,
 }: CommonViewProps) {
   const id = selected?.id;
-  const [prov, setProv] = useState(null);
+  const [prov, setProv] = useState<SoftphoneProvisioning | null>(null);
   const [reg, setReg] = useState("idle");
   const [call, setCall] = useState<Call | null>(null); // {dir, number, state, startedAt, endCause}
   const [num, setNum] = useState("");
@@ -48,11 +50,11 @@ export default function Softphone({
   const [calls, setCalls] = useState<CallRecord[]>([]);
   const [mobilePane, setMobilePane] = useState("phone");
   const [callSelMode, setCallSelMode] = useState(false);
-  const [callSel, setCallSel] = useState(() => new Set());
+  const [callSel, setCallSel] = useState(() => new Set<number>());
   const phone = useRef<Phone | null>(null);
   // Persistent, DOM-rendered <audio> sink. One stable element (primed on the first click via
   // unlockAudio) is what makes remote WebRTC audio play under Chrome/Edge autoplay policy.
-  const audioRef = useRef(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const loadCalls = useCallback(() => {
     if (id == null || id === "") return;
@@ -90,19 +92,19 @@ export default function Softphone({
   }, [call?.state, loadCalls]);
 
   const toast = (m: string) => (showToast ? showToast(m) : null);
-  const toggleCallSel = (cid) =>
+  const toggleCallSel = (cid: number) =>
     setCallSel((s) => {
       const n = new Set(s);
       n.has(cid) ? n.delete(cid) : n.add(cid);
       return n;
     });
   // Reload only if still on the same line (a delete may resolve after the user switched SIMs).
-  const reloadIfSame = (forId) => {
+  const reloadIfSame = (forId: InstanceId) => {
     if (String(forId) === String(id)) loadCalls();
   };
 
   const deleteSelectedCalls = async () => {
-    if (!callSel.size) return;
+    if (!id || !callSel.size) return;
     if (
       !confirm(
         `Delete ${callSel.size} selected call${callSel.size > 1 ? "s" : ""}?`,
@@ -117,21 +119,22 @@ export default function Softphone({
       reloadIfSame(forId);
       toast("Calls deleted");
     } catch (e) {
-      toast("Delete failed: " + e.message);
+      toast("Delete failed: " + asApiError(e).message);
     }
   };
-  const deleteOneCall = async (cid, e) => {
+  const deleteOneCall = async (cid: number, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
+    if (!id) return;
     const forId = id;
     try {
       await api.deleteCalls(forId, { ids: [cid] });
       reloadIfSame(forId);
     } catch (e2) {
-      toast("Delete failed: " + e2.message);
+      toast("Delete failed: " + asApiError(e2).message);
     }
   };
   const clearAllCalls = async () => {
-    if (!calls.length) return;
+    if (!id || !calls.length) return;
     if (!confirm("Clear the entire call history for this line?")) return;
     const forId = id;
     try {
@@ -141,7 +144,7 @@ export default function Softphone({
       reloadIfSame(forId);
       toast("Call history cleared");
     } catch (e) {
-      toast("Delete failed: " + e.message);
+      toast("Delete failed: " + asApiError(e).message);
     }
   };
 
@@ -166,7 +169,7 @@ export default function Softphone({
     };
   }, [id]);
 
-  const clearCallSoon = (endCause) => {
+  const clearCallSoon = (endCause?: string) => {
     setCall((c) => (c ? { ...c, state: "ended", endCause } : null));
     setKeypad(false);
     setMuted(false);
@@ -232,12 +235,13 @@ export default function Softphone({
 
   // in-call duration timer
   useEffect(() => {
-    if (call?.state !== "active" || !call.startedAt) {
+    const startedAt = call?.startedAt;
+    if (call?.state !== "active" || !startedAt) {
       setDur(0);
       return;
     }
     const t = setInterval(
-      () => setDur(Math.floor((Date.now() - call.startedAt) / 1000)),
+      () => setDur(Math.floor((Date.now() - startedAt) / 1000)),
       500,
     );
     return () => clearInterval(t);
@@ -282,14 +286,14 @@ export default function Softphone({
     return () => clearTimeout(t);
   }, [call?.state]);
 
-  const dialKey = (k) => {
+  const dialKey = (k: string) => {
     if (call?.state === "active") {
       phone.current?.sendDTMF(k);
       setNum((n) => n + k);
     } else setNum((n) => n + k);
   };
   // In-call DTMF: send the tone and echo it into the keypad's display strip.
-  const pressDTMF = (k) => {
+  const pressDTMF = (k: string) => {
     phone.current?.sendDTMF(k);
     setDtmfSeq((s) => (s + k).slice(-32));
   };
@@ -391,7 +395,7 @@ export default function Softphone({
       call.state === "ringing" ||
       call.state === "incoming" ||
       call.state === "ended");
-  const endLabel = (c) =>
+  const endLabel = (c?: string) =>
     c === "Rejected"
       ? "Call declined"
       : c === "Busy"

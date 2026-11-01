@@ -1,4 +1,5 @@
-import { InstanceConfig, SipConfig } from "../../api";
+import type { SipConfig } from "../../api";
+import type { InstanceForm } from "./types";
 
 export const PANI_ACCESS_TYPES = [
   "IEEE-802.11",
@@ -13,7 +14,7 @@ export const PANI_ACCESS_TYPES = [
 ] as const;
 
 // Preview-only MCC→ISO hints (authoritative table lives in control/app/mcc_country.py).
-export const PREVIEW_MCC_ISO = {
+export const PREVIEW_MCC_ISO: Readonly<Record<string, string>> = {
   "202": "GR",
   "204": "NL",
   "206": "BE",
@@ -68,9 +69,9 @@ export const PREVIEW_MCC_ISO = {
   "602": "EG",
   "655": "ZA",
   "724": "BR",
-} as const;
+};
 
-export const emptyInstance = (): InstanceConfig => ({
+export const emptyInstance = (): InstanceForm => ({
   id: "",
   name: "",
   imsi: "",
@@ -123,9 +124,10 @@ export function normalizePreviewNodeId(m: string = "") {
 }
 
 /** Client-side preview of the P-Access-Network-Info header that will be sent. */
-export function previewPani(sip: SipConfig, mcc: string) {
-  const s = sip || {};
-  if ((s.pani || "").trim()) return s.pani.trim();
+export function previewPani(sip: SipConfig | undefined, mcc = "") {
+  const s: SipConfig = sip || {};
+  const override = (s.pani || "").trim();
+  if (override) return override;
   const parts = [s.pani_access_type || "IEEE-802.11"];
   if (s.pani_country_enable !== false) {
     let c = normalizePreviewCountry(s.pani_country);

@@ -12,7 +12,15 @@ const payloadJson = `{
   "text": "Hello there"           // SMS body; null for calls
 }`;
 
-export default function PushInfoModal({ channel, onClose }) {
+interface PushInfoModalProps {
+  channel: "webhook" | "telegram";
+  onClose: () => void;
+}
+
+export default function PushInfoModal({
+  channel,
+  onClose,
+}: PushInfoModalProps) {
   const isTg = channel === "telegram";
   return (
     <div className="modal-backdrop" onClick={onClose}>

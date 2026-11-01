@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { api } from "../../api";
+import { api, asApiError, type DetectedCard } from "../../api";
 
 const PIN_RE = /^\d{4,8}$/;
 const PORT_RE = /^\d{1,5}$/;
@@ -7,14 +7,43 @@ const PORT_RE = /^\d{1,5}$/;
 // Final provisioning confirmation for a detected SIM. The PIN was already entered/verified
 // on the dashboard card (passed in as `pin`); we collect IMEI + device identity + SIP options
 // and confirm the SMSC. SMSC is auto (read from the SIM's EF_SMSP) or manual — no carrier preset.
+type PortSuggestion = Awaited<ReturnType<typeof api.portsSuggest>>;
+type SmscMode = "auto" | "manual";
+
+interface ProvisionForm {
+  name: string;
+  imei: string;
+  imeisv: string;
+  webrtc: boolean;
+  transport: string;
+  listen_addr: string;
+  user_agent: string;
+  apn: string;
+  idrMode: string;
+  cpMode: string;
+  smscMode: SmscMode;
+  smscManual: string;
+  portMode: "auto" | "manual";
+  sipPort: string;
+  pin: string;
+}
+
+interface ProvisionModalProps {
+  card: DetectedCard;
+  /** PIN already entered/verified on the dashboard card. */
+  pin?: string;
+  onClose: () => void;
+  onDone?: () => void;
+}
+
 export default function ProvisionModal({
   card,
   pin: pinProp,
   onClose,
   onDone,
-}) {
+}: ProvisionModalProps) {
   const simSmsc = card.smsc || "";
-  const [f, setF] = useState({
+  const [f, setF] = useState<ProvisionForm>({
     name: "",
     imei: "",
     imeisv: "",
@@ -33,8 +62,8 @@ export default function ProvisionModal({
   });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const [autoPort, setAutoPort] = useState(null); // {auto_sip_udp, auto_sip_tls, min, max}
-  const upd = (p) => setF((x) => ({ ...x, ...p }));
+  const [autoPort, setAutoPort] = useState<PortSuggestion | null>(null);
+  const upd = (p: Partial<ProvisionForm>) => setF((x) => ({ ...x, ...p }));
 
   // Fetch the port the automatic allocator would pick right now (also used as the manual
   // field's placeholder/default). Best-effort; the modal still works if it fails.
@@ -97,7 +126,8 @@ export default function ProvisionModal({
       await api.provision(body);
       onDone && onDone();
       onClose();
-    } catch (e) {
+    } catch (err) {
+      const e = asApiError(err);
       // Backend signals an unreadable SIM SMSC with 422 — switch the user to manual entry.
       if (e.status === 422 && /smsc/i.test(e.message)) {
         upd({ smscMode: "manual" });
@@ -112,7 +142,7 @@ export default function ProvisionModal({
     setBusy(false);
   };
 
-  const radio = (mode, label) => (
+  const radio = (mode: SmscMode, label: React.ReactNode) => (
     <label
       style={{
         display: "flex",

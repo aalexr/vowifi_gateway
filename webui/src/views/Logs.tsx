@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo } from "react";
-import { api } from "../api";
+import { api, asApiError } from "../api";
 import SimSelector from "../components/common/SimSelector";
 import { CommonViewProps } from "./common-view-props";
 
@@ -83,7 +83,7 @@ export default function Logs({
       setLogs(await api.logs(id, 400));
       setErr("");
     } catch (e) {
-      setErr(e.message);
+      setErr(asApiError(e).message);
     }
   }, [id]);
 

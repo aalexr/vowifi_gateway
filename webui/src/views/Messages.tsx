@@ -1,5 +1,11 @@
 import React, { useEffect, useState, useCallback } from "react";
-import { api } from "../api";
+import {
+  api,
+  asApiError,
+  type InstanceId,
+  type MessageRecord,
+  type MessageThread,
+} from "../api";
 import SimSelector from "../components/common/SimSelector";
 import { ArrowLeft, Trash2 } from "lucide-react";
 import { CommonViewProps } from "./common-view-props";
@@ -13,15 +19,15 @@ export default function Messages({
   setSelected,
 }: CommonViewProps) {
   const id = selected?.id;
-  const [threads, setThreads] = useState([]);
-  const [peer, setPeer] = useState(null);
-  const [msgs, setMsgs] = useState([]);
+  const [threads, setThreads] = useState<MessageThread[]>([]);
+  const [peer, setPeer] = useState<string | null>(null);
+  const [msgs, setMsgs] = useState<MessageRecord[]>([]);
   const [text, setText] = useState("");
   const [newTo, setNewTo] = useState("");
   const [composing, setComposing] = useState(false);
   const [sending, setSending] = useState(false);
   const [selMode, setSelMode] = useState(false); // multi-select messages to delete
-  const [selIds, setSelIds] = useState(() => new Set());
+  const [selIds, setSelIds] = useState(() => new Set<number>());
 
   const loadThreads = useCallback(async () => {
     if (!id) return;
@@ -32,7 +38,7 @@ export default function Messages({
   }, [id]);
 
   const loadMsgs = useCallback(
-    async (p) => {
+    async (p: string) => {
       if (!id || !p) return;
       try {
         const r = await api.messages(id, p);
@@ -74,7 +80,7 @@ export default function Messages({
 
   const send = async () => {
     const to = peer || newTo;
-    if (!to || !text) return;
+    if (!id || !to || !text) return;
     setSending(true);
     try {
       const res = await api.sendSms(id, to, text);
@@ -89,15 +95,15 @@ export default function Messages({
         showToast ? showToast(msg) : alert(msg);
       }
     } catch (e) {
-      const msg = "SMS failed: " + e.message;
+      const msg = "SMS failed: " + asApiError(e).message;
       showToast ? showToast(msg) : alert(msg);
     }
     setSending(false);
   };
 
-  const toast = (m) => (showToast ? showToast(m) : null);
+  const toast = (m: React.ReactNode) => (showToast ? showToast(m) : null);
 
-  const toggleSel = (mid) =>
+  const toggleSel = (mid: number) =>
     setSelIds((s) => {
       const n = new Set(s);
       n.has(mid) ? n.delete(mid) : n.add(mid);
@@ -105,14 +111,14 @@ export default function Messages({
     });
   // The awaited delete may resolve after the user switched SIM lines — only refresh if
   // we're still on the same line, so we don't write the old line's data into state.
-  const refreshIfSame = async (forId, p) => {
+  const refreshIfSame = async (forId: InstanceId, p: string | null) => {
     if (String(forId) !== String(id)) return;
     await loadThreads();
     if (p) await loadMsgs(p);
   };
 
   const deleteSelected = async () => {
-    if (!selIds.size) return;
+    if (!id || !selIds.size) return;
     if (
       !confirm(
         `Delete ${selIds.size} selected message${selIds.size > 1 ? "s" : ""}?`,
@@ -128,12 +134,13 @@ export default function Messages({
       await refreshIfSame(forId, p);
       toast("Messages deleted");
     } catch (e) {
-      toast("Delete failed: " + e.message);
+      toast("Delete failed: " + asApiError(e).message);
     }
   };
 
-  const deleteThread = async (p, e?) => {
+  const deleteThread = async (p: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
+    if (!id) return;
     if (
       !confirm(
         `Delete the entire conversation with ${p}? This removes all its messages.`,
@@ -151,12 +158,12 @@ export default function Messages({
       if (String(forId) === String(id)) await loadThreads();
       toast("Conversation deleted");
     } catch (e2) {
-      toast("Delete failed: " + e2.message);
+      toast("Delete failed: " + asApiError(e2).message);
     }
   };
 
   const clearAll = async () => {
-    if (!threads.length) return;
+    if (!id || !threads.length) return;
     if (!confirm("Delete ALL messages on this line? This cannot be undone."))
       return;
     const forId = id;
@@ -170,7 +177,7 @@ export default function Messages({
       }
       toast("All messages deleted");
     } catch (e) {
-      toast("Delete failed: " + e.message);
+      toast("Delete failed: " + asApiError(e).message);
     }
   };
 

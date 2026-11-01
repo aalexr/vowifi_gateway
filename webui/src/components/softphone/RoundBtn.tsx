@@ -1,5 +1,14 @@
 import React from "react";
 
+interface RoundBtnProps {
+  icon: React.ReactNode;
+  label: React.ReactNode;
+  color?: string;
+  bg?: string;
+  onClick?: () => void;
+  active?: boolean;
+}
+
 export default function RoundBtn({
   icon,
   label,
@@ -7,7 +16,7 @@ export default function RoundBtn({
   bg = undefined,
   onClick,
   active = false,
-}) {
+}: RoundBtnProps) {
   return (
     <div
       style={{

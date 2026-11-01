@@ -1,6 +1,11 @@
 import React from "react";
+import type { InstanceStatus, StatusState } from "../../api";
 
-export default function StateBadge({ st }) {
+export default function StateBadge({
+  st,
+}: {
+  st?: Pick<InstanceStatus, "state" | "label"> | null;
+}) {
   const state = st?.state || "STOPPED";
   return (
     <span className={`pill ${STATE_PILL[state] || ""}`}>
@@ -10,7 +15,7 @@ export default function StateBadge({ st }) {
   );
 }
 
-export const STATE_PILL = {
+export const STATE_PILL: Partial<Record<StatusState, string>> = {
   OK: "pill-ok",
   REGISTERING: "pill-warn",
   TUNNEL_DOWN: "pill-orange",

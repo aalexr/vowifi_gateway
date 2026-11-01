@@ -1,6 +1,12 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router";
-import { api, InstanceId, InstanceConfig, DetectedCard } from "../api";
+import {
+  api,
+  apiErrorDetail,
+  InstanceId,
+  InstanceConfig,
+  DetectedCard,
+} from "../api";
 import ProvisionModal from "../components/dashboard/ProvisionModal";
 import SipInfoModal from "../components/dashboard/SipInfoModal";
 import { Plug } from "lucide-react";
@@ -12,8 +18,8 @@ import StartPinModal from "../components/dashboard/StartPinModal";
 import { CommonViewProps } from "./common-view-props";
 
 interface PinPrompt {
-  inst?: InstanceConfig;
-  tries: number;
+  inst: InstanceConfig;
+  tries?: number;
   error: string;
 }
 
@@ -41,10 +47,11 @@ export default function Dashboard({
   // A start/reprovision may be refused (409) because the card needs a PIN we don't have
   // (deleted, or the saved one is now wrong). Surface that as a PIN prompt instead of an
   // opaque error; anything else is shown as an alert.
-  const pinError = (e: any) => {
-    const code = e?.data?.detail?.code;
+  const pinError = (e: unknown) => {
+    const detail = apiErrorDetail(e);
+    const code = detail?.code;
     return code === "pin_required" || code === "pin_invalid"
-      ? { code, tries: e.data.detail.tries }
+      ? { code, tries: detail?.tries }
       : null;
   };
 
@@ -55,9 +62,10 @@ export default function Dashboard({
       await refresh();
     } catch (e) {
       const pe = pinError(e);
-      if (pe)
+      const inst = pe && instances.find((i) => i.id === id);
+      if (pe && inst)
         setPinPrompt({
-          inst: instances.find((i) => i.id === id),
+          inst,
           tries: pe.tries,
           error:
             pe.code === "pin_invalid"

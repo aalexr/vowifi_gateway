@@ -83,7 +83,7 @@ export default function LineConfigSection({
           />
         </Field>
         <SmscField
-          value={form.smsc}
+          value={form.smsc || ""}
           onChange={(smsc) => upd({ smsc })}
           mode={smscMode}
           onModeChange={onSmscModeChange}

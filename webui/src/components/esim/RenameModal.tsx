@@ -1,10 +1,25 @@
 import React, { useState, useEffect } from "react";
+import type { EsimProfile } from "../../api";
 import { profileDisplayName } from "./utils";
 
-export default function RenameModal({ profile, busy, onClose, onSave }) {
-  const [nick, setNick] = useState(() => profileDisplayName(profile));
+interface RenameModalProps {
+  profile: EsimProfile | null;
+  busy?: boolean;
+  onClose: () => void;
+  onSave: (nickname: string) => void;
+}
+
+export default function RenameModal({
+  profile,
+  busy,
+  onClose,
+  onSave,
+}: RenameModalProps) {
+  const [nick, setNick] = useState(() =>
+    profile ? profileDisplayName(profile) : "",
+  );
   useEffect(() => {
-    setNick(profileDisplayName(profile));
+    if (profile) setNick(profileDisplayName(profile));
   }, [profile]);
   if (!profile) return null;
   return (

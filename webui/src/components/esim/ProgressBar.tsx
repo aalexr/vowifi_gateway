@@ -1,7 +1,14 @@
 import React from "react";
 import { DOWNLOAD_STEPS, resolveDownloadStep } from "./utils";
 
-export default function ProgressBar({ step, done, error }) {
+interface ProgressBarProps {
+  /** Latest lpac step name (or "started"). */
+  step?: string | null;
+  done?: boolean;
+  error?: string | null;
+}
+
+export default function ProgressBar({ step, done, error }: ProgressBarProps) {
   const resolved = resolveDownloadStep(step);
   const idx = resolved ? DOWNLOAD_STEPS.findIndex(([k]) => k === resolved) : -1;
   // Unknown steps (cancel_session, started) must NOT fall back to index 0 — that looked like a jump to step 1.

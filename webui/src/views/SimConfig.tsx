@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from "react";
 import {
   api,
+  asApiError,
   type CardInfo,
   type InstanceConfig,
   type SipConfig,
+  type SipExternalAccount,
 } from "../api";
 import SimSelector from "../components/common/SimSelector";
 import {
@@ -16,6 +18,7 @@ import ImsRegistrationSection from "../components/simconfig/ImsRegistrationSecti
 import LocalSipSection from "../components/simconfig/LocalSipSection";
 import StatusMessage from "../components/simconfig/StatusMessage";
 import type { SmscMode } from "../components/simconfig/SmscField";
+import type { InstanceForm } from "../components/simconfig/types";
 import type { CommonViewProps } from "./common-view-props";
 
 type SimConfigProps = Pick<
@@ -35,7 +38,7 @@ export default function SimConfig({
   const [pin, setPin] = useState("");
   const [pinMsg, setPinMsg] = useState(""); // detect / PIN feedback (SIM card section)
   const [saveMsg, setSaveMsg] = useState(""); // save feedback (action bar)
-  const [form, setForm] = useState<InstanceConfig>(emptyInstance());
+  const [form, setForm] = useState<InstanceForm>(emptyInstance());
   const [saving, setSaving] = useState(false);
   const [smscMode, setSmscMode] = useState<SmscMode>("auto"); // 'auto' = read from SIM, 'manual' = typed
 
@@ -64,11 +67,10 @@ export default function SimConfig({
   // card in reader N"). Clamp any out-of-range index back onto a reader that actually exists.
   useEffect(() => {
     if (!readers.length) return;
-    setForm((f) =>
-      f.reader_index >= readers.length || f.reader_index < 0
-        ? { ...f, reader_index: 0 }
-        : f,
-    );
+    setForm((f) => {
+      const i = f.reader_index ?? 0;
+      return i >= readers.length || i < 0 ? { ...f, reader_index: 0 } : f;
+    });
   }, [readers.length]);
   // Keep the "PIN saved?" indicator in sync when it changes server-side (delete-PIN,
   // start-with-PIN) without a full line switch — mirror the fresh value onto the form.
@@ -82,10 +84,10 @@ export default function SimConfig({
     setForm((f) => ({ ...f, sip: { ...f.sip, ...patch } }));
   // The reader index to act on, clamped to a reader that currently exists (never probe a
   // stale/out-of-range index that would report a phantom empty reader).
-  const readerIdx = () =>
-    form.reader_index >= 0 && form.reader_index < readers.length
-      ? form.reader_index
-      : 0;
+  const readerIdx = (): number => {
+    const i = form.reader_index ?? 0;
+    return i >= 0 && i < readers.length ? i : 0;
+  };
   // Stable USB port path of a reader index (from the live card monitor). A line binds to this
   // port, not the enumeration index, so it sticks to the physical reader socket even when pcscd
   // re-enumerates two identical readers in a different order.
@@ -101,7 +103,7 @@ export default function SimConfig({
         setPinMsg("No SIM card in this reader.");
         return;
       }
-      const patch: Record<string, any> = {
+      const patch: Partial<InstanceConfig> = {
         imsi: c.imsi || form.imsi,
         mcc: c.mcc || form.mcc,
         mnc: c.mnc || form.mnc,
@@ -120,7 +122,7 @@ export default function SimConfig({
           : `Card present (enter PIN to read IMSI). ICCID ${c.iccid || "?"}, tries ${c.pin_tries ?? "?"}`,
       );
     } catch (e) {
-      setPinMsg("Error: " + e.message);
+      setPinMsg("Error: " + asApiError(e).message);
     }
   };
 
@@ -132,13 +134,13 @@ export default function SimConfig({
         r.ok ? "PIN OK ✓" : `Failed: ${r.error} (${r.tries} tries left)`,
       );
       if (r.ok) {
-        const p: Record<string, any> = { pin };
+        const p: Partial<InstanceConfig> = { pin };
         if (r.card?.smsc && smscMode === "auto") p.smsc = r.card.smsc; // now-readable SMSC from SIM
         upd(p);
         await detect();
       }
     } catch (e) {
-      setPinMsg("Error: " + e.message);
+      setPinMsg("Error: " + asApiError(e).message);
     }
   };
 
@@ -166,14 +168,16 @@ export default function SimConfig({
       if (body.sip) {
         body.sip = {
           ...body.sip,
-          external: (body.sip.external || []).map((account) => {
-            const row: { username: string; password?: string } = {
-              username: account.username || "",
-            };
-            if (String(account.password || "").trim())
-              row.password = account.password;
-            return row;
-          }),
+          external: (body.sip.external || []).map(
+            (account: SipExternalAccount) => {
+              const row: { username: string; password?: string } = {
+                username: account.username || "",
+              };
+              if (String(account.password || "").trim())
+                row.password = account.password;
+              return row;
+            },
+          ),
         };
       }
       const res = await api.saveInstance(body);
@@ -186,7 +190,8 @@ export default function SimConfig({
       } else {
         setSaveMsg("Saved.");
       }
-    } catch (e) {
+    } catch (err) {
+      const e = asApiError(err);
       setSaveMsg(e.message);
       alert(e.message);
     }
@@ -219,7 +224,7 @@ export default function SimConfig({
           : "No saved PIN to delete.",
       );
     } catch (e) {
-      alert(e.message);
+      alert(asApiError(e).message);
     }
   };
 

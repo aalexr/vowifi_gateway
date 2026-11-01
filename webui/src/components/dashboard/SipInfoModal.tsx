@@ -1,6 +1,26 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
-import { api } from "../../api";
+import {
+  api,
+  asApiError,
+  type InstanceConfig,
+  type InstanceId,
+} from "../../api";
+
+type SipInfo = Awaited<ReturnType<typeof api.sipinfo>>;
+
+interface SipInfoModalProps {
+  instance: InstanceConfig;
+  onClose: () => void;
+  setSelected?: (id: InstanceId) => void;
+}
+
+interface InfoFieldProps {
+  label: string;
+  value?: string | number | null;
+  hint?: React.ReactNode;
+  mono?: boolean;
+}
 
 // Connection parameters for a STANDARD SIP client (not the browser WebRTC softphone).
 // Maps 1:1 to the fields a generic SIP softphone asks for:
@@ -14,9 +34,9 @@ export default function SipInfoModal({
   instance,
   onClose,
   setSelected,
-}) {
+}: SipInfoModalProps) {
   const navigate = useNavigate();
-  const [info, setInfo] = useState(null);
+  const [info, setInfo] = useState<SipInfo | null>(null);
   const [err, setErr] = useState("");
   const [copied, setCopied] = useState("");
 
@@ -24,18 +44,18 @@ export default function SipInfoModal({
     api
       .sipinfo(instance.id)
       .then(setInfo)
-      .catch((e) => setErr(e.message));
+      .catch((e) => setErr(asApiError(e).message));
   }, [instance.id]);
 
-  const copy = async (label, value) => {
+  const copy = async (label: string, value: string | number) => {
     try {
-      await navigator.clipboard.writeText(value);
+      await navigator.clipboard.writeText(String(value));
       setCopied(label);
       setTimeout(() => setCopied(""), 1500);
     } catch {}
   };
 
-  const Field = ({ label, value, hint = "", mono = true }) => (
+  const Field = ({ label, value, hint = "", mono = true }: InfoFieldProps) => (
     <div style={{ marginBottom: 12 }}>
       <div style={{ fontSize: 12, color: "var(--text-mute)", marginBottom: 3 }}>
         {label}
