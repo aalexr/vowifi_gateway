@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router";
 import { api } from "../../api";
 
 // Connection parameters for a STANDARD SIP client (not the browser WebRTC softphone).
@@ -12,9 +13,9 @@ import { api } from "../../api";
 export default function SipInfoModal({
   instance,
   onClose,
-  setView,
   setSelected,
 }) {
+  const navigate = useNavigate();
   const [info, setInfo] = useState(null);
   const [err, setErr] = useState("");
   const [copied, setCopied] = useState("");
@@ -152,7 +153,7 @@ export default function SipInfoModal({
                   style={{ cursor: "pointer", textDecoration: "underline" }}
                   onClick={() => {
                     setSelected && setSelected(instance.id);
-                    setView && setView("sims");
+                    navigate("/sims");
                     onClose();
                   }}
                 >

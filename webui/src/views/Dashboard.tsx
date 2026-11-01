@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useNavigate } from "react-router";
 import { api, InstanceId, InstanceConfig, DetectedCard } from "../api";
 import ProvisionModal from "../components/dashboard/ProvisionModal";
 import SipInfoModal from "../components/dashboard/SipInfoModal";
@@ -29,9 +30,9 @@ export default function Dashboard({
   refresh,
   setSelected,
   selected,
-  setView,
   showToast,
 }: CommonViewProps) {
+  const navigate = useNavigate();
   const [busy, setBusy] = useState<InstanceId | null>(null);
   const [provision, setProvision] = useState<Provision | null>(null);
   const [sipInfo, setSipInfo] = useState<InstanceConfig | null>(null);
@@ -237,7 +238,7 @@ export default function Dashboard({
                               {inst.status.retry.max}
                             </span>
                           )}
-                        {inst.status.state === "ERROR" && setView && (
+                        {inst.status.state === "ERROR" && (
                           <span>
                             {" "}
                             ·{" "}
@@ -245,7 +246,7 @@ export default function Dashboard({
                               onClick={(e) => {
                                 e.stopPropagation();
                                 setSelected(inst.id);
-                                setView("logs");
+                                navigate("/logs");
                               }}
                               style={{
                                 cursor: "pointer",
@@ -382,7 +383,7 @@ export default function Dashboard({
                       className="btn btn-ghost"
                       onClick={() => {
                         setSelected(inst.id);
-                        setView && setView("sims");
+                        navigate("/sims");
                       }}
                     >
                       Configure ▸
@@ -428,7 +429,6 @@ export default function Dashboard({
         <SipInfoModal
           instance={sipInfo}
           onClose={() => setSipInfo(null)}
-          setView={setView}
           setSelected={setSelected}
         />
       )}

@@ -1,4 +1,11 @@
-import { useEffect, useState, useRef, type ReactNode, useMemo } from "react";
+import {
+  useState,
+  useRef,
+  type ComponentType,
+  type ReactNode,
+  useMemo,
+} from "react";
+import { Navigate, NavLink, Route, Routes, useLocation } from "react-router";
 import { ThemePicker } from "./components/sidebar/ThemePicker";
 import { SideBar } from "./components/sidebar/SideBar";
 import {
@@ -23,43 +30,73 @@ import {
 import { AppShell } from "./AppShell";
 import { AppBrand } from "./components/sidebar/AppBrand";
 import { useLiveUpdates } from "./useLiveUpdates";
+import type { CommonViewProps } from "./views/common-view-props";
+import { InstanceId } from "./api";
+import { Handler } from "./types";
 
 interface Nav {
-  key: string;
+  path: string;
   label: string;
   icon: LucideIcon;
+  view: ComponentType<any>;
   alwaysAvailable: boolean;
 }
 
-// [key, label, icon, alwaysAvailable] — views not marked alwaysAvailable are disabled
-// while no PC/SC reader is connected (they all operate on a physical SIM line).
-const NAV: Nav[] = [
+// Views not marked alwaysAvailable are disabled while no PC/SC reader is connected
+// (they all operate on a physical SIM line).
+const navigation: Nav[] = [
   {
-    key: "dashboard",
+    path: "/",
     label: "Dashboard",
     icon: LayoutDashboard,
+    view: Dashboard,
     alwaysAvailable: true,
   },
-  { key: "softphone", label: "Softphone", icon: Phone, alwaysAvailable: false },
   {
-    key: "messages",
-    label: "Messages",
-    icon: MessageSquare,
+    path: "/softphone",
+    label: "Softphone",
+    icon: Phone,
+    view: Softphone,
     alwaysAvailable: false,
   },
-  { key: "sims", label: "SIM Config", icon: Cpu, alwaysAvailable: false },
-  { key: "esim", label: "eSIM", icon: Smartphone, alwaysAvailable: false },
   {
-    key: "settings",
+    path: "/messages",
+    label: "Messages",
+    icon: MessageSquare,
+    view: Messages,
+    alwaysAvailable: false,
+  },
+  {
+    path: "/sims",
+    label: "SIM Config",
+    icon: Cpu,
+    view: SimConfig,
+    alwaysAvailable: false,
+  },
+  {
+    path: "/esim",
+    label: "eSIM",
+    icon: Smartphone,
+    view: Esim,
+    alwaysAvailable: false,
+  },
+  {
+    path: "/settings",
     label: "Settings",
     icon: SettingsIcon,
+    view: Settings,
     alwaysAvailable: true,
   },
-  { key: "logs", label: "Logs", icon: ScrollText, alwaysAvailable: true },
+  {
+    path: "/logs",
+    label: "Logs",
+    icon: ScrollText,
+    view: Logs,
+    alwaysAvailable: true,
+  },
 ];
 
 export default function App() {
-  const [view, setView] = useState("dashboard");
   const [toast, setToast] = useState<ReactNode | null>(null);
 
   const toastTimer = useRef<number | null>(null);
@@ -83,52 +120,64 @@ export default function App() {
   } = useLiveUpdates(showToast);
 
   // No PC/SC reader connected at all -> SIM-bound views are unusable; keep only
-  // Dashboard / Settings / Logs and bounce back to the dashboard if needed.
+  // Dashboard / Settings / Logs (their routes redirect to the dashboard).
   const noReaders = useMemo(
     () => cardsKnown && cards.length === 0,
     [cardsKnown, cards],
   );
-  useEffect(() => {
-    if (noReaders && !NAV.find(({ key }) => key === view)?.alwaysAvailable) {
-      setView("dashboard");
-    }
-  }, [noReaders, view]);
 
-  const sel = instances.find((i) => String(i.id) === String(selected));
+  const selectedConfig = useMemo(
+    () => instances.find((i) => i.id === selected),
+    [instances, selected],
+  );
 
-  const View = {
-    dashboard: Dashboard,
-    softphone: Softphone,
-    messages: Messages,
-    sims: SimConfig,
-    esim: Esim,
-    settings: Settings,
-    logs: Logs,
-  }[view];
+  const viewProps: CommonViewProps = {
+    instances,
+    cards,
+    noReaders,
+    cardsKnown,
+    selected: selectedConfig,
+    setSelected,
+    refresh,
+    subscribe,
+    showToast,
+  };
 
   return (
     <AppShell>
       <SideBar>
         <AppBrand />
-        {NAV.map(({ key: k, label, icon: Icon, alwaysAvailable: always }) => {
-          const disabled = noReaders && !always;
-          return (
-            <button
-              className={`app-nav-button${view === k ? " is-active" : ""}`}
-              key={k}
-              onClick={() => !disabled && setView(k)}
-              disabled={disabled}
-              title={
-                disabled
-                  ? "No PC/SC reader detected — connect a card reader to enable"
-                  : undefined
-              }
-            >
-              <Icon size={18} strokeWidth={1.9} aria-hidden="true" />
-              <span className="app-nav-label">{label}</span>
-            </button>
-          );
-        })}
+        {navigation.map(
+          ({ path, label, icon: Icon, alwaysAvailable: always }) => {
+            const disabled = noReaders && !always;
+            if (disabled) {
+              return (
+                <button
+                  className="app-nav-button"
+                  key={path}
+                  disabled
+                  title="No PC/SC reader detected — connect a card reader to enable"
+                >
+                  <Icon size={18} strokeWidth={1.9} aria-hidden="true" />
+                  <span className="app-nav-label">{label}</span>
+                </button>
+              );
+            }
+            return (
+              <NavLink
+                className={({ isActive }) =>
+                  `app-nav-button${isActive ? " is-active" : ""}`
+                }
+                key={path}
+                to={path}
+                end
+              >
+                <Icon size={18} strokeWidth={1.9} aria-hidden="true" />
+                <span className="app-nav-label">{label}</span>
+              </NavLink>
+            );
+          },
+        )}
         <ThemePicker />
         <div className="app-instance-count">
           {instances.length} SIM{instances.length !== 1 ? "s" : ""} configured
@@ -145,23 +194,6 @@ export default function App() {
           flexDirection: "column",
         }}
       >
-        <div
-          className="app-header"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            marginBottom: 16,
-            gap: 16,
-            flexShrink: 0,
-            padding: "24px 24px 0",
-          }}
-        >
-          <h1 className="app-title">
-            {NAV.find(({ key }) => key === view)?.label}
-          </h1>
-          {/* per-page SIM selectors (SimSelector) handle multi-SIM switching on the views that
-              operate on a single line — softphone / messages / logs / SIM config */}
-        </div>
         {/* Single bounded scroll region. Document-flow views (Dashboard/Settings/Logs) scroll
             here; app-like views (Messages/Softphone) fill it with height:100% and scroll their
             own inner lists instead, so the page height never grows with list length. The
@@ -174,23 +206,88 @@ export default function App() {
             minHeight: 0,
             overflowX: "hidden",
             overflowY: "auto",
-            padding: "6px 24px 24px",
+            padding: "24px",
           }}
         >
-          {View && (
-            <View
-              instances={instances}
-              cards={cards}
-              noReaders={noReaders}
-              cardsKnown={cardsKnown}
-              selected={sel}
-              setSelected={setSelected}
-              refresh={refresh}
-              subscribe={subscribe}
-              showToast={showToast}
-              setView={setView}
+          <Routes>
+            <Route
+              path="/dashboard"
+              element={
+                <Dashboard
+                  instances={instances}
+                  cards={cards}
+                  noReaders={noReaders}
+                  cardsKnown={cardsKnown}
+                  setSelected={setSelected}
+                  refresh={refresh}
+                  subscribe={subscribe}
+                  showToast={showToast}
+                />
+              }
             />
-          )}
+            <Route
+              path="/softphone"
+              element={
+                <Softphone
+                  instances={instances}
+                  cards={cards}
+                  noReaders={noReaders}
+                  cardsKnown={cardsKnown}
+                  setSelected={setSelected}
+                  refresh={refresh}
+                  subscribe={subscribe}
+                  showToast={showToast}
+                />
+              }
+            />
+            <Route
+              path="/messages"
+              element={
+                <Messages
+                  selected={selectedConfig}
+                  instances={instances}
+                  cards={cards}
+                  setSelected={setSelected}
+                  subscribe={subscribe}
+                  showToast={showToast}
+                  noReaders={noReaders}
+                  cardsKnown={cardsKnown}
+                  refresh={refresh}
+                />
+              }
+            />
+            <Route
+              path="/sims"
+              element={
+                <SimConfig
+                  selected={selectedConfig}
+                  instances={instances}
+                  cards={cards}
+                  setSelected={setSelected}
+                  refresh={refresh}
+                />
+              }
+            />
+            <Route
+              path="/esim"
+              element={
+                <Esim
+                  selected={selectedConfig}
+                  instances={instances}
+                  cards={cards}
+                  setSelected={setSelected}
+                  subscribe={subscribe}
+                  showToast={showToast}
+                  noReaders={noReaders}
+                  cardsKnown={cardsKnown}
+                  refresh={refresh}
+                />
+              }
+            />
+            <Route path="/settings" element={<Settings />} />
+            <Route path="/logs" element={<Logs {...viewProps} />} />
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          </Routes>
         </div>
       </main>
 

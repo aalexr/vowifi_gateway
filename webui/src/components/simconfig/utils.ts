@@ -1,3 +1,5 @@
+import { InstanceConfig, SipConfig } from "../../api";
+
 export const PANI_ACCESS_TYPES = [
   "IEEE-802.11",
   "IEEE-802.11a",
@@ -8,7 +10,7 @@ export const PANI_ACCESS_TYPES = [
   "IEEE-802.11ax",
   "IEEE-802.11be",
   "3GPP-WLAN",
-];
+] as const;
 
 // Preview-only MCC→ISO hints (authoritative table lives in control/app/mcc_country.py).
 export const PREVIEW_MCC_ISO = {
@@ -66,9 +68,9 @@ export const PREVIEW_MCC_ISO = {
   "602": "EG",
   "655": "ZA",
   "724": "BR",
-};
+} as const;
 
-export const emptyInstance = (): Record<string, any> => ({
+export const emptyInstance = (): InstanceConfig => ({
   id: "",
   name: "",
   imsi: "",
@@ -106,23 +108,22 @@ export const emptyInstance = (): Record<string, any> => ({
   },
   debug: { asterisk: true, charon: false },
 });
-export function normalizePreviewCountry(c) {
-  const s = String(c || "")
+
+export function normalizePreviewCountry(c: string = "") {
+  const s = c
     .trim()
     .toUpperCase()
     .replace(/[^A-Z]/g, "");
   return s.length === 2 ? s : "";
 }
 
-export function normalizePreviewNodeId(m) {
-  const s = String(m || "")
-    .replace(/[^0-9a-fA-F]/g, "")
-    .toLowerCase();
+export function normalizePreviewNodeId(m: string = "") {
+  const s = m.replace(/[^0-9a-fA-F]/g, "").toLowerCase();
   return /^[0-9a-f]{12}$/.test(s) ? s : "";
 }
 
 /** Client-side preview of the P-Access-Network-Info header that will be sent. */
-export function previewPani(sip, mcc) {
+export function previewPani(sip: SipConfig, mcc: string) {
   const s = sip || {};
   if ((s.pani || "").trim()) return s.pani.trim();
   const parts = [s.pani_access_type || "IEEE-802.11"];
@@ -145,9 +146,9 @@ export function previewPani(sip, mcc) {
   return parts.join(";");
 }
 
-export function sipUsernameConflict(sip) {
+export function sipUsernameConflict(sip: SipConfig) {
   const accounts = sip?.external || [];
-  const webrtcUser = String(sip?.webrtc?.username || "webrtc").trim();
+  const webrtcUser = (sip?.webrtc?.username || "webrtc").trim();
   const reserved = new Set(
     [
       "global",

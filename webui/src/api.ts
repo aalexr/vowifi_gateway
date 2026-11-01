@@ -72,6 +72,14 @@ export interface SipConfig {
   transport?: string;
   external?: SipExternalAccount[];
   webrtc?: { enable?: boolean; username?: string; password?: string };
+  user_agent?: string;
+  /** Full P-Access-Network-Info override; when set, the pani_* knobs are ignored. */
+  pani?: string;
+  pani_access_type?: string;
+  pani_country_enable?: boolean;
+  pani_country?: string;
+  pani_node_id_enable?: boolean;
+  pani_node_id?: string;
   [key: string]: unknown;
 }
 
@@ -106,6 +114,15 @@ export interface InstanceConfig {
   apn?: string;
   idr_mode?: string;
   cp_mode?: string;
+  /** "auto" when cp_mode was pinned by auto-detection rather than chosen by the user. */
+  cp_mode_source?: string;
+  use_reauth_id?: boolean;
+  ims_domain?: string;
+  reg_geolocation_country?: string;
+  reg_srvcc_tags?: boolean;
+  reg_imei_urn_spare_zero?: boolean;
+  dial_00_to_plus?: boolean;
+  update_after_prack?: boolean;
   debug?: Record<string, boolean>;
   status?: InstanceStatus;
   [key: string]: unknown;

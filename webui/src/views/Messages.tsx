@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import { api } from "../api";
 import SimSelector from "../components/common/SimSelector";
 import { ArrowLeft, Trash2 } from "lucide-react";
+import { CommonViewProps } from "./common-view-props";
 
 export default function Messages({
   selected,
@@ -10,7 +11,7 @@ export default function Messages({
   instances,
   cards,
   setSelected,
-}) {
+}: CommonViewProps) {
   const id = selected?.id;
   const [threads, setThreads] = useState([]);
   const [peer, setPeer] = useState(null);

@@ -11,7 +11,6 @@ interface CommonViewProps {
   refresh: () => Promise<void>;
   subscribe: (handler: Handler) => () => void;
   showToast: (msg: React.ReactNode) => void;
-  setView: (view: string) => void;
 }
 
 export type { CommonViewProps };
