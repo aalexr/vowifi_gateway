@@ -54,7 +54,7 @@ export default function PaniSettings({
                   .slice(0, 2),
               })
             }
-            placeholder="留空 = 按 SIM 的 MCC 自动推导（如 GB）"
+            placeholder="empty = from SIM MCC (e.g. GB)"
           />
         </div>
       )}
