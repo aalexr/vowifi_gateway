@@ -88,7 +88,7 @@ Set via **env vars** (or a `.env` file next to `install.sh`) before running `ins
 | `VOWIFI_PORT` | `8443` | Host port the WebUI is served/published on |
 | `VOWIFI_DATA_DIR` | `<repo>/data` | Runtime data directory (config, logs, DB, certs) |
 | `VOWIFI_ADVERTISE_ADDR` | auto-detect | Host LAN IP advertised to local SIP/WebRTC clients for RTP, Contact and SDP. It overrides **Settings → SIP / WebRTC advertise address**. Auto-detection prefers a real LAN NIC and skips common VPN/container interfaces; pin it explicitly on multi-homed hosts. |
-| `VOWIFI_BIND` | `0.0.0.0` | Bind address for the control plane (rarely changed) |
+| `VOWIFI_BIND` | `::` | Bind address for the control plane; `::` listens on IPv6 and IPv4 (falls back to `0.0.0.0` without IPv6) |
 | `PCSC_VERSION` | `2.3.3` | pcsc-lite version pinned across host + all images |
 
 Example:

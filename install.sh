@@ -36,7 +36,7 @@
 #   VOWIFI_PORT            host port to publish/serve the WebUI on    (default 8443)
 #   VOWIFI_DATA_DIR        runtime data dir                           (default <repo>/data)
 #   VOWIFI_ADVERTISE_ADDR  host LAN IP for SIP/WebRTC media           (default: auto-detect)
-#   VOWIFI_BIND            control bind addr                          (default 0.0.0.0)
+#   VOWIFI_BIND            control bind addr; :: = IPv6+IPv4          (default ::)
 #   PCSC_VERSION           pinned pcsc-lite version                   (default 2.3.3)
 #   LPAC_SRC               optional path to lpac source (for build-lpac)
 #   CMAKE_FETCH_VER        Kitware cmake version if system is too old (default 3.31.12)
@@ -49,7 +49,7 @@ REPO_DIR="$SELF_DIR"
 
 VOWIFI_PORT="${VOWIFI_PORT:-8443}"
 VOWIFI_DATA_DIR="${VOWIFI_DATA_DIR:-$REPO_DIR/data}"
-VOWIFI_BIND="${VOWIFI_BIND:-0.0.0.0}"
+VOWIFI_BIND="${VOWIFI_BIND:-::}"
 VOWIFI_ADVERTISE_ADDR="${VOWIFI_ADVERTISE_ADDR:-}"
 
 # Fully qualified: podman stores locally built images under localhost/.
