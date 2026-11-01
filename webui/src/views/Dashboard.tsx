@@ -8,6 +8,7 @@ import Pipeline from "../components/dashboard/Pipeline";
 import { buildReaders, readerTitle } from "../components/dashboard/utils";
 import UnprovisionedCard from "../components/dashboard/UnprovisionedCard";
 import StartPinModal from "../components/dashboard/StartPinModal";
+import { CommonViewProps } from "./common-view-props";
 
 export default function Dashboard({
   instances,
@@ -19,7 +20,7 @@ export default function Dashboard({
   selected,
   setView,
   showToast,
-}) {
+}: CommonViewProps) {
   const [busy, setBusy] = useState(null);
   const [provision, setProvision] = useState(null);
   const [sipInfo, setSipInfo] = useState(null);

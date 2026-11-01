@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { api } from "../api";
 import SimSelector from "../components/common/SimSelector";
+import { CommonViewProps } from "./common-view-props";
 
 // Map ANSI SGR color codes to on-theme colors.
 const FG = {
@@ -24,14 +25,14 @@ const FG = {
 
 // Parse a string containing ANSI SGR escapes (e.g. "\x1b[1;32mDEBUG\x1b[0m[153]: ")
 // into an array of styled React spans. Tolerates a missing ESC byte.
-function ansi(text) {
+function ansi(text: string) {
   const out = [];
   let style = {};
   let key = 0;
   const re = /\x1b?\[([0-9;]*)m/g;
   let last = 0;
   let m;
-  const push = (t) => {
+  const push = (t: string) => {
     if (t)
       out.push(
         <span key={key++} style={{ ...style }}>
@@ -64,7 +65,12 @@ const TABS = [
   { id: "charon", short: "IKE", full: "SWu tunnel (IKE)" },
 ];
 
-export default function Logs({ selected, instances, cards, setSelected }) {
+export default function Logs({
+  selected,
+  instances,
+  cards,
+  setSelected,
+}: CommonViewProps) {
   const id = selected?.id;
   const [logs, setLogs] = useState({ engine: "", charon: "" });
   const [tab, setTab] = useState("engine");

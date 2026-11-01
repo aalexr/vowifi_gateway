@@ -1,12 +1,15 @@
-import React, { useEffect, useState, useCallback, useRef } from "react";
-import { api, connectWs } from "./api";
-import Dashboard from "./views/Dashboard";
-import Softphone from "./views/Softphone";
-import Messages from "./views/Messages";
-import SimConfig from "./views/SimConfig";
-import Settings from "./views/Settings";
-import Logs from "./views/Logs";
-import Esim from "./views/Esim";
+import { useEffect, useState, useRef, type ReactNode } from "react";
+import { ThemePicker } from "./components/sidebar/ThemePicker";
+import { SideBar } from "./components/sidebar/SideBar";
+import {
+  Dashboard,
+  Softphone,
+  Messages,
+  SimConfig,
+  Settings,
+  Logs,
+  Esim,
+} from "./views";
 import {
   LayoutDashboard,
   Phone,
@@ -15,145 +18,74 @@ import {
   Smartphone,
   Settings as SettingsIcon,
   ScrollText,
-  SunMoon,
-  Sun,
-  Moon,
   type LucideIcon,
 } from "lucide-react";
+import { AppShell } from "./AppShell";
+import { AppBrand } from "./components/sidebar/AppBrand";
+import { useLiveUpdates } from "./useLiveUpdates";
+
+interface Nav {
+  key: string;
+  label: string;
+  icon: LucideIcon;
+  alwaysAvailable: boolean;
+}
 
 // [key, label, icon, alwaysAvailable] — views not marked alwaysAvailable are disabled
 // while no PC/SC reader is connected (they all operate on a physical SIM line).
-const NAV: [string, string, LucideIcon, boolean][] = [
-  ["dashboard", "Dashboard", LayoutDashboard, true],
-  ["softphone", "Softphone", Phone, false],
-  ["messages", "Messages", MessageSquare, false],
-  ["sims", "SIM Config", Cpu, false],
-  ["esim", "eSIM", Smartphone, false],
-  ["settings", "Settings", SettingsIcon, true],
-  ["logs", "Logs", ScrollText, true],
-];
-const THEMES: [string, LucideIcon][] = [
-  ["auto", SunMoon],
-  ["light", Sun],
-  ["dark", Moon],
+const NAV: Nav[] = [
+  {
+    key: "dashboard",
+    label: "Dashboard",
+    icon: LayoutDashboard,
+    alwaysAvailable: true,
+  },
+  { key: "softphone", label: "Softphone", icon: Phone, alwaysAvailable: false },
+  {
+    key: "messages",
+    label: "Messages",
+    icon: MessageSquare,
+    alwaysAvailable: false,
+  },
+  { key: "sims", label: "SIM Config", icon: Cpu, alwaysAvailable: false },
+  { key: "esim", label: "eSIM", icon: Smartphone, alwaysAvailable: false },
+  {
+    key: "settings",
+    label: "Settings",
+    icon: SettingsIcon,
+    alwaysAvailable: true,
+  },
+  { key: "logs", label: "Logs", icon: ScrollText, alwaysAvailable: true },
 ];
 
 export default function App() {
   const [view, setView] = useState("dashboard");
-  const [instances, setInstances] = useState([]);
-  const [cards, setCards] = useState([]);
-  const [cardsKnown, setCardsKnown] = useState(false); // first successful reader scan received
-  const [selected, setSelected] = useState(null);
-  const [toast, setToast] = useState(null);
-  const [theme, setTheme] = useState(
-    () => localStorage.getItem("theme") || "auto",
-  );
-  const wsEvents = useRef<{ handlers: Set<(msg: any) => void> }>({
-    handlers: new Set(),
-  });
-
-  // Apply + persist theme. 'auto' follows the OS (falls back to light if unavailable).
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    localStorage.setItem("theme", theme);
-  }, [theme]);
-
-  const refresh = useCallback(async () => {
-    try {
-      const r = await api.instances();
-      setInstances(r.instances);
-      setSelected((s) =>
-        s != null && s !== ""
-          ? String(s)
-          : r.instances[0]
-            ? String(r.instances[0].id)
-            : null,
-      );
-    } catch (e) {
-      /* manager may be starting */
-    }
-    try {
-      const c = await api.cards();
-      setCards(c.cards);
-      setCardsKnown(true);
-    } catch {}
-  }, []);
-
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
-
-  // live updates
-  useEffect(() => {
-    const off = connectWs((msg) => {
-      if (msg.type === "status") {
-        // Keep the WHOLE status payload (reason, reason_code, retry, frozen, …), not just
-        // state/label/detail — otherwise a live status push would drop the failure reason
-        // that the initial /api/instances fetch showed, making the error banner vanish.
-        const { type, instance, ...status } = msg;
-        setInstances((list) =>
-          list.map((i) =>
-            String(i.id) === String(instance) ? { ...i, status } : i,
-          ),
-        );
-      }
-      if (msg.type === "cards") {
-        setCards(msg.cards);
-        setCardsKnown(true);
-      }
-      if (
-        msg.type === "engine" &&
-        [
-          "card_removed",
-          "reader_lost",
-          "reader_added",
-          "reader_removed",
-        ].includes(msg.event)
-      ) {
-        const name = msg.args?.[0];
-        showToast(
-          {
-            card_removed: "SIM removed — line stopped",
-            reader_lost: "Reader unplugged — line stopped",
-            reader_added: `Card reader connected${name ? `: ${name}` : ""}`,
-            reader_removed: `Card reader disconnected${name ? `: ${name}` : ""}`,
-          }[msg.event],
-        );
-        refresh();
-      }
-      wsEvents.current.handlers.forEach((h) => h(msg));
-      // later parts of a concatenated SMS only update the existing message (msg.update)
-      if (
-        msg.type === "sms" &&
-        msg.message?.direction === "in" &&
-        !msg.update
-      ) {
-        showToast(`SMS from ${msg.message.peer}`);
-      }
-      if (msg.type === "call" && msg.call?.direction === "in") {
-        showToast(`Incoming call from ${msg.call.peer}`);
-      }
-    });
-    return off;
-  }, []);
-
-  const subscribe = useCallback((h) => {
-    wsEvents.current.handlers.add(h);
-    return () => wsEvents.current.handlers.delete(h);
-  }, []);
+  const [toast, setToast] = useState<ReactNode | null>(null);
 
   const toastTimer = useRef(null);
-  const showToast = (m) => {
+  const showToast = (m: ReactNode) => {
     clearTimeout(toastTimer.current); // an older toast's timer must not clear this one
     setToast(m);
     toastTimer.current = setTimeout(() => setToast(null), 5000);
   };
 
+  const {
+    instances,
+    cards,
+    cardsKnown,
+    selected,
+    setSelected,
+    refresh,
+    subscribe,
+  } = useLiveUpdates(showToast);
+
   // No PC/SC reader connected at all -> SIM-bound views are unusable; keep only
   // Dashboard / Settings / Logs and bounce back to the dashboard if needed.
   const noReaders = cardsKnown && cards.length === 0;
   useEffect(() => {
-    if (noReaders && !NAV.find(([k]) => k === view)?.[3]) setView("dashboard");
+    if (noReaders && !NAV.find(({ key }) => key === view)?.alwaysAvailable) {
+      setView("dashboard");
+    }
   }, [noReaders, view]);
 
   const sel = instances.find((i) => String(i.id) === String(selected));
@@ -169,13 +101,10 @@ export default function App() {
   }[view];
 
   return (
-    <div className="app-shell" style={{ display: "flex", height: "100%" }}>
-      <aside className="app-sidebar">
-        <div className="app-brand">
-          <span className="app-brand-accent">Vo</span>WiFi
-          <span className="app-brand-sub"> gateway</span>
-        </div>
-        {NAV.map(([k, label, Icon, always]) => {
+    <AppShell>
+      <SideBar>
+        <AppBrand />
+        {NAV.map(({ key: k, label, icon: Icon, alwaysAvailable: always }) => {
           const disabled = noReaders && !always;
           return (
             <button
@@ -194,25 +123,11 @@ export default function App() {
             </button>
           );
         })}
-        <div className="app-theme-picker" role="radiogroup" aria-label="Theme">
-          {THEMES.map(([t, Icon]) => (
-            <button
-              key={t}
-              onClick={() => setTheme(t)}
-              title={`${t} theme`}
-              role="radio"
-              aria-checked={theme === t}
-              className={theme === t ? "is-active" : ""}
-            >
-              <Icon size={14} aria-hidden="true" />
-              <span>{t}</span>
-            </button>
-          ))}
-        </div>
+        <ThemePicker />
         <div className="app-instance-count">
           {instances.length} SIM{instances.length !== 1 ? "s" : ""} configured
         </div>
-      </aside>
+      </SideBar>
 
       <main
         className="app-main"
@@ -235,7 +150,9 @@ export default function App() {
             padding: "24px 24px 0",
           }}
         >
-          <h1 className="app-title">{NAV.find(([k]) => k === view)?.[1]}</h1>
+          <h1 className="app-title">
+            {NAV.find(({ key }) => key === view)?.label}
+          </h1>
           {/* per-page SIM selectors (SimSelector) handle multi-SIM switching on the views that
               operate on a single line — softphone / messages / logs / SIM config */}
         </div>
@@ -276,6 +193,6 @@ export default function App() {
           {toast}
         </div>
       )}
-    </div>
+    </AppShell>
   );
 }

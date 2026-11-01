@@ -14,6 +14,7 @@ import StatePill from "../components/esim/StatePill";
 import RenameModal from "../components/esim/RenameModal";
 import ProgressBar from "../components/esim/ProgressBar";
 import DownloadModal from "../components/esim/DownloadModal";
+import { CommonViewProps } from "./common-view-props";
 
 export default function Esim({
   cards,
@@ -21,7 +22,7 @@ export default function Esim({
   refresh,
   subscribe,
   showToast,
-}) {
+}: CommonViewProps) {
   const present = useMemo(
     () =>
       [...cards]
