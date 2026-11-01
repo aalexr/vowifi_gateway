@@ -886,8 +886,10 @@ cmd_build_lpac() {
 
   info "configuring lpac (STANDALONE, PCSC+curl) in $BUILD_DIR"
   rm -rf "$BUILD_DIR"
+  # BUILD_TESTING=OFF: lpac's unit tests need the Criterion library, which we don't install.
   "$CMAKE_BIN" -S "$LPAC_SRC" -B "$BUILD_DIR" \
     -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_TESTING=OFF \
     -DSTANDALONE_MODE=ON \
     -DLPAC_WITH_APDU_PCSC=ON \
     -DLPAC_WITH_HTTP_CURL=ON \

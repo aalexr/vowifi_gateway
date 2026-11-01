@@ -37,7 +37,7 @@ from smartcard.System import readers
 
 try:
     from smartcard.scard import (
-        SCardEstablishContext, SCardConnect, SCardGetAttrib, SCardDisconnect,
+        SCardEstablishContext, SCardReleaseContext, SCardConnect, SCardGetAttrib, SCardDisconnect,
         SCARD_SCOPE_USER, SCARD_SHARE_DIRECT, SCARD_LEAVE_CARD,
         SCARD_PROTOCOL_T0, SCARD_PROTOCOL_T1, SCARD_ATTR_CHANNEL_ID, SCARD_S_SUCCESS,
     )
@@ -80,6 +80,13 @@ def _channel_id_bus_dev(reader_name: str):
         if hcard is not None:
             try:
                 SCardDisconnect(hcard, SCARD_LEAVE_CARD)
+            except Exception:
+                pass
+        # Release the context too: pcscd caps clients at 200 contexts, and this runs on every
+        # reader_port lookup (API polls included), so a leak here locks out every PC/SC client.
+        if hctx is not None:
+            try:
+                SCardReleaseContext(hctx)
             except Exception:
                 pass
 
