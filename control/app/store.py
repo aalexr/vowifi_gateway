@@ -21,6 +21,12 @@ def _conn():
     os.makedirs(DATA_DIR, exist_ok=True)
     c = sqlite3.connect(DB_PATH)
     c.row_factory = sqlite3.Row
+    # WAL + synchronous=NORMAL: one fsync per checkpoint instead of several per commit. Writes
+    # run on the event loop (e.g. storing an incoming SMS before it is broadcast), and on an SD
+    # card each fsync can take tens to hundreds of ms. A crash can lose the last commit at worst;
+    # the DB itself stays consistent. journal_mode is persistent; setting it again is a no-op.
+    c.execute("PRAGMA journal_mode=WAL")
+    c.execute("PRAGMA synchronous=NORMAL")
     return c
 
 

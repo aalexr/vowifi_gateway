@@ -1,4 +1,4 @@
-import type { SipConfig } from "../../api";
+import type { InstanceConfig, SipConfig } from "../../api";
 import type { InstanceForm } from "./types";
 
 export const PANI_ACCESS_TYPES = [
@@ -177,4 +177,32 @@ export function sipUsernameConflict(sip: SipConfig) {
     seen.set(username, i);
   }
   return "";
+}
+
+/**
+ * True when the saved line already uses any advanced IMS registration option, so that
+ * section opens by default. Computed from the saved instance, not the live form, so typing
+ * doesn't change it.
+ */
+export function imsAdvancedSet(saved?: InstanceConfig | null): boolean {
+  if (!saved) return false;
+  return !!(
+    saved.ims_domain ||
+    saved.reg_geolocation_country ||
+    saved.reg_srvcc_tags ||
+    saved.reg_imei_urn_spare_zero ||
+    saved.dial_00_to_plus ||
+    saved.update_after_prack
+  );
+}
+
+/** True when the saved line's P-Access-Network-Info differs from the phone-like default. */
+export function paniCustomised(saved?: InstanceConfig | null): boolean {
+  const s = saved?.sip || {};
+  return (
+    (!!s.pani_access_type && s.pani_access_type !== "IEEE-802.11") ||
+    !!s.pani_country ||
+    s.pani_country_enable === false ||
+    !!s.pani_node_id_enable
+  );
 }

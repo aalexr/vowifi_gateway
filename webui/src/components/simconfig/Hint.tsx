@@ -3,20 +3,13 @@ import React from "react";
 /** Small muted help text under a field or group. */
 export default function Hint({
   children,
-  marginBottom,
+  style,
 }: {
   children: React.ReactNode;
-  marginBottom?: number;
+  style?: React.CSSProperties;
 }) {
   return (
-    <div
-      style={{
-        fontSize: 11,
-        color: "var(--text-mute)",
-        marginTop: 4,
-        marginBottom,
-      }}
-    >
+    <div className="hint" style={style}>
       {children}
     </div>
   );

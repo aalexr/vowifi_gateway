@@ -1,5 +1,6 @@
 import React from "react";
 import type { SipExternalAccount } from "../../api";
+import Hint from "./Hint";
 
 interface ExternalAccountsProps {
   accounts: SipExternalAccount[];
@@ -18,14 +19,14 @@ export default function ExternalAccounts({
     onChange(accounts.map((a, idx) => (idx === i ? { ...a, [k]: v } : a)));
 
   return (
-    <div style={{ marginTop: 12 }}>
-      <label>External SIP accounts</label>
-      <div style={{ fontSize: 12, color: "var(--text-mute)", marginBottom: 6 }}>
+    <>
+      <div className="cfg-subhead">External SIP accounts</div>
+      <Hint style={{ marginTop: 0, marginBottom: 8 }}>
         Each account needs a unique username and cannot reuse an Asterisk or
         WebRTC name.
-      </div>
+      </Hint>
       {accounts.map((a, i) => (
-        <div key={i} style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+        <div key={i} className="sip-account-row">
           <input
             placeholder="username"
             value={a.username}
@@ -41,7 +42,7 @@ export default function ExternalAccounts({
       ))}
       {error && (
         <div
-          style={{ color: "var(--danger)", fontSize: 12.5, marginTop: 6 }}
+          style={{ color: "var(--danger)", fontSize: 12.5, marginBottom: 6 }}
           role="alert"
         >
           {error}
@@ -53,6 +54,6 @@ export default function ExternalAccounts({
       >
         + Add account
       </button>
-    </div>
+    </>
   );
 }

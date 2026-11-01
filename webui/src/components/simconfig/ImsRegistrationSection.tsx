@@ -1,31 +1,32 @@
 import React from "react";
+import type { InstanceConfig } from "../../api";
 import CheckboxRow from "./CheckboxRow";
-import CollapsibleCard from "./CollapsibleCard";
 import Field from "./Field";
 import Hint from "./Hint";
+import Section from "./Section";
 import type { FormSectionProps } from "./types";
+import { imsAdvancedSet } from "./utils";
 
-/** Per-line REGISTER/call-setup quirks some IMS cores need. */
+interface ImsRegistrationSectionProps extends FormSectionProps {
+  /** The saved instance (not the live form): opens the section if it already uses these. */
+  saved?: InstanceConfig | null;
+}
+
+/** Per-line REGISTER/call-setup quirks some IMS cores need. Collapsed unless in use. */
 export default function ImsRegistrationSection({
   form,
   upd,
-}: FormSectionProps) {
-  const enabled = [
-    form.ims_domain && "domain",
-    form.reg_geolocation_country && `geo ${form.reg_geolocation_country}`,
-    form.reg_srvcc_tags && "SRVCC",
-    form.reg_imei_urn_spare_zero && "IMEI spare 0",
-    form.dial_00_to_plus && "00→+",
-    form.update_after_prack && "UPDATE after PRACK",
-  ].filter(Boolean);
-
+  saved,
+}: ImsRegistrationSectionProps) {
   return (
-    <CollapsibleCard
-      id="ims"
-      title="IMS Registration"
-      summary={enabled.length ? enabled.join(" · ") : "defaults"}
+    <Section
+      title="IMS registration"
+      desc="Advanced — leave off/empty unless the carrier needs them."
+      collapsible
+      defaultOpen={imsAdvancedSet(saved)}
+      resetKey={saved?.id}
     >
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+      <div className="form-grid">
         <Field label="Registrar home domain">
           <input
             className="mono"
@@ -51,7 +52,6 @@ export default function ImsRegistrationSection({
         </Field>
       </div>
       <CheckboxRow
-        marginTop={8}
         checked={!!form.reg_srvcc_tags}
         onChange={(reg_srvcc_tags) => upd({ reg_srvcc_tags })}
       >
@@ -78,15 +78,14 @@ export default function ImsRegistrationSection({
         500 on outgoing calls)
       </CheckboxRow>
       <Hint>
-        Leave these off/empty unless the carrier needs them — they change only
-        this line. Some IMS cores accept the REGISTER and then remove it within
-        a second (status "The carrier's IMS accepted the registration but then
-        removed it again") unless it looks like a native phone. <b>MTS RU</b>{" "}
-        needs only the Geolocation country (the country you are in, e.g.{" "}
-        <code>DE</code>); the other options are there for carriers that turn out
-        to need them (an iPhone sends all of them). Restart the line after
-        changing them.
+        These change only this line. Some IMS cores accept the REGISTER and then
+        remove it within a second (status "The carrier's IMS accepted the
+        registration but then removed it again") unless it looks like a native
+        phone. <b>MTS RU</b> needs only the Geolocation country (the country you
+        are in, e.g. <code>DE</code>); the other options are there for carriers
+        that turn out to need them (an iPhone sends all of them). Restart the
+        line after changing them.
       </Hint>
-    </CollapsibleCard>
+    </Section>
   );
 }

@@ -1,13 +1,12 @@
 import React from "react";
 import type { CardInfo } from "../../api";
 import CardDetails from "./CardDetails";
-import CollapsibleCard from "./CollapsibleCard";
 import Field from "./Field";
 import Hint from "./Hint";
 import StatusMessage from "./StatusMessage";
 import type { FormSectionProps } from "./types";
 
-interface SimCardSectionProps extends FormSectionProps {
+interface SimCardPanelProps extends FormSectionProps {
   readers: string[];
   /** Stable USB port path of a reader index ("" when unknown). */
   portForIdx: (i: number) => string;
@@ -21,8 +20,8 @@ interface SimCardSectionProps extends FormSectionProps {
   message: string;
 }
 
-/** Reader picker, card detection and PIN entry/verification. */
-export default function SimCardSection({
+/** Sticky side panel: reader picker, card detection and PIN entry/verification. */
+export default function SimCardPanel({
   form,
   upd,
   readers,
@@ -34,13 +33,10 @@ export default function SimCardSection({
   onVerifyPin,
   onDeleteSavedPin,
   message,
-}: SimCardSectionProps) {
-  const summary = card?.present
-    ? card.iccid || card.imsi || "card present"
-    : readers[form.reader_index ?? 0] || "";
-
+}: SimCardPanelProps) {
   return (
-    <CollapsibleCard id="sim" title="SIM card" summary={summary}>
+    <aside className="card simcfg-card">
+      <div className="cfg-section-title">SIM card</div>
       <Field label="Reader">
         <select
           value={form.reader_index}
@@ -61,13 +57,10 @@ export default function SimCardSection({
         </select>
       </Field>
       {form.reader_port && (
-        <div
-          className="mono"
-          style={{ fontSize: 11, color: "var(--text-mute)", marginTop: 4 }}
-        >
+        <Hint>
           Bound to USB port {form.reader_port} (stable across reader
           re-enumeration)
-        </div>
+        </Hint>
       )}
       <button
         className="btn btn-ghost"
@@ -77,7 +70,7 @@ export default function SimCardSection({
         Detect card
       </button>
       {card && <CardDetails card={card} />}
-      <hr style={{ borderColor: "var(--border)", margin: "16px 0" }} />
+      <hr className="cfg-rule" />
       <Field label="PIN (CHV1)">
         <input
           type="password"
@@ -105,15 +98,13 @@ export default function SimCardSection({
         )}
       </div>
       {form.id && (
-        <Hint>
-          <span style={{ fontSize: 12 }}>
-            {form.has_pin
-              ? "A PIN is saved for this line and used automatically on start."
-              : "No PIN saved — you'll be asked for it when the line is started (if the SIM requires one)."}
-          </span>
+        <Hint style={{ marginTop: 8 }}>
+          {form.has_pin
+            ? "A PIN is saved for this line and used automatically on start."
+            : "No PIN saved — you'll be asked for it when the line is started (if the SIM requires one)."}
         </Hint>
       )}
       <StatusMessage message={message} />
-    </CollapsibleCard>
+    </aside>
   );
 }

@@ -273,13 +273,26 @@ ensure_pcscd() {
   installed_ver=""
   if have pcscd; then installed_ver=$(pcscd --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1); fi
 
-  if [ "$installed_ver" = "$PCSC_VERSION" ]; then
+  # pcsc-lite's meson defaults to systemdunit=user, so builds by older versions of this script
+  # installed only per-user units: nothing started pcscd as root at boot and the reader vanished
+  # after a reboot. A matching version without a system unit is such a build — redo it.
+  missing_unit=0
+  if [ "$installed_ver" = "$PCSC_VERSION" ] && have systemctl \
+     && ! systemctl cat pcscd.socket >/dev/null 2>&1; then
+    missing_unit=1
+  fi
+
+  if [ "$installed_ver" = "$PCSC_VERSION" ] && [ "$missing_unit" = 0 ]; then
     info "host pcscd already at pinned version $PCSC_VERSION"
     PCSC_SOURCE_BUILT=0
   else
     # Install the CCID USB driver from the distro (its IFDHandler ABI is stable across pcscd
     # 2.x, so the distro driver works with our source-built pcscd), plus build deps.
-    info "host pcscd is '${installed_ver:-none}', pinning to $PCSC_VERSION (building from source)…"
+    if [ "$missing_unit" = 1 ]; then
+      info "host pcscd $PCSC_VERSION has no system unit (won't start on boot) — rebuilding…"
+    else
+      info "host pcscd is '${installed_ver:-none}', pinning to $PCSC_VERSION (building from source)…"
+    fi
     if   have apt-get; then
       # Debian 13+/Ubuntu 24.04+ moved systemd.pc (meson's "systemd" dependency) out of the
       # systemd package into systemd-dev; older releases don't have that package at all.
@@ -373,12 +386,21 @@ _build_pcsclite_host() {
     && { curl -fsSLo pcsc.tar.gz "https://github.com/LudovicRousseau/PCSC/archive/refs/tags/${PCSC_VERSION}.tar.gz" \
          || wget -qO pcsc.tar.gz "https://github.com/LudovicRousseau/PCSC/archive/refs/tags/${PCSC_VERSION}.tar.gz"; } \
     && tar xf pcsc.tar.gz && cd "PCSC-${PCSC_VERSION}" \
-    && meson setup builddir --prefix=/usr -Dpolkit=false \
+    && meson setup builddir --prefix=/usr -Dpolkit=false -Dsystemdunit=system \
     && ninja -C builddir && ninja -C builddir install \
   ) || die "failed to build pcsc-lite $PCSC_VERSION from source"
   ldconfig 2>/dev/null || true
   rm -rf "$tmp"
-  # Ensure a systemd unit + socket exist (meson installs them under /usr/lib/systemd/system).
+  # meson installs pcscd.service + pcscd.socket under /usr/lib/systemd/system (-Dsystemdunit=system).
+  # Drop per-user units left by earlier builds (meson's default): a user-session pcscd can't
+  # create /run/pcscd and only logs "Permission denied". Keep any a distro package owns.
+  for u in /usr/lib/systemd/user/pcscd.socket /usr/lib/systemd/user/pcscd.service; do
+    [ -f "$u" ] || continue
+    if { have dpkg && dpkg -S "$u" >/dev/null 2>&1; } || { have rpm && rpm -qf "$u" >/dev/null 2>&1; }; then
+      continue
+    fi
+    rm -f "$u"
+  done
   if have systemctl; then systemctl daemon-reload 2>/dev/null || true; fi
   info "host pcscd built + installed at $PCSC_VERSION"
 }
@@ -886,8 +908,10 @@ cmd_build_lpac() {
 
   info "configuring lpac (STANDALONE, PCSC+curl) in $BUILD_DIR"
   rm -rf "$BUILD_DIR"
+  # BUILD_TESTING=OFF: lpac's unit tests need the Criterion library, which we don't install.
   "$CMAKE_BIN" -S "$LPAC_SRC" -B "$BUILD_DIR" \
     -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_TESTING=OFF \
     -DSTANDALONE_MODE=ON \
     -DLPAC_WITH_APDU_PCSC=ON \
     -DLPAC_WITH_HTTP_CURL=ON \

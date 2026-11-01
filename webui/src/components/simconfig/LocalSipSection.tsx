@@ -1,38 +1,29 @@
 import React from "react";
 import CheckboxRow from "./CheckboxRow";
-import CollapsibleCard from "./CollapsibleCard";
 import ExternalAccounts from "./ExternalAccounts";
 import Field from "./Field";
-import PaniSettings from "./PaniSettings";
+import Section from "./Section";
 import type { SipSectionProps } from "./types";
 import { sipUsernameConflict } from "./utils";
 
-interface LocalSipSectionProps extends SipSectionProps {
+interface LocalSipSectionProps extends Omit<SipSectionProps, "upd"> {
   /** Offer the "LAN IP" listen address (only once the line has a status). */
   allowLanListen: boolean;
 }
 
-/** How local phones / the browser reach this line, plus carrier-facing SIP identity. */
+/** How local phones / the browser reach this line, plus the carrier-facing User-Agent. */
 export default function LocalSipSection({
   form,
   updSip,
   allowLanListen,
 }: LocalSipSectionProps) {
   const sip = form.sip;
-  const sipUserError = sipUsernameConflict(sip);
-  const accounts = sip.external || [];
-  const summary = [
-    `${sip.listen_addr} / ${String(sip.transport || "").toUpperCase()}`,
-    sip.webrtc?.enable && "WebRTC",
-    accounts.length &&
-      `${accounts.length} account${accounts.length > 1 ? "s" : ""}`,
-  ]
-    .filter(Boolean)
-    .join(" · ");
-
   return (
-    <CollapsibleCard id="sip" title="Local SIP access" summary={summary}>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+    <Section
+      title="Local SIP access"
+      desc="How phones and SIP clients on your network reach this line."
+    >
+      <div className="form-grid">
         <Field label="Listen address">
           <select
             value={sip.listen_addr}
@@ -53,34 +44,30 @@ export default function LocalSipSection({
             <option value="tls">TLS</option>
           </select>
         </Field>
+        <Field
+          label="Device User-Agent (identify to the carrier as this device)"
+          wide
+        >
+          <input
+            className="mono"
+            value={sip.user_agent || ""}
+            onChange={(e) => updSip({ user_agent: e.target.value })}
+            placeholder="iOS/26.6 iPhone"
+          />
+        </Field>
       </div>
       <CheckboxRow
-        marginTop={8}
         checked={!!sip.webrtc?.enable}
         onChange={(enable) => updSip({ webrtc: { ...sip.webrtc, enable } })}
       >
         Enable browser softphone (WebRTC)
       </CheckboxRow>
 
-      <div style={{ marginTop: 12 }}>
-        <label>
-          Device User-Agent (identify to the carrier as this device)
-        </label>
-        <input
-          className="mono"
-          value={sip.user_agent || ""}
-          onChange={(e) => updSip({ user_agent: e.target.value })}
-          placeholder="iOS/26.6 iPhone"
-        />
-      </div>
-
-      <PaniSettings form={form} updSip={updSip} />
-
       <ExternalAccounts
-        accounts={accounts}
+        accounts={sip.external || []}
         onChange={(external) => updSip({ external })}
-        error={sipUserError}
+        error={sipUsernameConflict(sip)}
       />
-    </CollapsibleCard>
+    </Section>
   );
 }

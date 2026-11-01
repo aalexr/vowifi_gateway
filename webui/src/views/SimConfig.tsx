@@ -12,10 +12,13 @@ import {
   emptyInstance,
   sipUsernameConflict,
 } from "../components/simconfig/utils";
-import SimCardSection from "../components/simconfig/SimCardSection";
-import LineConfigSection from "../components/simconfig/LineConfigSection";
-import ImsRegistrationSection from "../components/simconfig/ImsRegistrationSection";
+import SimCardPanel from "../components/simconfig/SimCardPanel";
+import LineSection from "../components/simconfig/LineSection";
+import SubscriberSection from "../components/simconfig/SubscriberSection";
+import EpdgTunnelSection from "../components/simconfig/EpdgTunnelSection";
 import LocalSipSection from "../components/simconfig/LocalSipSection";
+import ImsRegistrationSection from "../components/simconfig/ImsRegistrationSection";
+import PaniSection from "../components/simconfig/PaniSection";
 import StatusMessage from "../components/simconfig/StatusMessage";
 import type { SmscMode } from "../components/simconfig/SmscField";
 import type { InstanceForm } from "../components/simconfig/types";
@@ -234,7 +237,7 @@ export default function SimConfig({
   };
 
   return (
-    <div>
+    <div className="simcfg">
       {instances.length > 1 && (
         <SimSelector
           instances={instances}
@@ -244,8 +247,8 @@ export default function SimConfig({
           label="Configuring line"
         />
       )}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
-        <SimCardSection
+      <div className="simcfg-grid">
+        <SimCardPanel
           form={form}
           upd={upd}
           readers={readers}
@@ -258,43 +261,47 @@ export default function SimConfig({
           onDeleteSavedPin={deleteSavedPin}
           message={pinMsg}
         />
-        <LineConfigSection
-          form={form}
-          upd={upd}
-          smscMode={smscMode}
-          onSmscModeChange={onSmscModeChange}
-        />
-        <ImsRegistrationSection form={form} upd={upd} />
-        <LocalSipSection
-          form={form}
-          upd={upd}
-          updSip={updSip}
-          allowLanListen={!!selected?.status}
-        />
-      </div>
 
-      <div
-        style={{
-          display: "flex",
-          gap: 8,
-          marginTop: 16,
-          alignItems: "center",
-          flexWrap: "wrap",
-        }}
-      >
-        <button
-          className="btn btn-primary"
-          onClick={save}
-          disabled={saving || !form.id || !form.imsi}
-        >
-          Save
-        </button>
-        {form.id && (
-          <button className="btn btn-danger" onClick={del}>
-            Delete
-          </button>
-        )}
-        <StatusMessage message={saveMsg} style={{ marginTop: 0 }} />
+        <div className="simcfg-form">
+          <LineSection form={form} upd={upd} />
+          <SubscriberSection
+            form={form}
+            upd={upd}
+            smscMode={smscMode}
+            onSmscModeChange={onSmscModeChange}
+          />
+          <EpdgTunnelSection form={form} upd={upd} />
+          <LocalSipSection
+            form={form}
+            updSip={updSip}
+            allowLanListen={!!selected?.status}
+          />
+          {/* Advanced: collapsed unless the saved line already uses them. */}
+          <ImsRegistrationSection form={form} upd={upd} saved={selected} />
+          <PaniSection form={form} updSip={updSip} saved={selected} />
+
+          <div className="card simcfg-actions">
+            <button
+              className="btn btn-primary"
+              onClick={save}
+              disabled={saving || !form.id || !form.imsi}
+            >
+              Save
+            </button>
+            {form.id && (
+              <button className="btn btn-danger" onClick={del}>
+                Delete
+              </button>
+            )}
+            {saveMsg ? (
+              <StatusMessage message={saveMsg} style={{ marginTop: 0 }} />
+            ) : (
+              <span className="hint" style={{ margin: 0 }}>
+                Restart the line after saving for most changes to apply.
+              </span>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -3,34 +3,28 @@ import type { CardInfo } from "../../api";
 
 /** Readout of the last "Detect card" result. */
 export default function CardDetails({ card }: { card: CardInfo }) {
+  if (!card.present)
+    return (
+      <div className="banner banner-danger" style={{ marginTop: 12 }}>
+        No SIM card in reader {card.reader_index}.
+      </div>
+    );
   return (
-    <div
-      className="mono"
-      style={{
-        fontSize: 12,
-        color: card.present ? "var(--text-dim)" : "var(--danger)",
-        marginTop: 12,
-        lineHeight: 1.6,
-      }}
-    >
-      {card.present ? (
+    <dl className="simcfg-facts mono">
+      <dt>ICCID</dt>
+      <dd>{card.iccid || "—"}</dd>
+      <dt>IMSI</dt>
+      <dd>{card.imsi || "(locked)"}</dd>
+      {card.reader_port && (
         <>
-          ICCID: {card.iccid || "—"}
-          <br />
-          IMSI: {card.imsi || "(locked)"}
-          <br />
-          {card.reader_port && (
-            <>
-              USB port: {card.reader_port}
-              <br />
-            </>
-          )}
-          PIN:{" "}
-          {card.pin_enabled ? `enabled, ${card.pin_tries} tries` : "disabled"}
+          <dt>USB port</dt>
+          <dd>{card.reader_port}</dd>
         </>
-      ) : (
-        <>No SIM card in reader {card.reader_index}.</>
       )}
-    </div>
+      <dt>PIN</dt>
+      <dd>
+        {card.pin_enabled ? `enabled, ${card.pin_tries} tries` : "disabled"}
+      </dd>
+    </dl>
   );
 }

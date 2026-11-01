@@ -14,6 +14,8 @@ Never fails the caller (all exceptions swallowed).
 import os
 import sys
 import json
+import ssl
+import urllib.request
 
 
 def load_env():
@@ -48,12 +50,17 @@ def main():
         pass
     if not manager_url:
         return
+    # stdlib only: this runs as a fresh process for every SMS/call event, and importing
+    # requests/urllib3 costs ~0.25 s on x86 and several times that on a Raspberry Pi, all of it
+    # added to how long an incoming SMS takes to reach the WebUI. The manager's certificate is
+    # self-signed, hence the unverified context (same as the old verify=False).
     try:
-        import requests
-        import urllib3
-        urllib3.disable_warnings()
-        requests.post(f"{manager_url.rstrip('/')}/api/engine/event",
-                      json=payload, timeout=3, verify=False)
+        req = urllib.request.Request(
+            f"{manager_url.rstrip('/')}/api/engine/event",
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"}, method="POST")
+        urllib.request.urlopen(req, timeout=3,
+                               context=ssl._create_unverified_context()).close()
     except Exception:
         pass
 

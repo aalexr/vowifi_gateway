@@ -1,5 +1,4 @@
 import React from "react";
-import Field from "./Field";
 
 export type SmscMode = "auto" | "manual";
 
@@ -11,13 +10,6 @@ interface SmscFieldProps {
   onModeChange: (mode: SmscMode) => void;
 }
 
-const radioLabel: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 5,
-  cursor: "pointer",
-};
-
 /** SMS centre: read from the SIM (EF_SMSP) or typed by hand. */
 export default function SmscField({
   value,
@@ -27,28 +19,25 @@ export default function SmscField({
 }: SmscFieldProps) {
   const auto = mode === "auto";
   return (
-    <Field label="SMS centre (SMSC)">
-      <div style={{ display: "flex", gap: 12, marginBottom: 6, fontSize: 13 }}>
-        <label style={radioLabel}>
-          <input
-            type="radio"
-            name="scmode"
-            checked={auto}
-            style={{ width: "auto" }}
-            onChange={() => onModeChange("auto")}
-          />
+    <div style={{ marginTop: 12 }}>
+      <label>SMS centre (SMSC)</label>
+      <div className="segmented" style={{ marginBottom: 6 }}>
+        <button
+          type="button"
+          className={`btn${auto ? " is-active" : ""}`}
+          aria-pressed={auto}
+          onClick={() => onModeChange("auto")}
+        >
           Auto (from SIM)
-        </label>
-        <label style={radioLabel}>
-          <input
-            type="radio"
-            name="scmode"
-            checked={!auto}
-            style={{ width: "auto" }}
-            onChange={() => onModeChange("manual")}
-          />
+        </button>
+        <button
+          type="button"
+          className={`btn${!auto ? " is-active" : ""}`}
+          aria-pressed={!auto}
+          onClick={() => onModeChange("manual")}
+        >
           Manual
-        </label>
+        </button>
       </div>
       <input
         className="mono"
@@ -60,6 +49,6 @@ export default function SmscField({
         }
         style={auto ? { opacity: 0.7 } : undefined}
       />
-    </Field>
+    </div>
   );
 }
