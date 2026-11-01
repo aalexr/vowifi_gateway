@@ -6,9 +6,9 @@ interface CommonViewProps {
   cards: DetectedCard[];
   noReaders: boolean;
   cardsKnown: boolean;
-  selected: InstanceConfig | null;
+  selected?: InstanceConfig | null;
   setSelected: (selected: InstanceId | null) => void;
-  refresh: () => void;
+  refresh: () => Promise<void>;
   subscribe: (handler: Handler) => () => void;
   showToast: (msg: React.ReactNode) => void;
   setView: (view: string) => void;

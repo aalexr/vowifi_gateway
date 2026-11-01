@@ -21,12 +21,12 @@ const FG = {
   95: "#c084fc",
   96: "#22d3ee",
   97: "var(--text)",
-};
+} as const;
 
 // Parse a string containing ANSI SGR escapes (e.g. "\x1b[1;32mDEBUG\x1b[0m[153]: ")
 // into an array of styled React spans. Tolerates a missing ESC byte.
 function ansi(text: string) {
-  const out = [];
+  const out: React.ReactNode[] = [];
   let style = {};
   let key = 0;
   const re = /\x1b?\[([0-9;]*)m/g;
@@ -52,7 +52,7 @@ function ansi(text: string) {
       else if (c === 1) style = { ...style, fontWeight: 700 };
       else if (c === 3) style = { ...style, fontStyle: "italic" };
       else if (c === 4) style = { ...style, textDecoration: "underline" };
-      else if (FG[c]) style = { ...style, color: FG[c] };
+      else if (c in FG) style = { ...style, color: FG[c as keyof typeof FG] };
     }
     last = re.lastIndex;
   }
@@ -63,7 +63,7 @@ function ansi(text: string) {
 const TABS = [
   { id: "engine", short: "Engine", full: "Asterisk / engine" },
   { id: "charon", short: "IKE", full: "SWu tunnel (IKE)" },
-];
+] as const;
 
 export default function Logs({
   selected,
@@ -73,7 +73,7 @@ export default function Logs({
 }: CommonViewProps) {
   const id = selected?.id;
   const [logs, setLogs] = useState({ engine: "", charon: "" });
-  const [tab, setTab] = useState("engine");
+  const [tab, setTab] = useState<(typeof TABS)[number]["id"]>("engine");
   const [auto, setAuto] = useState(true);
   const [err, setErr] = useState("");
 

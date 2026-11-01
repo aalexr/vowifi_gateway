@@ -290,9 +290,10 @@ export type WebSocketMessage =
     };
 
 async function j<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const opt: RequestInit = { method, headers: {} };
+  const headers: Record<string, string> = {};
+  const opt: RequestInit = { method, headers };
   if (body !== undefined) {
-    opt.headers["Content-Type"] = "application/json";
+    headers["Content-Type"] = "application/json";
     opt.body = JSON.stringify(body);
   }
   const r = await fetch(base + path, opt);
@@ -542,9 +543,18 @@ export const api = {
   esimDelete: (iccid: string, readerOrBody: ReaderTarget) => {
     if (readerOrBody && typeof readerOrBody === "object") {
       const q = readerQuery(readerOrBody.reader ?? readerOrBody.reader_index);
-      if (readerOrBody.se_id || readerOrBody.seId)
-        q.set("se_id", readerOrBody.se_id || readerOrBody.seId);
-      if (readerOrBody.aid) q.set("aid", readerOrBody.aid);
+      if (readerOrBody.se_id) {
+        q.set("se_id", readerOrBody.se_id);
+      }
+
+      if (readerOrBody.seId) {
+        q.set("se_id", readerOrBody.seId);
+      }
+
+      if (readerOrBody.aid) {
+        q.set("aid", readerOrBody.aid);
+      }
+
       return j<{ ok: boolean; iccid: string; se_id: string }>(
         "DELETE",
         `/api/esim/profiles/${encodeURIComponent(iccid)}?${q}`,
@@ -611,9 +621,17 @@ export const api = {
   esimRemoveNotification: (seq: number, readerOrBody: ReaderTarget) => {
     if (readerOrBody && typeof readerOrBody === "object") {
       const q = readerQuery(readerOrBody.reader ?? readerOrBody.reader_index);
-      if (readerOrBody.se_id || readerOrBody.seId)
-        q.set("se_id", readerOrBody.se_id || readerOrBody.seId);
-      if (readerOrBody.aid) q.set("aid", readerOrBody.aid);
+      if (readerOrBody.se_id) {
+        q.set("se_id", readerOrBody.se_id);
+      }
+
+      if (readerOrBody.seId) {
+        q.set("se_id", readerOrBody.seId);
+      }
+
+      if (readerOrBody.aid) {
+        q.set("aid", readerOrBody.aid);
+      }
       return j<{ ok: boolean; seq: number; se_id: string }>(
         "DELETE",
         `/api/esim/notifications/${seq}?${q}`,
@@ -627,9 +645,15 @@ export const api = {
   esimNotificationRemove: (seq: number, readerOrBody: ReaderTarget) => {
     if (readerOrBody && typeof readerOrBody === "object") {
       const q = readerQuery(readerOrBody.reader ?? readerOrBody.reader_index);
-      if (readerOrBody.se_id || readerOrBody.seId)
-        q.set("se_id", readerOrBody.se_id || readerOrBody.seId);
-      if (readerOrBody.aid) q.set("aid", readerOrBody.aid);
+      if (readerOrBody.se_id) {
+        q.set("se_id", readerOrBody.se_id);
+      }
+      if (readerOrBody.seId) {
+        q.set("se_id", readerOrBody.seId);
+      }
+      if (readerOrBody.aid) {
+        q.set("aid", readerOrBody.aid);
+      }
       return j<{ ok: boolean; seq: number; se_id: string }>(
         "DELETE",
         `/api/esim/notifications/${seq}?${q}`,
@@ -646,8 +670,8 @@ export function connectWs(
   onMsg: (message: WebSocketMessage) => void,
 ): () => void {
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  let ws,
-    alive = true;
+  let ws: WebSocket;
+  let alive = true;
   const open = () => {
     ws = new WebSocket(`${proto}://${location.host}/ws`);
     ws.onmessage = (e) => {

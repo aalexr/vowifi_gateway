@@ -1,10 +1,19 @@
 import React, { useEffect, useId } from "react";
+import type { InstanceConfig, DetectedCard, InstanceId } from "../../api";
 
 const SHORT_LABELS = {
   "Active SIM / line": "Line",
   "Show logs for": "Logs",
   "Configuring line": "Config",
-};
+} as const;
+
+interface SimSelectorProps {
+  instances?: InstanceConfig[];
+  cards?: DetectedCard[];
+  selected?: InstanceConfig | null;
+  setSelected: (id: InstanceId | null) => void;
+  label?: keyof typeof SHORT_LABELS;
+}
 
 // Per-page SIM/line picker for multi-SIM setups. Labels each line with the physical reader
 // it currently occupies (from the detected-cards state) so it's clear which reader's engine
@@ -19,24 +28,22 @@ export default function SimSelector({
   selected,
   setSelected,
   label = "Active SIM / line",
-}) {
+}: SimSelectorProps) {
   const selectId = useId();
   // A present card that maps to this line (by matched id or ICCID) means its reader is here.
-  const readerFor = (i) =>
+  const readerFor = (i: InstanceConfig) =>
     cards.find(
       (c) =>
-        c.present &&
-        (String(c.matched) === String(i.id) ||
-          (c.iccid && c.iccid === i.iccid)),
+        c.present && (c.matched === i.id || (c.iccid && c.iccid === i.iccid)),
     );
   const live = instances.filter((i) => readerFor(i));
 
   // If the currently-selected line's reader just went away, move selection to the first
   // still-present line (or clear it) so no view stays pinned to a vanished reader.
-  const id = selected?.id != null ? String(selected.id) : "";
+  const id = selected?.id != null ? selected.id : "";
   useEffect(() => {
-    if (id && !live.some((i) => String(i.id) === id)) {
-      setSelected(live[0] ? String(live[0].id) : null);
+    if (id && !live.some((i) => i.id === id)) {
+      setSelected(live[0] ? live[0].id : null);
     }
   }, [id, live.map((i) => i.id).join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
 

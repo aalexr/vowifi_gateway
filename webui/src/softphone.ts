@@ -1,15 +1,26 @@
 // Browser softphone: JsSIP UA over WSS to the engine's Asterisk WebRTC transport.
 import JsSIP from "jssip";
+import { RTCSession } from "jssip/lib/RTCSession";
+import type { CallOptions } from "jssip/lib/UA";
 
 // Surface JsSIP internals in the console to aid troubleshooting (registration, ICE, etc.)
 try {
   JsSIP.debug.enable("JsSIP:*");
 } catch {}
 
+interface Prov {
+  username: string;
+  password: string;
+  ws_port: number;
+  host: string;
+  realm: string;
+  domain?: string;
+}
+
 export class Softphone {
   onEvent: (type: string, data?: any) => void;
-  ua: any = null;
-  session: any = null;
+  ua: JsSIP.UA | null = null;
+  session: RTCSession | null = null;
   remoteAudio: HTMLAudioElement | null;
   _dead = false;
   _unlocked = false;
@@ -21,7 +32,10 @@ export class Softphone {
   // stable, DOM-attached element (instead of a per-call `new Audio()`) is what makes remote
   // audio reliable under Chrome/Edge autoplay policy: the element is primed once inside a user
   // gesture (unlockAudio) and then every later srcObject swap plays without a NotAllowedError.
-  constructor(onEvent, audioEl) {
+  constructor(
+    onEvent: (type: string, data?: any) => void,
+    audioEl: HTMLAudioElement | null,
+  ) {
     this.onEvent = onEvent; // (type, data) => void
     this.ua = null;
     this.session = null;
@@ -33,18 +47,18 @@ export class Softphone {
     this._recChunks = [];
   }
 
-  emit(type, data?) {
+  emit(type: string, data?: any) {
     try {
       this.onEvent(type, data);
     } catch {}
   }
 
   // Point the class at the React-owned <audio> element. Called from the component's ref effect.
-  setAudioEl(el) {
+  setAudioEl(el: HTMLAudioElement | null) {
     if (el) this.remoteAudio = el;
   }
 
-  ensureAudio() {
+  ensureAudio(): HTMLAudioElement {
     // Fallback only: if no element was injected (shouldn't happen in the React app), create a
     // hidden, DOM-attached one so audio can still render.
     if (!this.remoteAudio) {
@@ -95,7 +109,7 @@ export class Softphone {
   // Attach a remote MediaStream to the audio element and force playback. The element was
   // primed by unlockAudio() on the click, so play() should resolve; we keep the catch as
   // telemetry + arm a one-time gesture retry as a last resort.
-  attachRemote(stream) {
+  attachRemote(stream: MediaStream) {
     if (!stream) return;
     const el = this.ensureAudio();
     if (el.srcObject !== stream) el.srcObject = stream;
@@ -117,7 +131,7 @@ export class Softphone {
   }
 
   // prov: { username, password, ws_port, host, realm }
-  start(prov, host) {
+  start(prov: Prov, host: string) {
     if (this.ua) this.stop();
     const wsUrl = `wss://${host}:${prov.ws_port}/ws`;
     const socket = new JsSIP.WebSocketInterface(wsUrl);
@@ -144,11 +158,13 @@ export class Softphone {
     this.ua.on("registrationFailed", (e) =>
       this.emit("regfail", (e && e.cause) || "failed"),
     );
-    this.ua.on("newRTCSession", (e) => this.handleSession(e));
+    this.ua.on("newRTCSession", (e: { session: RTCSession }) =>
+      this.handleSession(e),
+    );
     this.ua.start();
   }
 
-  handleSession(e) {
+  handleSession(e: { session: RTCSession }) {
     const session = e.session;
     // If already in a call, reject any second incoming session as busy.
     if (this.session && this.session !== session) {
@@ -163,7 +179,9 @@ export class Softphone {
     // Idempotency guard: an outgoing call reaches here twice (once from call(), once from
     // the UA's 'newRTCSession' for the same session). Binding listeners twice would double
     // -fire events; bind exactly once per session.
+    // @ts-ignore: __vowifiBound is a custom property added to the session object
     if (session.__vowifiBound) return;
+    // @ts-ignore: __vowifiBound is a custom property added to the session object
     session.__vowifiBound = true;
     const dir = session.direction; // 'incoming' | 'outgoing'
     if (dir === "incoming") {
@@ -226,7 +244,7 @@ export class Softphone {
   // not depend on the 'peerconnection'/ontrack event having fired in time (the observed
   // failure was hasStream:false — ontrack never attached), and the server has confirmed RTP
   // is flowing, so a receiver track is present here.
-  attachFromSession(session) {
+  attachFromSession(session: RTCSession) {
     try {
       const pc = session && session.connection;
       if (!pc) return;
@@ -238,10 +256,11 @@ export class Softphone {
     } catch {}
   }
 
-  call(number) {
+  call(number: string) {
     if (!this.ua) return;
-    const domain = this.ua.configuration.uri.host;
-    const opts = {
+    const domain = URL.parse(this.ua.get("uri"))?.host;
+    if (!domain) throw new Error("Invalid domain");
+    const opts: CallOptions = {
       mediaConstraints: { audio: true, video: false },
       pcConfig: { rtcpMuxPolicy: "require", iceServers: [] },
     };
@@ -253,6 +272,7 @@ export class Softphone {
       // ua.call() can throw synchronously (bad target, no media, etc.) before any session
       // event fires — surface it as a terminal 'failed' so the UI doesn't hang on "calling".
       this.session = null;
+      // @ts-ignore
       this.emit("failed", { cause: (err && err.message) || "Call failed" });
     }
   }
@@ -297,14 +317,14 @@ export class Softphone {
     }
   }
 
-  sendDTMF(tone) {
+  sendDTMF(tone: string) {
     if (this.session)
       try {
         this.session.sendDTMF(tone);
       } catch {}
   }
 
-  setMuted(muted) {
+  setMuted(muted: boolean) {
     if (!this.session) return;
     try {
       muted
@@ -327,7 +347,7 @@ export class Softphone {
     const local = pc
       .getSenders()
       .map((s) => s.track)
-      .filter((t) => t && t.kind === "audio");
+      .filter((t): t is MediaStreamTrack => t !== null && t.kind === "audio");
     const remote = pc
       .getReceivers()
       .map((r) => r.track)
@@ -368,7 +388,7 @@ export class Softphone {
           type: this._rec ? this._rec.mimeType : "audio/webm",
         });
         try {
-          this._recCtx.close();
+          this._recCtx?.close();
         } catch {}
         this._rec = null;
         this._recCtx = null;

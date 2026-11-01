@@ -1,12 +1,22 @@
-import React, { useState } from "react";
-import { api } from "../../api";
+import React, { BaseSyntheticEvent, useState } from "react";
+import { api, DetectedCard } from "../../api";
 import { PIN_RE } from "./utils";
+
+interface UnprovisionedCardProps {
+  card: DetectedCard;
+  refresh: () => Promise<void>;
+  onProvision: (pin: string) => void;
+}
 
 // A detected-but-unprovisioned SIM. Two states:
 //  - LOCKED (PIN required, IMSI not yet readable): show basic info + a PIN field, no Provision.
 //    Entering a correct PIN unlocks IMSI+SMSC on the backend and the card refreshes.
 //  - READY (PIN disabled, or unlocked): show identity + SMSC, offer Provision.
-export default function UnprovisionedCard({ card, refresh, onProvision }) {
+export default function UnprovisionedCard({
+  card,
+  refresh,
+  onProvision,
+}: UnprovisionedCardProps) {
   const [pinInput, setPinInput] = useState("");
   const [pin, setPin] = useState(""); // remembered correct PIN, forwarded to provisioning
   const [busy, setBusy] = useState(false);
@@ -15,7 +25,7 @@ export default function UnprovisionedCard({ card, refresh, onProvision }) {
   const unlocked = !!card.imsi; // could read IMSI => PIN satisfied or disabled
   const pinOk = PIN_RE.test(pinInput);
 
-  const unlock = async (e) => {
+  const unlock = async (e: BaseSyntheticEvent) => {
     e.stopPropagation();
     if (!pinOk) {
       setErr("PIN must be 4–8 digits.");
@@ -34,12 +44,13 @@ export default function UnprovisionedCard({ card, refresh, onProvision }) {
           `${r.error}${r.tries != null ? ` — ${r.tries} tries left` : ""}`,
         );
     } catch (e2) {
+      // @ts-ignore: e2 may not have a message property
       setErr(e2.message);
     }
     setBusy(false);
   };
 
-  const row = (k, v, mono = false) => (
+  const row = (k: string, v: React.ReactNode, mono = false) => (
     <>
       <span style={{ color: "var(--text-mute)" }}>{k}</span>
       <span

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { api } from "../api";
+import { api, InstanceId, InstanceConfig, DetectedCard } from "../api";
 import ProvisionModal from "../components/dashboard/ProvisionModal";
 import SipInfoModal from "../components/dashboard/SipInfoModal";
 import { Plug } from "lucide-react";
@@ -9,6 +9,17 @@ import { buildReaders, readerTitle } from "../components/dashboard/utils";
 import UnprovisionedCard from "../components/dashboard/UnprovisionedCard";
 import StartPinModal from "../components/dashboard/StartPinModal";
 import { CommonViewProps } from "./common-view-props";
+
+interface PinPrompt {
+  inst?: InstanceConfig;
+  tries: number;
+  error: string;
+}
+
+interface Provision {
+  card: DetectedCard;
+  pin: string;
+}
 
 export default function Dashboard({
   instances,
@@ -21,22 +32,22 @@ export default function Dashboard({
   setView,
   showToast,
 }: CommonViewProps) {
-  const [busy, setBusy] = useState(null);
-  const [provision, setProvision] = useState(null);
-  const [sipInfo, setSipInfo] = useState(null);
-  const [pinPrompt, setPinPrompt] = useState(null); // {inst, tries, error} when a start needs a PIN
+  const [busy, setBusy] = useState<InstanceId | null>(null);
+  const [provision, setProvision] = useState<Provision | null>(null);
+  const [sipInfo, setSipInfo] = useState<InstanceConfig | null>(null);
+  const [pinPrompt, setPinPrompt] = useState<PinPrompt | null>(null); // {inst, tries, error} when a start needs a PIN
 
   // A start/reprovision may be refused (409) because the card needs a PIN we don't have
   // (deleted, or the saved one is now wrong). Surface that as a PIN prompt instead of an
   // opaque error; anything else is shown as an alert.
-  const pinError = (e) => {
+  const pinError = (e: any) => {
     const code = e?.data?.detail?.code;
     return code === "pin_required" || code === "pin_invalid"
       ? { code, tries: e.data.detail.tries }
       : null;
   };
 
-  const act = async (id, fn) => {
+  const act = async (id: InstanceId, fn: () => Promise<void>) => {
     setBusy(id);
     try {
       await fn();
@@ -45,14 +56,16 @@ export default function Dashboard({
       const pe = pinError(e);
       if (pe)
         setPinPrompt({
-          inst: instances.find((i) => String(i.id) === String(id)),
+          inst: instances.find((i) => i.id === id),
           tries: pe.tries,
           error:
             pe.code === "pin_invalid"
               ? "Saved PIN was wrong — enter it again."
               : "",
         });
-      else alert(e.message);
+      else {
+        console.error(e);
+      }
     }
     setBusy(null);
   };
@@ -298,7 +311,11 @@ export default function Dashboard({
                       <button
                         className="btn btn-primary"
                         disabled={busy === inst.id}
-                        onClick={() => act(inst.id, () => api.start(inst.id))}
+                        onClick={() =>
+                          act(inst.id, async () => {
+                            await api.start(inst.id);
+                          })
+                        }
                       >
                         Start
                       </button>
@@ -307,7 +324,9 @@ export default function Dashboard({
                         className="btn btn-primary"
                         disabled={busy === inst.id}
                         onClick={() =>
-                          act(inst.id, () => api.reprovision(inst.id))
+                          act(inst.id, async () => {
+                            await api.reprovision(inst.id);
+                          })
                         }
                       >
                         Re-provision
@@ -316,7 +335,11 @@ export default function Dashboard({
                       <button
                         className="btn btn-ghost"
                         disabled={busy === inst.id}
-                        onClick={() => act(inst.id, () => api.stop(inst.id))}
+                        onClick={() =>
+                          act(inst.id, async () => {
+                            await api.stop(inst.id);
+                          })
+                        }
                       >
                         Stop
                       </button>
@@ -327,7 +350,9 @@ export default function Dashboard({
                           className="btn btn-ghost"
                           disabled={busy === inst.id}
                           onClick={() =>
-                            act(inst.id, () => api.register(inst.id))
+                            act(inst.id, async () => {
+                              await api.register(inst.id);
+                            })
                           }
                         >
                           Re-register
@@ -339,7 +364,9 @@ export default function Dashboard({
                           className="btn btn-ghost"
                           disabled={busy === inst.id}
                           onClick={() =>
-                            act(inst.id, () => api.reprovision(inst.id))
+                            act(inst.id, async () => {
+                              await api.reprovision(inst.id);
+                            })
                           }
                         >
                           Re-provision

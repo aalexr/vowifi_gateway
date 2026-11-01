@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useState, useCallback } from "react";
-import { api } from "../api";
+import { useEffect, useRef, useState, useCallback } from "react";
+import { api, CallRecord } from "../api";
 import { Softphone as Phone } from "../softphone";
 import SimSelector from "../components/common/SimSelector";
 import {
@@ -17,6 +17,15 @@ import {
 import { GREEN, KEYS, fmtDur, RED } from "../components/softphone/constants";
 import Avatar from "../components/softphone/Avatar";
 import RoundBtn from "../components/softphone/RoundBtn";
+import { CommonViewProps } from "./common-view-props";
+
+interface Call {
+  dir: "in" | "out";
+  number: string;
+  state: "active" | "ended" | "ringing" | "incoming" | "calling";
+  startedAt?: number;
+  endCause?: string;
+}
 
 export default function Softphone({
   selected,
@@ -25,22 +34,22 @@ export default function Softphone({
   cards,
   setSelected,
   showToast,
-}) {
+}: CommonViewProps) {
   const id = selected?.id;
   const [prov, setProv] = useState(null);
   const [reg, setReg] = useState("idle");
-  const [call, setCall] = useState(null); // {dir, number, state, startedAt, endCause}
+  const [call, setCall] = useState<Call | null>(null); // {dir, number, state, startedAt, endCause}
   const [num, setNum] = useState("");
   const [dur, setDur] = useState(0);
   const [muted, setMuted] = useState(false);
   const [keypad, setKeypad] = useState(false);
   const [dtmfSeq, setDtmfSeq] = useState(""); // digits/symbols entered since the keypad opened
   const [recording, setRecording] = useState(false);
-  const [calls, setCalls] = useState([]);
+  const [calls, setCalls] = useState<CallRecord[]>([]);
   const [mobilePane, setMobilePane] = useState("phone");
   const [callSelMode, setCallSelMode] = useState(false);
   const [callSel, setCallSel] = useState(() => new Set());
-  const phone = useRef(null);
+  const phone = useRef<Phone | null>(null);
   // Persistent, DOM-rendered <audio> sink. One stable element (primed on the first click via
   // unlockAudio) is what makes remote WebRTC audio play under Chrome/Edge autoplay policy.
   const audioRef = useRef(null);
@@ -80,7 +89,7 @@ export default function Softphone({
     if (call?.state === "ended") loadCalls();
   }, [call?.state, loadCalls]);
 
-  const toast = (m) => (showToast ? showToast(m) : null);
+  const toast = (m: string) => (showToast ? showToast(m) : null);
   const toggleCallSel = (cid) =>
     setCallSel((s) => {
       const n = new Set(s);
@@ -239,7 +248,7 @@ export default function Softphone({
   useEffect(() => {
     if (!(keypad && call?.state === "active")) return;
     setDtmfSeq("");
-    const onKey = (e) => {
+    const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       // Shift+3 produces '#'; a bare '3' should stay '3'. e.key already reflects the shifted
       // character, so match on the resulting character directly.

@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, type ReactNode } from "react";
+import { useEffect, useState, useRef, type ReactNode, useMemo } from "react";
 import { ThemePicker } from "./components/sidebar/ThemePicker";
 import { SideBar } from "./components/sidebar/SideBar";
 import {
@@ -62,9 +62,12 @@ export default function App() {
   const [view, setView] = useState("dashboard");
   const [toast, setToast] = useState<ReactNode | null>(null);
 
-  const toastTimer = useRef(null);
+  const toastTimer = useRef<number | null>(null);
   const showToast = (m: ReactNode) => {
-    clearTimeout(toastTimer.current); // an older toast's timer must not clear this one
+    if (toastTimer.current) {
+      // an older toast's timer must not clear this one
+      clearTimeout(toastTimer.current);
+    }
     setToast(m);
     toastTimer.current = setTimeout(() => setToast(null), 5000);
   };
@@ -81,7 +84,10 @@ export default function App() {
 
   // No PC/SC reader connected at all -> SIM-bound views are unusable; keep only
   // Dashboard / Settings / Logs and bounce back to the dashboard if needed.
-  const noReaders = cardsKnown && cards.length === 0;
+  const noReaders = useMemo(
+    () => cardsKnown && cards.length === 0,
+    [cardsKnown, cards],
+  );
   useEffect(() => {
     if (noReaders && !NAV.find(({ key }) => key === view)?.alwaysAvailable) {
       setView("dashboard");
