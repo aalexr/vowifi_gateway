@@ -26,7 +26,7 @@ _lock = threading.RLock()
 DEFAULTS = {
     "settings": {
         "http_port": 8443,
-        "bind": "0.0.0.0",
+        "bind": "::",
         "tls": {"self_signed": True, "domain": "", "cert_path": "", "key_path": ""},
         "debug": {"asterisk": True, "charon": False, "pcap": False},
         "manager_url": "",          # reachable URL engines POST events to (auto if empty)

@@ -8,7 +8,8 @@ cert (stored under $VOWIFI_DATA/certs). Runs the FastAPI app with uvicorn.
 Env:
   VOWIFI_DATA      data dir (default ./data)
   VOWIFI_HTTP_PORT override listen port (default from config.settings.http_port)
-  VOWIFI_BIND      override bind address (default from config.settings.bind)
+  VOWIFI_BIND      override bind address (default from config.settings.bind); "::" listens
+                   on IPv6 and IPv4 (dual-stack), falling back to 0.0.0.0 if the host has no IPv6
 """
 import datetime
 import ipaddress
@@ -63,6 +64,27 @@ def _self_signed(cert_path, key_path):
         f.write(cert.public_bytes(serialization.Encoding.PEM))
 
 
+def _dual_stack_socket(port):
+    """Bind [::]:port with IPV6_V6ONLY off, so one socket takes IPv6 and IPv4 (as ::ffff:a.b.c.d).
+
+    uvicorn can't do this from host="::": asyncio's create_server forces IPV6_V6ONLY on for
+    AF_INET6, which silently drops IPv4 - including engines reaching us at host.containers.internal.
+    Returns None if the host has IPv6 disabled.
+    """
+    try:
+        sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+    except OSError:
+        return None
+    try:
+        sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(("::", port))
+    except OSError:
+        sock.close()
+        return None
+    return sock
+
+
 def main():
     settings = cfg.get_settings()
     tls = settings.get("tls", {})
@@ -79,10 +101,20 @@ def main():
             print("[run] generating self-signed certificate...")
             _self_signed(cert_path, key_path)
 
-    print(f"[run] serving https://{bind}:{port}")
-    uvicorn.run("app.main:app", host=bind, port=port,
-                ssl_certfile=cert_path, ssl_keyfile=key_path,
-                log_level="info")
+    config = uvicorn.Config("app.main:app", host=bind, port=port,
+                            ssl_certfile=cert_path, ssl_keyfile=key_path,
+                            log_level="info")
+    server = uvicorn.Server(config)
+    if bind == "::":
+        sock = _dual_stack_socket(port)
+        if sock is not None:
+            print(f"[run] serving https://[::]:{port} (IPv6 + IPv4)")
+            server.run(sockets=[sock])
+            return
+        print("[run] IPv6 unavailable, falling back to 0.0.0.0")
+        config.host = "0.0.0.0"
+    print(f"[run] serving https://{config.host}:{port}")
+    server.run()
 
 
 if __name__ == "__main__":
