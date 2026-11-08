@@ -122,7 +122,17 @@ export interface SipConfig {
   pani_country?: string;
   pani_node_id_enable?: boolean;
   pani_node_id?: string;
+  /** Landline SMS (ETSI ES 201 912) to a DECT base reached through one external account. */
+  fixed_sms?: FixedSmsConfig;
   [key: string]: unknown;
+}
+
+export interface FixedSmsConfig {
+  enable?: boolean;
+  /** SMS centre number set in the base: it dials this to send, and expects it as caller ID. */
+  number?: string;
+  /** Username of the external SIP account (FRITZ!Box line) that rings only the base. */
+  account?: string;
 }
 
 export interface PortMap {

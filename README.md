@@ -213,6 +213,24 @@ Once an instance reaches `OK`, connect any SIP client to the **engine's** publis
 
 Tested clients: **MicroSIP** (Windows), **Zoiper** (multi-platform), Asterisk PJSIP trunk. Phones that can't dial `+` (e.g. FRITZ!Box DECT handsets) can dial `00…` instead if the line has **SIM Config → Dial a leading 00 as +** enabled; the gateway then sends `+…` to the carrier. Use it for carriers that don't accept `00` as the international prefix (MTS RU); it's off by default. The engine's `/` context accepts any `INVITE` and hairpins it to the IMS trunk (so you dial the **target number** directly, no prefix).
 
+### SMS on DECT handsets (landline SMS base)
+
+FRITZ!Box DECT handsets get no SMS: the FRITZ!Box doesn't forward SIP `MESSAGE`. A DECT base with **landline SMS** ("Festnetz-SMS", ETSI ES 201 912 protocol 1), such as a Gigaset analog base, can do it instead. Plug it into a FRITZ!Box FON port. Handsets registered to that base (e.g. a Gigaset CE575HX) can then send and receive SMS. The engine plays the SMS centre with Asterisk's `app_sms`:
+
+- **Sending:** the base dials its SMS centre number (e.g. `7676`). The engine answers, receives the SMS over the FSK modem call and sends it out as an IMS SMS. Parts of a long SMS are joined back into one message. It appears in **Messages** like any other outgoing SMS.
+- **Receiving:** each incoming SMS is also queued for the base. The engine calls the base with caller ID = the SMS centre number, and the base picks up silently. Text is folded to the GSM 7-bit alphabet (emoji → `?`), and texts over 160 characters arrive as several SMS. Undelivered messages are retried 5 times, 60 s apart.
+
+Setup:
+1. **Base:** set the SMS centre to the number you choose (e.g. `7676`) and turn on caller ID (CLIP) on its FON port in the FRITZ!Box.
+2. **Gateway:** under **SIM Config → Local SIP access** add a **second** external SIP account (e.g. `fritz-sms`) next to the FRITZ!Box's normal one. Under **Landline SMS to a DECT base**, enable it, enter the number and pick that account. Save and restart the line. This account is used only for SMS delivery calls; it never rings for normal calls and gets no SIP `MESSAGE`.
+3. **FRITZ!Box:**
+   - Register the second account as its own Internet telephone number.
+   - Under **Telefonie → Telefoniegeräte**, assign it for incoming calls to **only** the base's FON port, so other phones don't ring with "7676".
+   - Make sure the base reaches the gateway when it dials the SMS centre number. Use the gateway line for outgoing calls on that port, or add a dialing rule for `7676`. Also turn off any automatic area-code prefix ("Ortsvorwahl für Internettelefonie mitwählen") for that account. The engine must see exactly `7676`.
+   - Keep the call G.711, e.g. disable "Sprachqualität: HD/G.722" for that line if the transfer fails. The modem protocol has tight timing.
+
+If an SMS doesn't go through, look for `SMS(fixedsms…)` / `fixed_sms:` lines in the engine log (`sudo podman logs vowifi-engine-<id>`). Check that the module is loaded with `sudo podman exec vowifi-engine-<id> asterisk -rx "module show like sms"`.
+
 ---
 
 ## Carrier parameters (no required database)

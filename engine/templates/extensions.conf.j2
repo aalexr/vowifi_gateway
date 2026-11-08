@@ -1,9 +1,12 @@
 {% set local_eps = [] %}
-{% for acct in external_accounts %}{% set _ = local_eps.append('PJSIP/' ~ acct.username) %}{% endfor %}
+{# The fixed-line SMS account (see [fixed-sms-mo]) only carries the SMS modem calls to the DECT
+   base: it never rings for normal calls nor gets SIP MESSAGEs, else every call/SMS would reach
+   the base twice. #}
+{% for acct in external_accounts if not (fixed_sms_enable and acct.username == fixed_sms_account) %}{% set _ = local_eps.append('PJSIP/' ~ acct.username) %}{% endfor %}
 {% if webrtc_enable %}{% set _ = local_eps.append('PJSIP/' ~ webrtc_user) %}{% endif %}
 {% set dialstr = local_eps | join('&') %}
 {% set msg_targets = [] %}
-{% for acct in external_accounts %}{% set _ = msg_targets.append(acct.username) %}{% endfor %}
+{% for acct in external_accounts if not (fixed_sms_enable and acct.username == fixed_sms_account) %}{% set _ = msg_targets.append(acct.username) %}{% endfor %}
 {% if webrtc_enable %}{% set _ = msg_targets.append(webrtc_user) %}{% endif %}
 
 ; ===== Incoming call from the IMS/VoWiFi side =====
@@ -60,12 +63,21 @@ same => n,TrySystem(/usr/local/bin/notify.py sms_in "${MESSAGE(from)}" "${BASE64
 {% for t in msg_targets %}
 same => n,MessageSend(pjsip:{{ t }},${MESSAGE(from)},sip:{{ t }})
 {% endfor %}
+{% if fixed_sms_enable %}
+; Fixed-line SMS: queue it for the DECT base and call the base (fixed_sms.py deliver). Each part
+; of a concatenated SMS is delivered as its own landline SMS (they carry no concatenation header).
+same => n,TrySystem(/usr/local/bin/fixed_sms.py deliver "{{ fixed_sms_account }}" "{{ fixed_sms_number }}" "${MESSAGE(from)}" "${BASE64_ENCODE(${MESSAGE(body)})}")
+{% endif %}
 same => n,Hangup()
 
 ; ===== Outgoing call from a local endpoint (softphone / external SIP) =====
 ; Single dial attempt (no auto-redial). The dial result (incl. far-end reject) is
 ; reported to the manager for the call log.
 [from-local]
+{% if fixed_sms_enable %}
+; The DECT base dials its SMS centre number to send an SMS (exact match beats the patterns below).
+exten => {{ fixed_sms_number }},1,Goto(fixed-sms-mo,s,1)
+{% endif %}
 ; _[+0-9]. (not _.) so the special h/i/t extensions never match here and log phantom calls
 {% set dest = '${DEST}' if dial_00_to_plus else '${EXTEN}' %}exten => _[+0-9].,1,NoOp(Outgoing call to ${EXTEN} from ${CALLERID(num)})
 {% if dial_00_to_plus %}; Per-line dial_00_to_plus: send a leading international prefix 00 as "+" (E.164), for
@@ -115,3 +127,43 @@ same => n,Set(EXTEN=${CUT(CUT(MESSAGE(to),@,1),:,2)})
 same => n,Set(FILE(/logs/messages.txt,,,a)=OUT SMS to ${EXTEN} at ${STRFTIME(${EPOCH},,%Y-%m-%d %H:%M:%S)}:${NL}${MESSAGE(body)}${NL}=====${NL})
 same => n,TrySystem(/usr/local/bin/notify.py sms_out "${EXTEN}" "${BASE64_ENCODE(${MESSAGE(body)})}" &)
 same => n,MessageSend(pjsip:volte_ims/${EXTEN}@volte_ims,sip:{{ msisdn }}@{{ realm }},sip:${EXTEN}@volte_ims)
+{% if fixed_sms_enable %}
+
+; ===== Fixed-line SMS (ETSI ES 201 912, "Festnetz-SMS") to/from a DECT base =====
+; A base with landline SMS (e.g. Gigaset, SMS centre set to {{ fixed_sms_number }}) sends an SMS by
+; calling {{ fixed_sms_number }} and exchanging FSK frames; app_sms acts as the SMS centre. The
+; protocol has tight timing: keep this leg G.711 without a long jitter buffer on the ATA/router.
+[fixed-sms-mo]
+; s = act as SMS centre, a = we send the first FSK frame (the caller is the phone). Received
+; messages land in the morx queue; they are relayed from the hangup handler, which also runs
+; when the base hangs up first (the usual end of the exchange).
+exten => s,1,NoOp(Fixed-line SMS from ${CALLERID(num)})
+same => n,Answer()
+same => n,SMS(fixedsms,sa)
+same => n,Hangup()
+; Relay every message the base sent over IMS, like [msg-from-local]. fixed_sms.py pop removes
+; each file it returns, so the loop always terminates; the counter is a belt-and-braces bound.
+exten => h,1,Set(NL=${BASE64_DECODE(Cg==)})
+same => n,Set(N=0)
+same => n(next),Set(NEXT=${SHELL(/usr/local/bin/fixed_sms.py pop{{ ' --plus00' if dial_00_to_plus else '' }})})
+same => n,GotoIf($["${NEXT}" = "" | ${N} >= 50]?done)
+same => n,Set(N=$[${N} + 1])
+same => n,Set(EXTEN_TO=${CUT(NEXT,|,1)})
+same => n,Set(BODY64=${CUT(NEXT,|,2)})
+same => n,Set(MESSAGE(body)=${BASE64_DECODE(${BODY64})})
+same => n,Set(FILE(/logs/messages.txt,,,a)=OUT SMS to ${EXTEN_TO} at ${STRFTIME(${EPOCH},,%Y-%m-%d %H:%M:%S)} (DECT base):${NL}${MESSAGE(body)}${NL}=====${NL})
+same => n,TrySystem(/usr/local/bin/notify.py sms_out "${EXTEN_TO}" "${BODY64}" &)
+same => n,MessageSend(pjsip:volte_ims/${EXTEN_TO}@volte_ims,sip:{{ msisdn }}@{{ realm }},sip:${EXTEN_TO}@volte_ims)
+same => n,NoOp(Fixed-line SMS to ${EXTEN_TO}: ${MESSAGE_SEND_STATUS})
+same => n,Goto(next)
+same => n(done),NoOp(Fixed-line SMS: relayed ${N} message(s))
+
+; Delivery call placed by fixed_sms.py (call file, caller ID {{ fixed_sms_number }}): the base
+; recognises its SMS centre and answers silently; it sends the first frame, so no 'a' here.
+[fixed-sms-mt]
+exten => s,1,NoOp(Fixed-line SMS delivery to the DECT base)
+same => n,SMS(fixedsms,s)
+same => n,Hangup()
+; Messages that arrived while this call was up: call again shortly.
+exten => h,1,System(/usr/local/bin/fixed_sms.py kick "{{ fixed_sms_account }}" "{{ fixed_sms_number }}")
+{% endif %}

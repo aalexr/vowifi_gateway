@@ -5,6 +5,7 @@
 #   - pin_keeper.py : holds SIM PIN (CHV1) verified so IKE EAP-AKA + SIP IMS-AKA work on PIN-enabled SIMs
 #   - ami_usim.py   : reference USIM<->AMI bridge, patched to VERIFY PIN + report status
 #   - render.py     : renders /config/instance.json -> Asterisk configs at container start
+#   - fixed_sms.py  : landline SMS (ETSI ES 201 912, app_sms) <-> IMS SMS bridge for a DECT base
 #
 # Reproducibility: all build inputs are pinned so a from-scratch build on any machine/arch
 # (amd64/arm64) is functionally identical — the base image tag below, and Asterisk + pjproject
@@ -113,6 +114,7 @@ COPY ami_usim.py     /usr/local/bin/ami_usim.py
 COPY swu_ike.py      /usr/local/bin/swu_ike.py
 COPY render.py       /usr/local/bin/render.py
 COPY notify.py       /usr/local/bin/notify.py
+COPY fixed_sms.py    /usr/local/bin/fixed_sms.py
 COPY templates/      /opt/vowifi/templates/
 COPY entrypoint.sh   /entrypoint.sh
 RUN chmod +x /usr/local/bin/*.py /entrypoint.sh

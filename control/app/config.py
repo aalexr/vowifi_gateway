@@ -862,6 +862,14 @@ def render_instance_json(inst: dict, settings: dict) -> dict:
             "ring_timeout": max(5, min(180, int(
                 sip.get("ring_timeout") or settings.get("ring_timeout", 35)))),
             "user_agent": sip.get("user_agent", "iOS/26.6 iPhone"),
+            # Fixed-line SMS to a DECT base (e.g. Gigaset on a FRITZ!Box FON port): SMS centre
+            # number the base dials/expects as CLIP, and the external account that reaches it.
+            # engine/render.py validates it; see engine/fixed_sms.py.
+            "fixed_sms": {
+                "enable": bool((sip.get("fixed_sms") or {}).get("enable", False)),
+                "number": str((sip.get("fixed_sms") or {}).get("number") or "7676").strip(),
+                "account": str((sip.get("fixed_sms") or {}).get("account") or "").strip(),
+            },
             # P-Access-Network-Info: composed from sip.pani_* options (or raw sip.pani override).
             # Default = IEEE-802.11;country=<SIM MCC country> — matches real VoWiFi UEs.
             "pani": build_pani(inst, sip),

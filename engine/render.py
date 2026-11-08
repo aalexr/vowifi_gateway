@@ -167,6 +167,23 @@ def imei_for_urn(imei: str) -> str:
     return digits[:14] + "0" if len(digits) >= 14 else str(imei or "")
 
 
+def fixed_sms_context(sip: dict) -> dict:
+    """Fixed-line SMS settings (sip.fixed_sms: enable/number/account). Enabled only when the SMS
+    centre number is a plain dialable extension and the account is one of this line's external
+    SIP accounts, so a half-filled form can never render a broken dialplan."""
+    fs = sip.get("fixed_sms") or {}
+    number = str(fs.get("number") or "7676").strip()
+    account = str(fs.get("account") or "").strip()
+    accounts = {str(a.get("username") or "").strip() for a in (sip.get("external") or [])
+                if isinstance(a, dict)}
+    enable = bool(fs.get("enable")) and bool(re.fullmatch(r"[0-9*#]{2,20}", number)) \
+        and bool(account) and account in accounts
+    if fs.get("enable") and not enable:
+        print("render: fixed-line SMS disabled: needs a 2-20 digit SMS centre number and one of "
+              "this line's external SIP accounts", file=sys.stderr)
+    return {"fixed_sms_enable": enable, "fixed_sms_number": number, "fixed_sms_account": account}
+
+
 def build_context(cfg):
     mcc = str(cfg["mcc"])
     mnc = str(cfg["mnc"]).zfill(3)
@@ -285,6 +302,9 @@ def build_context(cfg):
         # Outbound ring timeout (s) for Dial() — see extensions.conf.j2. Default 35.
         "ring_timeout": int(sip.get("ring_timeout", 35) or 35),
         "dial_00_to_plus": bool(cfg.get("dial_00_to_plus", False)),
+        # Fixed-line SMS (ETSI ES 201 912) to a DECT base via one of the external accounts; see
+        # fixed_sms.py and [fixed-sms-mo]/[fixed-sms-mt] in extensions.conf.j2.
+        **fixed_sms_context(sip),
         # The container's own RTP bind IP (docker-bridge private, e.g. 172.17.0.2). Used as the
         # LHS of rtp.conf [ice_host_candidates] to rewrite that unreachable host candidate to
         # the host LAN IP (advertise_addr) so a LAN WebRTC browser can reach our RTP.

@@ -19,6 +19,7 @@ import EpdgTunnelSection from "../components/simconfig/EpdgTunnelSection";
 import LocalSipSection from "../components/simconfig/LocalSipSection";
 import ImsRegistrationSection from "../components/simconfig/ImsRegistrationSection";
 import PaniSection from "../components/simconfig/PaniSection";
+import FixedSmsSection from "../components/simconfig/FixedSmsSection";
 import StatusMessage from "../components/simconfig/StatusMessage";
 import type { SmscMode } from "../components/simconfig/SmscField";
 import type { InstanceForm } from "../components/simconfig/types";
@@ -277,6 +278,7 @@ export default function SimConfig({
             allowLanListen={!!selected?.status}
           />
           {/* Advanced: collapsed unless the saved line already uses them. */}
+          <FixedSmsSection form={form} updSip={updSip} saved={selected} />
           <ImsRegistrationSection form={form} upd={upd} saved={selected} />
           <PaniSection form={form} updSip={updSip} saved={selected} />
 
