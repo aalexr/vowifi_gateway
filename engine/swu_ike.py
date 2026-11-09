@@ -98,6 +98,24 @@ SWU_IFACE = os.environ.get("SWU_IFACE", "ipsec0")          # tun device name (pj
 SWU_NOTIFY = os.environ.get("SWU_NOTIFY", "/usr/local/bin/notify.py")
 SWU_ASSIGN_IPV6_GLOBAL = os.environ.get("SWU_ASSIGN_IPV6_GLOBAL", "1") not in ("0", "", "no")
 SWU_WRITE_RESOLV = os.environ.get("SWU_WRITE_RESOLV", "0") not in ("0", "", "no")
+# Force UDP encapsulation (ESP-in-UDP:4500, RFC 3948) even when IKE NAT detection finds no NAT.
+# Needed when the container network is a userspace L4 proxy (rootless Podman's pasta /
+# slirp4netns): those forward only TCP/UDP/ICMP, so raw ESP (IP proto 50) never leaves the host.
+# pasta also gives the container the HOST's own address, so a host with a public IP would see
+# matching NAT-D hashes and pick raw ESP. RFC 7296 §2.23 explicitly allows an initiator to
+# pretend to be behind a NAT by sending a NAT_DETECTION_SOURCE_IP that does not match (this is
+# what strongSwan's encap=yes does) — the ePDG then also switches to 4500. Only applied when the
+# ePDG answers with NAT-D payloads at all (i.e. it supports NAT-T); otherwise we stay on raw ESP.
+SWU_FORCE_NATT = os.environ.get("SWU_FORCE_NATT", "0") not in ("0", "", "no")
+# LOCAL (source) UDP ports for IKE and NAT-T. The ePDG is still addressed on 500/4500; only the
+# port we send FROM changes. RFC 7296 §2.11 has the responder reply to the request's source
+# IP/port, and §2.23 lets the initiator's ports differ from 500/4500 (any NAT rewrites them anyway).
+# Needed under rootless pasta: it re-sends each container flow from a host socket bound to the
+# same source port, and an unprivileged user can't bind a host port < 1024 — datagrams from
+# local port 500 are silently dropped. It also keeps two engines' flows from colliding on the
+# one host port 4500. 0 = the standard port.
+SWU_IKE_LOCAL_PORT = int(os.environ.get("SWU_IKE_LOCAL_PORT", "0") or 0)
+SWU_NATT_LOCAL_PORT = int(os.environ.get("SWU_NATT_LOCAL_PORT", "0") or 0)
 
 # --- Data-plane MTU / fragmentation handling -------------------------------------------------
 # The userspace ESP dataplane reads inner IP packets off the tun (ipsec0), wraps each in
@@ -758,10 +776,12 @@ class swu():
 
         
     def set_variables(self):
-        self.port = DEFAULT_IKE_PORT
+        self.port = DEFAULT_IKE_PORT                       # ePDG side (destination)
         self.port_nat = DEFAULT_IKE_NAT_TRAVERSAL_PORT
-        self.client_address = (self.source_address,self.port)
-        self.client_address_nat = (self.source_address,self.port_nat) 
+        self.port_local = SWU_IKE_LOCAL_PORT or self.port  # our side (source), see SWU_IKE_LOCAL_PORT
+        self.port_nat_local = SWU_NATT_LOCAL_PORT or self.port_nat
+        self.client_address = (self.source_address,self.port_local)
+        self.client_address_nat = (self.source_address,self.port_nat_local) 
         self.client_address_esp = (self.source_address,0)         
         self.timeout = DEFAULT_TIMEOUT_UDP
         self.state = 0
@@ -2319,6 +2339,34 @@ class swu():
         # DESTINATION: pin each resolver nameserver (and they're LAN/RFC1918 anyway) to the LAN gw.
         for _ns in self._resolver_nameservers_v4():
             self.exec_in_netns("route add " + _ns + "/32 gw " + gw + " 2>/dev/null")
+        # Same for the manager (notify.py -> host.containers.internal). Under pasta that is a
+        # mapped link-local address (169.254.1.2) reached via the default gateway, which an IPv4
+        # PDN's 128.0.0.0/1 route would otherwise send into the ePDG. Only pin it when the
+        # current route actually points into the tunnel (IPv6-only PDNs leave it alone).
+        mgr = self._hosts_lookup_v4("host.containers.internal")
+        if mgr:
+            try:
+                rt = subprocess.check_output("ip route get %s" % mgr, shell=True,
+                                             stderr=subprocess.DEVNULL).decode()
+            except Exception:
+                rt = ""
+            if (" dev %s " % SWU_IFACE) in (rt + " "):
+                self.exec_in_netns("ip route replace %s/32 via %s dev %s"
+                                   % (mgr, gw, self._lan_egress_iface()))
+                swu_log("LAN-bypass: manager %s pinned to %s (was routed into the tunnel)" % (mgr, gw))
+
+    def _hosts_lookup_v4(self, name):
+        """IPv4 address for `name` from /etc/hosts (podman writes host.containers.internal there).
+        None if absent; never raises."""
+        try:
+            with open("/etc/hosts") as f:
+                for line in f:
+                    parts = line.split("#", 1)[0].split()
+                    if len(parts) >= 2 and name in parts[1:] and "." in parts[0] and ":" not in parts[0]:
+                        return parts[0]
+        except Exception:
+            pass
+        return None
 
     def _lan_egress_iface(self):
         """The container's outbound LAN interface (the one carrying SWU_SOURCE). Almost always eth0
@@ -3429,9 +3477,9 @@ class swu():
     def sha1_nat_source(self,print_info=True):
         digest = hashes.Hash(hashes.SHA1())
         if self.userplane_mode == ESP_PROTOCOL:
-            digest.update(self.ike_spi_initiator + self.ike_spi_responder + socket.inet_pton(socket.AF_INET,self.source_address) + struct.pack('!H',self.port))    
+            digest.update(self.ike_spi_initiator + self.ike_spi_responder + socket.inet_pton(socket.AF_INET,self.source_address) + struct.pack('!H',self.port_local))    
         else: #NAT_TRAVERSAL
-            digest.update(self.ike_spi_initiator + self.ike_spi_responder + socket.inet_pton(socket.AF_INET,self.source_address) + struct.pack('!H',self.port_nat))
+            digest.update(self.ike_spi_initiator + self.ike_spi_responder + socket.inet_pton(socket.AF_INET,self.source_address) + struct.pack('!H',self.port_nat_local))
         hash = digest.finalize()
         if print_info == True: print('NAT SOURCE',toHex(hash))
         return hash
@@ -3481,7 +3529,10 @@ class swu():
             else:
                 payload += self.encode_generic_payload_header(N,0,self.encode_payload_type_ninr())
 
-            payload += self.encode_generic_payload_header(N,0,self.encode_payload_type_n(RESERVED,b'',NAT_DETECTION_SOURCE_IP,self.sha1_nat_source()))
+            # SWU_FORCE_NATT: a deliberately non-matching source hash (RFC 7296 §2.23) makes the
+            # ePDG treat us as NATed, so both sides move the SA to UDP 4500.
+            nat_src = os.urandom(20) if SWU_FORCE_NATT else self.sha1_nat_source()
+            payload += self.encode_generic_payload_header(N,0,self.encode_payload_type_n(RESERVED,b'',NAT_DETECTION_SOURCE_IP,nat_src))
             payload += self.encode_generic_payload_header(last_np,0,self.encode_payload_type_n(RESERVED,b'',NAT_DETECTION_DESTINATION_IP,self.sha1_nat_destination()))
         if frag:
             payload += self.encode_generic_payload_header(NONE,0,self.encode_payload_type_n(RESERVED,b'',IKEV2_FRAGMENTATION_SUPPORTED))
@@ -4056,7 +4107,7 @@ class swu():
                         print('NAT DESTINATION RECEIVED',toHex(received_nat_detection_destination))
                         calculated_nat_detection_destination = self.sha1_nat_source(False)
                         print('NAT DESTINATION CALCULATED',toHex(calculated_nat_detection_destination))
-                        if received_nat_detection_destination != calculated_nat_detection_destination:
+                        if SWU_FORCE_NATT or received_nat_detection_destination != calculated_nat_detection_destination:
                             self.userplane_mode = NAT_TRAVERSAL
                         
                     elif i[1][1] == NAT_DETECTION_SOURCE_IP:
@@ -4064,7 +4115,7 @@ class swu():
                         print('NAT SOURCE RECEIVED',toHex(received_nat_detection_source))
                         calculated_nat_detection_source = self.sha1_nat_destination(False)
                         print('NAT SOURCE CALCULATED',toHex(calculated_nat_detection_source))
-                        if received_nat_detection_source != calculated_nat_detection_source:
+                        if SWU_FORCE_NATT or received_nat_detection_source != calculated_nat_detection_source:
                             self.userplane_mode = NAT_TRAVERSAL
 
                     elif i[1][1] == IKEV2_FRAGMENTATION_SUPPORTED:
