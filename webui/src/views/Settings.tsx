@@ -186,7 +186,7 @@ export default function Settings() {
                 fontSize: 12,
                 whiteSpace: "pre-wrap",
               }}
-            >{`sudo VOWIFI_ADVERTISE_ADDR=${s.advertise_address_detected || s.advertise_address_effective || "192.168.x.x"} ./install.sh reload`}</pre>
+            >{`VOWIFI_ADVERTISE_ADDR=${s.advertise_address_detected || s.advertise_address_effective || "192.168.x.x"} ./install.sh reload`}</pre>
           </div>
         ) : (
           <div>
@@ -219,7 +219,7 @@ export default function Settings() {
                   fontSize: 12,
                   whiteSpace: "pre-wrap",
                 }}
-              >{`sudo VOWIFI_ADVERTISE_ADDR=${s.advertise_address_detected || "192.168.x.x"} ./install.sh reload`}</pre>
+              >{`VOWIFI_ADVERTISE_ADDR=${s.advertise_address_detected || "192.168.x.x"} ./install.sh reload`}</pre>
             </div>
           </div>
         )}

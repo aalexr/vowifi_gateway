@@ -124,7 +124,7 @@ export default function Esim({
       setStatus(st);
       if (!st.available) {
         setErr(
-          'lpac is not installed. Run "sudo ./install.sh build-lpac" on the host.',
+          'lpac is not installed. Run "./install.sh build-lpac" on the host.',
         );
         setLoaded(false);
         return;
@@ -443,7 +443,7 @@ export default function Esim({
             style={{ color: "var(--text-mute)", fontSize: 13, lineHeight: 1.5 }}
           >
             {status && !status.available
-              ? 'lpac is not installed. Run "sudo ./install.sh build-lpac" on the host.'
+              ? 'lpac is not installed. Run "./install.sh build-lpac" on the host.'
               : loading
                 ? "Reading…"
                 : !loaded

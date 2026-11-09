@@ -107,7 +107,8 @@ class Hub:
         async with lock:
             inst = cfg.get_instance(iid)
             running = bool(inst) and engine.is_running(iid)
-            ip = engine.container_ip(iid) if running else None
+            ep = engine.ami_endpoint(inst) if running else None
+            ip = ep[0] if ep else None
             client = self.ami.get(iid)
             # Reuse only a healthy client still pointed at the current container.
             if client and running and ip and client.connected and client.host == ip:
@@ -119,7 +120,7 @@ class Hub:
                 await self.drop_ami(iid)
             if not running or not ip:
                 return None
-            client = AmiClient(iid, ip, 5038, inst.get("ami_user", "vowifi"),
+            client = AmiClient(iid, ip, ep[1], inst.get("ami_user", "vowifi"),
                                inst["ami_secret"], realm=cfg.ims_realm(inst["mcc"], inst["mnc"]),
                                msisdn=inst.get("msisdn", ""), smsc=inst.get("smsc", ""))
             await client.connect()
