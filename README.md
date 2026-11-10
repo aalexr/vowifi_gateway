@@ -73,7 +73,7 @@ The installer:
 - Compiles the WebUI in a throwaway Node container, creates a Python venv (`control/.venv`), and starts the `vowifi-control` user service
 - Autostart is enabled; prints `https://<host-lan-ip>:8443` — open it in your browser
 
-**Upgrading from an older, rootful install** (system unit, `sudo ./install.sh`, or the removed `--mode container`): just run `./install.sh install`. It removes the old system unit and root's vowifi containers and root's old engine image (it predates the rootless tunnel changes, so the engine image is rebuilt — ~10–15 min), and hands `./data` and the venv to you. Your SIM configs, SMS and call history are kept.
+**Upgrading from an older, rootful install** (system unit, `sudo ./install.sh`, or the removed `--mode container`): just run `./install.sh install`. It removes the old system unit and root's vowifi containers and root's old engine image (it predates the rootless tunnel changes, so the engine image is rebuilt — ~10–15 min), and hands `./data` and the venv to you. Your SIM configs, SMS and call history are kept. Lines that were running before are started again through the manager once it is up (same PIN checks as the Start button; a line that needs a PIN is reported and left for you to start); lines you had stopped stay stopped.
 
 Accept the self-signed cert, then **provision your SIM** in the dashboard:
 1. Insert the SIM into the reader; the `/` tab shows detected cards

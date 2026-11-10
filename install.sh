@@ -76,6 +76,8 @@ PODMAN_MIN=5.3
 # Left behind by installs from older versions (rootful); only used to migrate them away.
 LEGACY_SYSTEM_UNIT="/etc/systemd/system/vowifi-control.service"
 LEGACY_CONTROL_IMAGE="localhost/vowifi/control"
+# Instance ids whose engines were running under a rootful install, restarted after migration.
+MIGRATE_RESTART_FILE="$VOWIFI_DATA_DIR/.migrate-restart"
 
 # pcsc-lite version pinned across the host + the engine image so the PC/SC client/server
 # protocol always matches (distro defaults differ -> "Failed to establish context").
@@ -122,8 +124,12 @@ SUDO_READY=0
 need_sudo() {
   [ "$SUDO_READY" = 1 ] && return 0
   command -v sudo >/dev/null 2>&1 || die "'$CMD' needs sudo for one-time host setup, and sudo is not installed"
-  info "'$CMD' needs root for one-time host setup (packages, pcscd, firewall) — sudo may ask for your password"
-  sudo -v || die "could not obtain sudo privileges"
+  # Try a non-interactive run first: `sudo -v` alone demands a password whenever ANY matching
+  # sudoers entry needs one (verifypw=all), even if a NOPASSWD rule would let every command through.
+  if ! sudo -n true 2>/dev/null; then
+    info "'$CMD' needs root for one-time host setup (packages, pcscd, firewall) — sudo may ask for your password"
+    sudo -v || die "could not obtain sudo privileges"
+  fi
   SUDO_READY=1
 }
 
@@ -308,6 +314,13 @@ migrate_legacy_rootful() {
   [ -n "$root_ctrs" ] && legacy=1
   if [ "$legacy" = 1 ]; then
     warn "removing the previous rootful install (system unit + root's vowifi containers); data is kept"
+    # Engines owe their uptime to restart=always, and the manager never starts lines on its own,
+    # so remember which ones were RUNNING (stopped/frozen lines stay stopped) and start them again
+    # through the manager once it is up (restore_migrated_engines). Kept in a file so a failed
+    # install that is re-run still restores them.
+    running=$(as_root podman ps --filter status=running --format '{{.Names}}' 2>/dev/null \
+      | sed -n "s/^${ENGINE_PREFIX}//p" || true)
+    [ -n "$running" ] && MIGRATE_RESTART_IDS="$running"
     if [ -f "$LEGACY_SYSTEM_UNIT" ]; then
       as_root systemctl disable --now vowifi-control >/dev/null 2>&1 || true
       as_root rm -f "$LEGACY_SYSTEM_UNIT"
@@ -330,6 +343,57 @@ migrate_legacy_rootful() {
   [ -d "$WEBUI_DIST" ] && [ "$(stat -c %u "$WEBUI_DIST")" != "$(id -u)" ] && rm_tree "$WEBUI_DIST"
   # State files of the removed deploy-mode switch.
   rm -f "$VOWIFI_DATA_DIR/install-mode" "$VOWIFI_DATA_DIR/install-rootless" 2>/dev/null || true
+  if [ -n "${MIGRATE_RESTART_IDS:-}" ]; then
+    mkdir -p "$VOWIFI_DATA_DIR"
+    printf '%s\n' $MIGRATE_RESTART_IDS >> "$MIGRATE_RESTART_FILE"
+  fi
+}
+
+# Start the lines that were running under the old rootful install, through the manager's normal
+# Start path (/api/instances/<id>/start: PIN preflight, card-identity check, reader rebind) — never
+# by recreating containers behind its back. A line the preflight refuses (PIN needed, card gone)
+# is reported and left for the user to start from the WebUI.
+restore_migrated_engines() {
+  [ -s "$MIGRATE_RESTART_FILE" ] || return 0
+  case "$VOWIFI_BIND" in 0.0.0.0|::|'') host=127.0.0.1 ;; *:*) host="[$VOWIFI_BIND]" ;; *) host=$VOWIFI_BIND ;; esac
+  info "restarting the lines that were running before the migration…"
+  # The venv's python (no curl dependency); the manager's cert is self-signed.
+  if "$VENV_DIR/bin/python" - "https://$host:$VOWIFI_PORT" "$MIGRATE_RESTART_FILE" <<'PY'
+import json, ssl, sys, time, urllib.error, urllib.request
+base, path = sys.argv[1], sys.argv[2]
+ctx = ssl._create_unverified_context()
+ids = list(dict.fromkeys(l.strip() for l in open(path) if l.strip()))
+deadline = time.monotonic() + 90
+while True:
+    try:
+        resp = json.load(urllib.request.urlopen(f"{base}/api/instances", context=ctx, timeout=5))
+        break
+    except Exception as e:
+        if time.monotonic() > deadline:
+            print(f"!! manager not reachable at {base} ({e}) — start these lines from the WebUI: {' '.join(ids)}")
+            sys.exit(1)
+        time.sleep(2)
+known = {str(i.get("id")) for i in resp.get("instances", [])}
+for iid in ids:
+    if iid not in known:
+        print(f"   {iid}: no longer configured — skipped")
+        continue
+    req = urllib.request.Request(f"{base}/api/instances/{iid}/start", data=b"{}", method="POST",
+                                 headers={"Content-Type": "application/json"})
+    try:
+        urllib.request.urlopen(req, context=ctx, timeout=120)
+        print(f"   {iid}: started")
+    except urllib.error.HTTPError as e:
+        print(f"!! {iid}: not started ({e.code} {e.read().decode(errors='replace')[:200]}) — start it from the WebUI")
+    except Exception as e:
+        print(f"!! {iid}: not started ({e}) — start it from the WebUI")
+PY
+  then
+    # Every line was attempted (or reported) once — don't repeat it on later installs.
+    rm -f "$MIGRATE_RESTART_FILE"
+  else
+    warn "manager not reachable — kept $MIGRATE_RESTART_FILE; the next './install.sh install' retries"
+  fi
 }
 
 ensure_pcscd() {
@@ -645,6 +709,7 @@ cmd_install() {
   setup_venv
   selinux_label_venv
   run_control
+  restore_migrated_engines
   DATA_ABS=$(data_dir_abs)
   LAN_IP="${VOWIFI_ADVERTISE_ADDR:-$(detect_lan_ip)}"
   printf '\n'
