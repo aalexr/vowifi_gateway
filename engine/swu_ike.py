@@ -2341,19 +2341,15 @@ class swu():
             self.exec_in_netns("route add " + _ns + "/32 gw " + gw + " 2>/dev/null")
         # Same for the manager (notify.py -> host.containers.internal). Under pasta that is a
         # mapped link-local address (169.254.1.2) reached via the default gateway, which an IPv4
-        # PDN's 128.0.0.0/1 route would otherwise send into the ePDG. Only pin it when the
-        # current route actually points into the tunnel (IPv6-only PDNs leave it alone).
+        # PDN's 128.0.0.0/1 route would otherwise send into the ePDG. Pin it unconditionally:
+        # set_routes() calls this BEFORE it adds the /1 tunnel routes, so an `ip route get` here
+        # still shows the LAN path and would never see the problem. This helper only runs on
+        # IPv4 PDNs (IPv6-only PDNs route ::/1 and never get here), where the /1 routes follow.
         mgr = self._hosts_lookup_v4("host.containers.internal")
         if mgr:
-            try:
-                rt = subprocess.check_output("ip route get %s" % mgr, shell=True,
-                                             stderr=subprocess.DEVNULL).decode()
-            except Exception:
-                rt = ""
-            if (" dev %s " % SWU_IFACE) in (rt + " "):
-                self.exec_in_netns("ip route replace %s/32 via %s dev %s"
-                                   % (mgr, gw, self._lan_egress_iface()))
-                swu_log("LAN-bypass: manager %s pinned to %s (was routed into the tunnel)" % (mgr, gw))
+            self.exec_in_netns("ip route replace %s/32 via %s dev %s"
+                               % (mgr, gw, self._lan_egress_iface()))
+            swu_log("LAN-bypass: manager %s pinned to %s (kept off the tunnel /1 routes)" % (mgr, gw))
 
     def _hosts_lookup_v4(self, name):
         """IPv4 address for `name` from /etc/hosts (podman writes host.containers.internal there).

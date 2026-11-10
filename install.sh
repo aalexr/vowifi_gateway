@@ -42,6 +42,7 @@
 #   VOWIFI_BIND            control bind addr                          (default 0.0.0.0)
 #   VOWIFI_FW_INSTANCES    SIM port blocks opened in firewalld        (default 10)
 #   VOWIFI_FW_ZONE         firewalld zone to open them in             (default: the LAN's zone)
+#   VOWIFI_FW_SOURCE       source subnet allowed through firewalld    (default: the LAN subnet)
 #   PCSC_VERSION           pinned pcsc-lite version                   (default 2.3.3)
 #   LPAC_SRC               optional path to lpac source (for build-lpac)
 #   CMAKE_FETCH_VER        Kitware cmake version if system is too old (default 3.31.12)
@@ -315,6 +316,11 @@ migrate_legacy_rootful() {
     for n in $root_ctrs; do as_root podman rm -f "$n" >/dev/null 2>&1 || true; done
     as_root podman rmi -f "$LEGACY_CONTROL_IMAGE" >/dev/null 2>&1 || true
   fi
+  # Root's engine image is stale for rootless use (see ensure_engine_image); just free the space.
+  if as_root podman image exists "$ENGINE_IMAGE" >/dev/null 2>&1; then
+    info "removing root's old engine image — the rootless one is rebuilt from the current sources"
+    as_root podman rmi -f "$ENGINE_IMAGE" >/dev/null 2>&1 || true
+  fi
   for d in "$VOWIFI_DATA_DIR" "$VENV_DIR"; do
     if [ -d "$d" ] && [ -n "$(find "$d" ! -user "$ME" -print -quit 2>/dev/null)" ]; then
       info "handing $d to $ME"
@@ -477,17 +483,10 @@ ensure_engine_image() {
     info "engine image $ENGINE_IMAGE present — reusing (patches from engine/patches/* are baked in). Use 'reload --engines' or '--no-cache' to force a rebuild."
     return
   fi
-  # Upgrading from a rootful install: copy root's already-built image instead of rebuilding.
-  # Only attempted when sudo is already unlocked (install), never prompted for by reload.
-  if [ -z "$force" ] && [ -z "$NOCACHE_FLAG" ] && [ "$SUDO_READY" = 1 ] \
-      && as_root podman image exists "$ENGINE_IMAGE" >/dev/null 2>&1; then
-    info "copying the engine image from root's (old rootful) storage — skips the rebuild…"
-    if as_root podman save "$ENGINE_IMAGE" | podman load >/dev/null; then
-      as_root podman rmi -f "$ENGINE_IMAGE" >/dev/null 2>&1 || true
-      info "engine image copied"; return
-    fi
-    warn "image copy failed — building instead"
-  fi
+  # No shortcut for upgrades from a rootful install: root's old engine image predates the
+  # rootless SWu changes (unprivileged IKE/NAT-T source ports, forced NAT-T — without them no
+  # tunnel comes up behind pasta) and may carry another pcsc-lite than $PCSC_VERSION, so it is
+  # never reused; migrate_legacy_rootful deletes it and this builds from the current sources.
   info "building engine image ($ENGINE_IMAGE) from source — long; compiles Asterisk+pcsc-lite+Python SWu tunnel deps and bakes engine/patches/*…"
   # shellcheck disable=SC2086
   podman build $NOCACHE_FLAG --build-arg "PCSC_VERSION=$PCSC_VERSION" -t "$ENGINE_IMAGE" "$REPO_DIR/engine"
@@ -735,37 +734,59 @@ cmd_uninstall() {
 # ------------------------------------------------------------------ host firewall (firewalld)
 # The WebUI on $VOWIFI_PORT and every port an engine publishes through pasta are plain host
 # sockets of this user, so firewalld drops them unless allowed.
-# We define one firewalld service, "vowifi", and enable it ONLY in the zone the host's LAN
-# traffic lands in (a zone bound to the LAN subnet as a source wins over the interface's zone),
-# so the gateway is reachable from the local network but not from anything else.
-# Port blocks follow control/app/config.py (PORT_BASE + index*PORT_STRIDE) for up to
-# VOWIFI_FW_INSTANCES SIMs. AMI (5038+) stays closed: the manager reaches it over loopback.
+# We define one firewalld service, "vowifi" (the exact ports, nothing in between), and allow it
+# through a rich rule that ALSO matches the LAN subnet as source, in the zone the host's LAN
+# traffic lands in (a zone bound to the LAN subnet as a source wins over the interface's zone).
+# The source match matters: a zone is not "the LAN" — on hosts where the LAN and WAN interfaces
+# share a zone (often `public`, the default zone) a bare --add-service would open the gateway to
+# every source on every interface in it. Every run first strips the service / our rules from ALL
+# zones, so changing the zone or subnet leaves nothing open in the old one.
+# Port blocks follow control/app/config.py (PORT_BASE + index*PORT_STRIDE, RTP_SPAN 60) and the
+# protocols engine.py publishes, for up to VOWIFI_FW_INSTANCES SIMs. AMI (5038+) stays closed:
+# the manager reaches it over loopback.
 VOWIFI_FW_INSTANCES="${VOWIFI_FW_INSTANCES:-10}"
 FW_SERVICE=vowifi
 
-# Zone that LAN clients' packets are classified into: one with the LAN subnet as a source, else
-# the zone of the LAN interface, else the default zone. Override with VOWIFI_FW_ZONE.
-fw_lan_zone() {
-  [ -n "${VOWIFI_FW_ZONE:-}" ] && { printf '%s' "$VOWIFI_FW_ZONE"; return; }
+# IPv4 subnet of the LAN (the on-link route of the interface carrying the advertised address),
+# or VOWIFI_FW_SOURCE. Empty if it can't be determined.
+fw_lan_source() {
+  [ -n "${VOWIFI_FW_SOURCE:-}" ] && { printf '%s' "$VOWIFI_FW_SOURCE"; return; }
   lan_ip="${VOWIFI_ADVERTISE_ADDR:-$(detect_lan_ip)}"
   lan_if=$(ip -4 -o addr show 2>/dev/null | awk -v ip="$lan_ip" '{split($4,a,"/"); if (a[1]==ip) {print $2; exit}}')
-  lan_net=$(ip -4 -o route show dev "$lan_if" scope link 2>/dev/null | awk '{print $1; exit}')
+  [ -n "$lan_if" ] || return 0
+  ip -4 -o route show dev "$lan_if" scope link 2>/dev/null | awk '{print $1; exit}'
+}
+
+# Zone that LAN clients' packets are classified into: one with the LAN subnet ($1) as a source,
+# else the zone of the interface on that subnet, else the default zone. Override: VOWIFI_FW_ZONE.
+fw_lan_zone() {
+  [ -n "${VOWIFI_FW_ZONE:-}" ] && { printf '%s' "$VOWIFI_FW_ZONE"; return; }
+  lan_net="$1"
   if [ -n "$lan_net" ]; then
     z=$(as_root firewall-cmd --get-zone-of-source="$lan_net" 2>/dev/null) && [ -n "$z" ] && { printf '%s' "$z"; return; }
-  fi
-  if [ -n "$lan_if" ]; then
-    z=$(as_root firewall-cmd --get-zone-of-interface="$lan_if" 2>/dev/null) && [ -n "$z" ] && { printf '%s' "$z"; return; }
+    lan_if=$(ip -4 -o route show "$lan_net" scope link 2>/dev/null | awk '{for (i=1;i<NF;i++) if ($i=="dev") {print $(i+1); exit}}')
+    if [ -n "$lan_if" ]; then
+      z=$(as_root firewall-cmd --get-zone-of-interface="$lan_if" 2>/dev/null) && [ -n "$z" ] && { printf '%s' "$z"; return; }
+    fi
   fi
   as_root firewall-cmd --get-default-zone
+}
+
+# Remove the service and every rich rule referencing it from all permanent zones.
+fw_clear_zones() {
+  for z in $(as_root firewall-cmd --permanent --get-zones 2>/dev/null); do
+    as_root firewall-cmd --permanent --zone="$z" --remove-service="$FW_SERVICE" >/dev/null 2>&1 || true
+    as_root firewall-cmd --permanent --zone="$z" --list-rich-rules 2>/dev/null \
+      | grep -F "service name=\"$FW_SERVICE\"" \
+      | while IFS= read -r rule; do
+          as_root firewall-cmd --permanent --zone="$z" --remove-rich-rule="$rule" >/dev/null 2>&1 || true
+        done
+  done
 }
 
 ensure_firewall() {
   have firewall-cmd && systemctl is-active --quiet firewalld 2>/dev/null || return 0
   n=$VOWIFI_FW_INSTANCES
-  last=$((n - 1))
-  sip_hi=$((5061 + 10 * last))           # sip_udp 5060+10k, sip_tls 5061+10k
-  wss_hi=$((8089 + 10 * last))
-  rtp_hi=$((10000 + 2000 * last + 59))   # rtp_start 10000+2000k, 60 ports each
   if ! as_root firewall-cmd --permanent --info-service="$FW_SERVICE" >/dev/null 2>&1; then
     as_root firewall-cmd --permanent --new-service="$FW_SERVICE" >/dev/null
   fi
@@ -776,21 +797,38 @@ ensure_firewall() {
   for old in $(as_root firewall-cmd --permanent --service="$FW_SERVICE" --get-ports 2>/dev/null); do
     as_root firewall-cmd --permanent --service="$FW_SERVICE" --remove-port="$old" >/dev/null
   done
-  for port in "$VOWIFI_PORT/tcp" "5060-$sip_hi/udp" "5060-$sip_hi/tcp" "8089-$wss_hi/tcp" "10000-$rtp_hi/udp"; do
+  # Exactly what engine.py publishes per block k — no ranges spanning the gaps between blocks.
+  ports="$VOWIFI_PORT/tcp"
+  k=0
+  while [ "$k" -lt "$n" ]; do
+    rtp=$((10000 + 2000 * k))
+    ports="$ports $((5060 + 10 * k))/udp $((5061 + 10 * k))/tcp $((8089 + 10 * k))/tcp $rtp-$((rtp + 59))/udp"
+    k=$((k + 1))
+  done
+  for port in $ports; do
     as_root firewall-cmd --permanent --service="$FW_SERVICE" --add-port="$port" >/dev/null
   done
-  zone=$(fw_lan_zone)
-  as_root firewall-cmd --permanent --zone="$zone" --add-service="$FW_SERVICE" >/dev/null
+  fw_clear_zones
+  src=$(fw_lan_source)
+  zone=$(fw_lan_zone "$src")
+  if [ -z "$src" ]; then
+    as_root firewall-cmd --reload >/dev/null
+    warn "firewalld: couldn't determine the LAN subnet — gateway ports NOT opened." \
+      "Set VOWIFI_FW_SOURCE=<lan cidr> (e.g. 192.168.1.0/24) and run './install.sh firewall'."
+    return 0
+  fi
+  as_root firewall-cmd --permanent --zone="$zone" \
+    --add-rich-rule="rule family=\"ipv4\" source address=\"$src\" service name=\"$FW_SERVICE\" accept" >/dev/null
   as_root firewall-cmd --reload >/dev/null
-  info "firewalld: service '$FW_SERVICE' allowed in zone '$zone' (LAN only): $VOWIFI_PORT/tcp, SIP 5060-$sip_hi, WSS 8089-$wss_hi, RTP 10000-$rtp_hi"
+  last=$((n - 1))
+  info "firewalld: service '$FW_SERVICE' allowed from $src only (zone '$zone'): $VOWIFI_PORT/tcp + $n port blocks" \
+    "(SIP 5060+10k udp, TLS 5061+10k, WSS 8089+10k, RTP 10000+2000k..+59; k=0..$last)"
 }
 
 remove_firewall() {
   have firewall-cmd && systemctl is-active --quiet firewalld 2>/dev/null || return 0
   as_root firewall-cmd --permanent --info-service="$FW_SERVICE" >/dev/null 2>&1 || return 0
-  for z in $(as_root firewall-cmd --get-zones 2>/dev/null); do
-    as_root firewall-cmd --permanent --zone="$z" --remove-service="$FW_SERVICE" >/dev/null 2>&1 || true
-  done
+  fw_clear_zones
   as_root firewall-cmd --permanent --delete-service="$FW_SERVICE" >/dev/null 2>&1 || true
   as_root firewall-cmd --reload >/dev/null 2>&1 || true
 }
@@ -1084,7 +1122,7 @@ SIM runs in your rootless Podman (pasta networking). pcsc-lite is version-locked
 between the host and the engine image.
 
 Env: VOWIFI_PORT(=$VOWIFI_PORT) VOWIFI_DATA_DIR(=$VOWIFI_DATA_DIR) VOWIFI_ADVERTISE_ADDR(auto)
-     VOWIFI_BIND(=$VOWIFI_BIND) VOWIFI_FW_INSTANCES(=10) VOWIFI_FW_ZONE(auto) PCSC_VERSION(=$PCSC_VERSION)
+     VOWIFI_BIND(=$VOWIFI_BIND) VOWIFI_FW_INSTANCES(=10) VOWIFI_FW_ZONE(auto) VOWIFI_FW_SOURCE(auto) PCSC_VERSION(=$PCSC_VERSION)
 EOF
 }
 

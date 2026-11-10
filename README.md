@@ -68,12 +68,12 @@ Run it as your **normal user — not as root and not via `sudo`**. Root is only 
 
 The installer:
 - Installs Podman + passt (distro packages, if missing), enables your user's `podman.socket` / `podman-restart.service` and lingering, and the host pcscd, **version-locked** to `PCSC_VERSION`
-- Opens the gateway's ports to your **LAN only** in firewalld, if it is active (`vowifi` service in the zone your LAN traffic lands in; see [Per-instance ports](#per-instance-ports))
+- Opens the gateway's ports to your **LAN only** in firewalld, if it is active (a rich rule allowing the `vowifi` service from the LAN subnet, in the zone your LAN traffic lands in; see [Per-instance ports](#per-instance-ports))
 - Builds the engine image (compiles pcsc-lite + the Python SWu tunnel deps, bakes `engine/patches/*`; Asterisk is downloaded prebuilt from the fork's CI release for `ASTERISK_REF` when one exists, otherwise compiled from source, ~10–15 min on a Pi)
 - Compiles the WebUI in a throwaway Node container, creates a Python venv (`control/.venv`), and starts the `vowifi-control` user service
 - Autostart is enabled; prints `https://<host-lan-ip>:8443` — open it in your browser
 
-**Upgrading from an older, rootful install** (system unit, `sudo ./install.sh`, or the removed `--mode container`): just run `./install.sh install`. It removes the old system unit and root's vowifi containers, copies root's engine image into your storage instead of rebuilding it, and hands `./data` and the venv to you. Your SIM configs, SMS and call history are kept.
+**Upgrading from an older, rootful install** (system unit, `sudo ./install.sh`, or the removed `--mode container`): just run `./install.sh install`. It removes the old system unit and root's vowifi containers and root's old engine image (it predates the rootless tunnel changes, so the engine image is rebuilt — ~10–15 min), and hands `./data` and the venv to you. Your SIM configs, SMS and call history are kept.
 
 Accept the self-signed cert, then **provision your SIM** in the dashboard:
 1. Insert the SIM into the reader; the `/` tab shows detected cards
@@ -95,7 +95,8 @@ Set via **env vars** (or a `.env` file next to `install.sh`) before running `ins
 | `VOWIFI_BIND` | `0.0.0.0` | Bind address for the control plane (rarely changed) |
 | `PCSC_VERSION` | `2.3.3` | pcsc-lite version pinned between the host pcscd and the engine image. If your distro already ships a newer pcsc-lite, set it to that version (e.g. in `.env`) instead of having the installer replace the host's pcscd. Keep it set for later `reload`s, which rebuild the engine image with it. |
 | `VOWIFI_FW_INSTANCES` | `10` | How many SIM port blocks the firewalld `vowifi` service opens |
-| `VOWIFI_FW_ZONE` | auto | firewalld zone to open them in (default: the zone your LAN subnet/interface is in) |
+| `VOWIFI_FW_ZONE` | auto | firewalld zone to add the rule to (default: the zone your LAN subnet/interface is in) |
+| `VOWIFI_FW_SOURCE` | auto | IPv4 subnet allowed through firewalld (default: the on-link subnet of the LAN interface, e.g. `192.168.1.0/24`) |
 
 Example:
 ```bash
@@ -194,7 +195,7 @@ Each provisioned SIM gets a port block (no collisions across SIMs). Block `k` (0
 
 Example: the first block is 5060/5061/8089 with RTP 10000–10059, the second 5070/5071/8099 with RTP 12000–12059. The dashboard's **SIP info** shows a line's actual ports.
 
-With firewalld active, `install` (or `./install.sh firewall`) opens the WebUI port plus SIP, WSS and RTP for the first `VOWIFI_FW_INSTANCES` (10) blocks — to the **LAN zone only**.
+With firewalld active, `install` (or `./install.sh firewall`) opens the WebUI port plus exactly the SIP UDP, TLS, WSS and 60-port RTP range of each of the first `VOWIFI_FW_INSTANCES` (10) blocks — **only to sources in the LAN subnet** (`VOWIFI_FW_SOURCE`), through a rich rule in the LAN's zone, so a zone shared with a WAN interface stays closed to everything else. Each run first removes the service and its rules from every zone, so changing `VOWIFI_FW_ZONE`/`VOWIFI_FW_SOURCE` leaves nothing open behind. Lines moved to non-default ports are not covered; open those yourself. If the LAN subnet can't be detected, nothing is opened and the installer says so.
 
 ---
 
@@ -349,7 +350,7 @@ in practice); MOBIKE / `UPDATE_SA_ADDRESSES` (the host has a stable wired IP); m
   - **IMEI with spare digit 0**: `+sip.instance` as `urn:gsma:imei:TAC-SNR-0` (RFC 7254) instead of ending in the check digit.
 - **Outgoing calls fail with `491 Request Pending` followed by `500 Server Internal Error` (Q.850 cause 47)**: the engine sent the precondition `UPDATE` while the carrier was still processing the `PRACK` for its `183`. Enable **SIM Config → Send the call-setup UPDATE only after the PRACK is answered** for that line (needed on MTS RU for calls to other Russian operators). Off by default.
 - **External client no audio**: confirm `VOWIFI_ADVERTISE_ADDR` is the correct LAN IP (not 127.x). Check that the firewall allows RTP from the client (`./install.sh firewall` opens UDP 10000+ for the LAN in firewalld).
-- **WebUI or SIP unreachable from the LAN, fine on the host itself**: the ports are plain host sockets of your user, so the host firewall filters them. `./install.sh firewall` (re)adds the `vowifi` firewalld service to the zone your LAN lands in; set `VOWIFI_FW_ZONE` if it picked the wrong zone.
+- **WebUI or SIP unreachable from the LAN, fine on the host itself**: the ports are plain host sockets of your user, so the host firewall filters them. `./install.sh firewall` (re)adds the rule allowing the `vowifi` firewalld service from your LAN subnet; set `VOWIFI_FW_SOURCE` / `VOWIFI_FW_ZONE` if it picked the wrong subnet or zone.
 - **Outbound works, inbound fails**: your router's NAT may mangle the SIP `Contact` header. Use the TLS transport (port 5061) if your client supports it, or set `settings.tls.domain` to a public FQDN + port-forward.
 
 **Control plane won't start:**  
