@@ -228,6 +228,54 @@ time {
   background: var(--active);
   color: var(--text);
 }
+/* Login gate (components/common/AuthGate.tsx) */
+.auth-screen {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: var(--bg);
+}
+.auth-card {
+  width: 100%;
+  max-width: 360px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.auth-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+}
+.auth-title h1 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 20px;
+}
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.auth-form .btn {
+  margin-top: 6px;
+}
+.auth-note {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-soft);
+}
+.auth-error {
+  margin: 0;
+  font-size: 13px;
+  color: var(--danger);
+}
 .app-instance-count {
   font-size: 11px;
   color: var(--text-faint);
@@ -605,6 +653,7 @@ a {
   }
   .app-brand,
   .app-theme-picker,
+  .app-logout,
   .app-instance-count {
     display: none !important;
   }

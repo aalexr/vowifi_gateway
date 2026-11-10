@@ -92,11 +92,13 @@ Set via **env vars** (or a `.env` file next to `install.sh`) before running `ins
 | `VOWIFI_PORT` | `8443` | Host port the WebUI is served/published on |
 | `VOWIFI_DATA_DIR` | `<repo>/data` | Runtime data directory (config, logs, DB, certs) |
 | `VOWIFI_ADVERTISE_ADDR` | auto-detect | Host LAN IP advertised to local SIP/WebRTC clients for RTP, Contact and SDP. It overrides **Settings → SIP / WebRTC advertise address**. Auto-detection prefers a real LAN NIC and skips common VPN/container interfaces; pin it explicitly on multi-homed hosts. |
-| `VOWIFI_BIND` | `0.0.0.0` | Bind address for the control plane (rarely changed) |
+| `VOWIFI_BIND` | `::` | Bind address for the control plane. `::` is one dual-stack socket (IPv6 + IPv4, even with `net.ipv6.bindv6only=1`); it falls back to `0.0.0.0` on hosts without IPv6. Set `0.0.0.0` for IPv4 only, or a specific address. |
 | `PCSC_VERSION` | `2.3.3` | pcsc-lite version pinned between the host pcscd and the engine image. If your distro already ships a newer pcsc-lite, set it to that version (e.g. in `.env`) instead of having the installer replace the host's pcscd. Keep it set for later `reload`s, which rebuild the engine image with it. |
 | `VOWIFI_FW_INSTANCES` | `10` | How many SIM port blocks the firewalld `vowifi` service opens |
 | `VOWIFI_FW_ZONE` | auto | firewalld zone to add the rule to (default: the zone your LAN subnet/interface is in) |
 | `VOWIFI_FW_SOURCE` | auto | IPv4 subnet allowed through firewalld (default: the on-link subnet of the LAN interface, e.g. `192.168.1.0/24`) |
+| `VOWIFI_FW_WEBUI_SOURCE6` | *(none)* | IPv6 prefixes (comma/space separated) allowed to reach the **WebUI port only** through firewalld, e.g. `2001:db8:1234::/48`; `any` allows every IPv6 source. Empty = no IPv6 rule. See [WebUI over IPv6](#webui-over-ipv6). |
+| `VOWIFI_FW_ZONE6` | auto | firewalld zone for the IPv6 WebUI rule (default: the zone of the IPv6 default-route interface) |
 
 Example:
 ```bash
@@ -144,6 +146,9 @@ git clone https://github.com/estkme-group/lpac.git ../lpac
 
 # (Re)open the gateway's ports to the LAN in firewalld (install already does this)
 ./install.sh firewall
+
+# Log every browser out of the WebUI (login = your Linux user + password)
+./install.sh logout-all
 
 # Disable autostart (control + engines won't restart on reboot)
 ./install.sh disable-autostart
@@ -197,11 +202,34 @@ Example: the first block is 5060/5061/8089 with RTP 10000–10059, the second 50
 
 With firewalld active, `install` (or `./install.sh firewall`) opens the WebUI port plus exactly the SIP UDP, TLS, WSS and 60-port RTP range of each of the first `VOWIFI_FW_INSTANCES` (10) blocks — **only to sources in the LAN subnet** (`VOWIFI_FW_SOURCE`), through a rich rule in the LAN's zone, so a zone shared with a WAN interface stays closed to everything else. Each run first removes the service and its rules from every zone, so changing `VOWIFI_FW_ZONE`/`VOWIFI_FW_SOURCE` leaves nothing open behind. Lines moved to non-default ports are not covered; open those yourself. If the LAN subnet can't be detected, nothing is opened and the installer says so.
 
+### WebUI over IPv6
+
+The control plane listens dual-stack (`VOWIFI_BIND=::`), so the WebUI answers on the host's IPv6 addresses, e.g. `https://[2001:db8::10]:8443`. The `vowifi` rich rule above is IPv4-only, so with firewalld active IPv6 clients are blocked until you opt in. `VOWIFI_FW_WEBUI_SOURCE6` adds a separate `vowifi-webui` service: the WebUI port only, never SIP/WSS/RTP. It is allowed from the listed prefixes, in the zone of the IPv6 uplink (`VOWIFI_FW_ZONE6`):
+
+```bash
+VOWIFI_FW_WEBUI_SOURCE6=2001:db8:1234::/48 ./install.sh firewall   # or put it in .env, so later installs keep it
+```
+
+> ⚠️ The [login](#login) is your Linux account's password, so exposing the WebUI exposes that password to guessing and, with a self-signed certificate, to interception. Use a real certificate (Settings → TLS) and a strong password. Prefer specific prefixes (your mobile carrier's or your office's) over `any`. Your router's IPv6 firewall usually blocks inbound connections too and needs its own exception for this host and port. Hosts that use temporary (privacy) addresses change them, so point clients at the stable address or a DNS name.
+
 ---
 
 ## WebUI
 
-Open `https://<host-ip>:<VOWIFI_PORT>` (default 8443). Tabs (see [Screenshots](#screenshots) above):
+Open `https://<host-ip>:<VOWIFI_PORT>` (default 8443).
+
+### Login
+
+You log in with the **Linux account the gateway runs as**: the user that ran `./install.sh install` and owns the `vowifi-control` user service, and that user's normal Linux password. Change it with `passwd`; there is no separate WebUI password.
+- The login is required from every client, including localhost and the LAN.
+- **Only the service's own user can log in.** The check goes through PAM. An unprivileged process can only verify its own account's password: `pam_unix` hands the check to the setuid `unix_chkpwd` helper, which refuses other users. Empty passwords are always refused, even if PAM is configured `nullok`. Locked or expired accounts fail too.
+- **PAM stack:** `/etc/pam.d/vowifi` if you create one, otherwise `system-auth` (Fedora/RHEL), otherwise `login`. `VOWIFI_PAM_SERVICE` picks another one. A stack that asks for a second secret (OTP, U2F) is refused, because the form has one password field.
+- **The WebUI password is your Linux password.** Anyone who learns it can also log in to the host (SSH, Cockpit, console) and use `sudo`. Serve the WebUI with a real certificate (Settings → TLS), and on a distro with `pam_faillock`, failed WebUI logins can count toward locking your account.
+- **Sessions:** an HttpOnly, `SameSite=Strict` cookie valid for 30 days. **Log out** is in the sidebar and in Settings. Changing the Linux password does not end existing sessions, so use **Settings → Log out everywhere** or `./install.sh logout-all` after changing it. The session key lives in `$VOWIFI_DATA_DIR/auth.json` (mode 0600).
+- **Throttle:** failed logins are throttled per client (per `/64` for IPv6). After 5 failures the wait doubles from 2 s up to 15 min, on top of PAM's own ~2 s delay per failure.
+- **Engine events:** engines post SMS/call events to `/api/engine/event`, which is not behind the login. Under pasta those requests come from one of the host's own addresses, and the manager accepts the endpoint only from those.
+
+Tabs (see [Screenshots](#screenshots) above):
 - **/** (Dashboard) — reader/card status, provision a SIM, engine state per instance
 - **/softphone** — browser-based WebRTC dialer (click-to-call from the dashboard, or dial manually; supports inbound calls, DTMF, call recording)
 - **/messages** — SMS inbox/outbox (SIP MESSAGE ↔ carrier SMS, per instance)

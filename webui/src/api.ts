@@ -425,6 +425,15 @@ export function apiErrorDetail(e: unknown): ApiErrorDetail | undefined {
   return d && typeof d === "object" ? d : undefined;
 }
 
+export interface AuthStatus {
+  authenticated: boolean;
+  /** Linux user this session is logged in as (the manager's service user). */
+  user: string | null;
+}
+
+/** Fired on window when the API answers 401 auth_required (session expired / logged out). */
+export const AUTH_REQUIRED_EVENT = "vowifi:auth-required";
+
 async function j<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = {};
   const opt: RequestInit = { method, headers };
@@ -446,6 +455,13 @@ async function j<T>(method: string, path: string, body?: unknown): Promise<T> {
     data.detail && typeof data.detail === "object"
       ? data.detail.message
       : data.detail;
+  if (
+    r.status === 401 &&
+    data.detail &&
+    typeof data.detail === "object" &&
+    data.detail.code === "auth_required"
+  )
+    window.dispatchEvent(new Event(AUTH_REQUIRED_EVENT));
   if (!r.ok)
     throw Object.assign(new Error(detailMsg || data.error || r.statusText), {
       status: r.status,
@@ -487,6 +503,11 @@ function readerBody(
 }
 
 export const api = {
+  authStatus: () => j<AuthStatus>("GET", "/api/auth/status"),
+  login: (username: string, password: string) =>
+    j<{ ok: boolean }>("POST", "/api/auth/login", { username, password }),
+  logout: () => j<{ ok: boolean }>("POST", "/api/auth/logout"),
+  logoutAll: () => j<{ ok: boolean }>("POST", "/api/auth/logout-all"),
   readers: () => j<{ readers: string[] }>("GET", "/api/readers"),
   detect: (i = 0) => j<CardInfo>("GET", `/api/sim/detect?reader_index=${i}`),
   // `reader` (PC/SC reader NAME) lets the backend re-resolve the index at request time —
@@ -815,7 +836,14 @@ export function connectWs(
         onMsg(JSON.parse(e.data) as WebSocketMessage);
       } catch {}
     };
-    ws.onclose = () => {
+    ws.onclose = (e) => {
+      // 4401 = the manager refused the session: let the login gate take over instead of
+      // hammering the socket.
+      if (e.code === 4401) {
+        window.dispatchEvent(new Event(AUTH_REQUIRED_EVENT));
+        if (alive) setTimeout(open, 10000);
+        return;
+      }
       if (alive) setTimeout(open, 2000);
     };
     ws.onerror = () => {

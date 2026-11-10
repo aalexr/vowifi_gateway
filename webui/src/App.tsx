@@ -7,6 +7,7 @@ import {
 } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router";
 import { ThemePicker } from "./components/sidebar/ThemePicker";
+import { useAuth } from "./components/common/AuthGate";
 import { SideBar } from "./components/sidebar/SideBar";
 import {
   Dashboard,
@@ -25,6 +26,7 @@ import {
   Smartphone,
   Settings as SettingsIcon,
   ScrollText,
+  LogOut,
   type LucideIcon,
 } from "lucide-react";
 import { AppShell } from "./AppShell";
@@ -97,6 +99,7 @@ const navigation: Nav[] = [
 ];
 
 export default function App() {
+  const auth = useAuth();
   const [toast, setToast] = useState<ReactNode | null>(null);
 
   const toastTimer = useRef<number | null>(null);
@@ -179,6 +182,14 @@ export default function App() {
           },
         )}
         <ThemePicker />
+        <button
+          className="app-nav-button app-logout"
+          onClick={auth.logout}
+          title={`Log out ${auth.status.user ?? ""}`.trim()}
+        >
+          <LogOut size={18} strokeWidth={1.9} aria-hidden="true" />
+          <span className="app-nav-label">Log out</span>
+        </button>
         <div className="app-instance-count">
           {instances.length} SIM{instances.length !== 1 ? "s" : ""} configured
         </div>

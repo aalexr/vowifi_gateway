@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { api, asApiError, type Settings as SettingsData } from "../api";
 import PushInfoModal from "../components/settings/PushInfoModal";
+import SessionCard from "../components/settings/SessionCard";
 
 type PushEvent = keyof NonNullable<
   NonNullable<SettingsData["webhook"]>["events"]
@@ -74,6 +75,7 @@ export default function Settings() {
         gap: 16,
       }}
     >
+      <SessionCard />
       <div className="card" style={{ padding: 20 }}>
         <h3 style={{ marginTop: 0 }}>Control surface (WebUI)</h3>
         <div

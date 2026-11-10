@@ -28,6 +28,7 @@ containerized control plane (both were removed; `install.sh install` migrates su
 - `control/app/config.py` — `config.yaml` + per-instance config, settings defaults.
 - `control/app/sim.py`, `card.py`, `usbreader.py` — PC/SC reader/card detection, PIN ops, EF reads, USB-port reader binding.
 - `control/app/lpa.py`, `estkme.py` — eSIM via local `lpac` binary; ESTKme dual-SE handling.
+- `control/app/auth.py` — WebUI login with the service user's Linux account (PAM via ctypes), signed session cookie (key in `$VOWIFI_DATA/auth.json`), throttle. `main.py`'s `require_login` middleware + the `/ws` handler apply it; `/api/auth/*` and the host-address-only `/api/engine/event` stay outside it. WebUI side: `components/common/AuthGate.tsx`.
 - `control/app/ami.py` — Asterisk AMI client (panoramisk); `store.py` — SQLite SMS/call log; `notify_push.py` — push notifications; `mcc_country.py` — MCC→ISO country (PANI header).
 - `engine/entrypoint.sh` — render → PIN keeper → SWu tunnel supervisor → P-CSCF discovery → Asterisk.
 - `engine/render.py` + `engine/templates/*.j2` — `/config/instance.json` → Asterisk configs + `engine.env`.
@@ -78,7 +79,8 @@ systemd, firewalld or the user's Podman containers unless the user asks — they
 - **SIM safety**: PIN retries are finite. Never add code paths that retry PIN verification blindly; respect the existing preflight/locked checks (`_preflight_pin_locked`, `pin_keeper.py`). Exclusive PC/SC access (eSIM ops) must stay guarded against a running engine on the same reader.
 - **3GPP behaviour** in `swu_ike.py` (TS 24.302 reject classification + back-off, DPD/liveness, rekey/reauth, RFC 7383 fragmentation) was tuned against live networks — change conservatively and explain the spec reasoning in comments.
 - Asterisk `.conf` values: `;` starts a comment — escape with `escape_pani_for_asterisk`-style helpers when rendering user/carrier strings.
-- Never log or commit secrets: PINs, Ki/OPc, AMI secrets, TLS keys, `.env`.
+- **WebUI login** (`auth.py`): every `/api/*` route and `/ws` is behind it automatically. Never add exemptions beyond `/api/auth/*` and the host-address-only `/api/engine/event`, and never accept an empty password or any user but the service's own.
+- Never log or commit secrets: PINs, Ki/OPc, AMI secrets, TLS keys, `.env`, `data/auth.json`.
 
 ## Code style
 

@@ -22,6 +22,7 @@ from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import config as cfg
+from . import auth
 from . import store, engine, status as status_mod, sim, card, notify_push, lpa, estkme, usbreader
 from .ami import AmiClient
 
@@ -595,6 +596,78 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="VoWiFi Gateway", lifespan=lifespan)
+
+
+# ----------------------------- WebUI login (auth.py has the policy) -----------------------------
+@app.middleware("http")
+async def require_login(request: Request, call_next):
+    client = request.client.host if request.client else None
+    if not auth.allowed(request.url.path, client, request.cookies.get(auth.COOKIE_NAME)):
+        if request.url.path in auth.ENGINE_PATHS:
+            return JSONResponse({"detail": "forbidden"}, status_code=403)
+        return JSONResponse({"detail": {"code": "auth_required",
+                                        "message": "Login required"}}, status_code=401)
+    return await call_next(request)
+
+
+def _set_session_cookie(resp: JSONResponse, user: str) -> JSONResponse:
+    resp.set_cookie(auth.COOKIE_NAME, auth.new_session(user), max_age=auth.SESSION_TTL,
+                    httponly=True, secure=True, samesite="strict", path="/")
+    return resp
+
+
+def _client(request: Request) -> str | None:
+    return request.client.host if request.client else None
+
+
+@app.get("/api/auth/status")
+def api_auth_status(request: Request):
+    return auth.status(request.cookies.get(auth.COOKIE_NAME))
+
+
+@app.post("/api/auth/login")
+async def api_auth_login(request: Request, body: dict):
+    """Linux-account login (PAM, see auth.py): username + password of the service's user."""
+    host = _client(request)
+    wait = auth.throttle.retry_after(host)
+    if wait:
+        return JSONResponse({"detail": {"code": "throttled", "retry_after": wait,
+                                        "message": f"Too many failed attempts; try again in {wait} s"}},
+                            status_code=429, headers={"Retry-After": str(wait)})
+    ok = await asyncio.to_thread(auth.check_login, body.get("username"), body.get("password"),
+                                 auth._ip(host) and str(auth._ip(host)))
+    if not ok:
+        auth.throttle.fail(host)
+        log.warning("failed WebUI login from %s", host)
+        raise HTTPException(401, "wrong user name or password")
+    auth.throttle.ok(host)
+    user = auth.service_user()
+    log.info("WebUI login as %s from %s", user, host)
+    return _set_session_cookie(JSONResponse({"ok": True}), user)
+
+
+@app.post("/api/auth/logout")
+def api_auth_logout():
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie(auth.COOKIE_NAME, path="/", secure=True, httponly=True, samesite="strict")
+    return resp
+
+
+@app.post("/api/auth/logout-all")
+async def api_auth_logout_all(request: Request):
+    """Rotate the session key: every browser (this one included) must log in again."""
+    if not auth.session_valid(request.cookies.get(auth.COOKIE_NAME)):
+        raise HTTPException(401, "Login required")
+    await asyncio.to_thread(auth.logout_everywhere)
+    # Live feeds were authorized under the old key: drop them, their reconnect must log in.
+    for ws in list(hub.clients):
+        try:
+            await ws.close(code=4401)
+        except Exception:
+            pass
+        hub.clients.discard(ws)
+    log.info("WebUI: all sessions logged out by %s", _client(request))
+    return api_auth_logout()
 
 
 # ----------------------------- SIM / readers -----------------------------
@@ -2022,6 +2095,14 @@ async def api_esim_notification_remove(
 # ----------------------------- WebSocket -----------------------------
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
+    # HTTP middleware doesn't see WebSocket handshakes: apply the same login policy here.
+    if not auth.allowed("/ws", ws.client.host if ws.client else None,
+                        ws.cookies.get(auth.COOKIE_NAME)):
+        # Accept, then close with 4401: a handshake rejection only reaches the browser as an
+        # anonymous 1006, which the WebUI couldn't tell apart from a network drop.
+        await ws.accept()
+        await ws.close(code=4401)
+        return
     await ws.accept()
     hub.clients.add(ws)
     try:
