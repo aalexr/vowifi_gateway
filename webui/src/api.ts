@@ -165,6 +165,9 @@ export interface InstanceConfig {
   reg_imei_urn_spare_zero?: boolean;
   dial_00_to_plus?: boolean;
   update_after_prack?: boolean;
+  mt_precondition_require_only?: boolean;
+  /** Carrier (IMS) leg codecs in preference order; empty/missing = ["amrwb", "amr"]. */
+  ims_codecs?: string[];
   debug?: Record<string, boolean>;
   status?: InstanceStatus;
   [key: string]: unknown;

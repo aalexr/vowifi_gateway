@@ -1195,6 +1195,13 @@ async def api_instance_upsert(body: dict):
                 400,
                 detail={"code": "duplicate_sip_username", "message": str(e)},
             ) from e
+    if "ims_codecs" in body:
+        try:
+            cfg.normalize_ims_codecs(body.get("ims_codecs"))
+        except ValueError as e:
+            raise HTTPException(
+                400, detail={"code": "invalid_ims_codecs", "message": str(e)}
+            ) from e
     was_running = await asyncio.to_thread(engine.is_running, iid)
     try:
         inst = cfg.upsert_instance(body)

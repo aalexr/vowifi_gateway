@@ -48,10 +48,11 @@ RUN cd /tmp && \
 
 # Asterisk: our fork of sysmocom's VoLTE/VoWiFi/IMS-AKA/SMS-over-IMS Asterisk. Branch
 # vowifi/20.7.0 = sysmocom/20.7.0 + cherry-pick f1b60dc (AMR) + our IMS fixes as commits
-# (MT-SMS RP-ACK routing, reg-event SUBSCRIBE, REGISTER extras, UPDATE after PRACK). Change
-# Asterisk there, then bump ASTERISK_REF to the new commit. pjproject: sysmocom/2.14, unpatched.
+# (MT-SMS RP-ACK routing, reg-event SUBSCRIBE, REGISTER extras, UPDATE after PRACK, MT
+# precondition require-only). Change Asterisk there, then bump ASTERISK_REF to the new commit.
+# pjproject: sysmocom/2.14, unpatched.
 ARG ASTERISK_REPO=https://github.com/aalexr/asterisk.git
-ARG ASTERISK_REF=e091939d3ff9ffa689d8b06bdaa03517ad6d962f
+ARG ASTERISK_REF=61affdd85ce0e3e81586d07c074bda20d0b0d266
 ARG PJPROJECT_REPO=https://gitea.sysmocom.de/sysmocom/pjproject.git
 ARG PJPROJECT_REF=20537ab1e6beb2baf9ec15599e0217a601cf7ce5
 # Prebuilt Asterisk: the fork's VowifiBuild workflow builds every pushed commit on this same

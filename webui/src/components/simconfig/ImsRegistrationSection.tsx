@@ -77,12 +77,22 @@ export default function ImsRegistrationSection({
         Send the call-setup UPDATE only after the PRACK is answered (fixes 491 →
         500 on outgoing calls)
       </CheckboxRow>
+      <CheckboxRow
+        checked={!!form.mt_precondition_require_only}
+        onChange={(mt_precondition_require_only) =>
+          upd({ mt_precondition_require_only })
+        }
+      >
+        Incoming calls: skip QoS preconditions unless the carrier requires them
+        (fixes no audio on incoming calls, e.g. Vodafone DE)
+      </CheckboxRow>
       <Hint>
         These change only this line. Some IMS cores accept the REGISTER and then
         remove it within a second (status "The carrier's IMS accepted the
         registration but then removed it again") unless it looks like a native
         phone. <b>MTS RU</b> needs only the Geolocation country (the country you
-        are in, e.g. <code>DE</code>); the other options are there for carriers
+        are in, e.g. <code>DE</code>); <b>Vodafone DE</b> needs the incoming-call
+        precondition option; the other options are there for carriers
         that turn out to need them (an iPhone sends all of them). Restart the
         line after changing them.
       </Hint>

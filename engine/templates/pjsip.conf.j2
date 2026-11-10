@@ -53,14 +53,30 @@ transport=volte_ims
 context=volte_ims
 message_context=volte_ims_msg
 disallow=all
-; AMR-WB (HD Voice, 16 kHz) first, AMR-NB as fallback: offering only amr pins every call to
-; narrowband even when the carrier and far end support wideband.
-allow=amrwb
-allow=amr
-bw_value=41
+; Per-line carrier codecs (control: ims_codecs). Default AMR-WB (HD Voice, 16 kHz) first,
+; AMR-NB as fallback, like a phone: offering only amr pins every call to narrowband even when
+; the carrier and far end support wideband. Carriers that accept G.722 (O2 DE) can put it
+; first so a G.722 local client (FRITZ!Box DECT HD) is bridged without transcoding here.
+{% for codec in ims_codecs %}
+allow={{ codec }}
+{% endfor %}
+; SDP b=AS incl. RTP/UDP/IP headers, sized for the largest codec offered (render.py).
+bw_value={{ ims_bw }}
+{% if ims_codecs_custom %}
+; Incoming calls: choose by OUR list order (not the carrier's offer order), answering with
+; exactly one codec, so the configured first codec actually gets used.
+codec_prefs_incoming_offer=prefer:configured,operation:intersect,keep:first,transcode:allow
+{% endif %}
 outbound_auth=volte_ims
 aors=volte_ims
-rewrite_contact=yes
+; rewrite_contact MUST stay off on the IMS side. It replaces the top Record-Route (and Contact)
+; of an incoming dialog-creating request with the packet's source address. With IPsec
+; sec-agree (TS 33.203) the P-CSCF sends an MT INVITE from its port-c, while every request
+; to it must go to its port-s (the port its Record-Route names). Rewritten, our BYE/re-INVITE
+; on an incoming call goes to port-c: O2 DE tolerates that, Vodafone DE's P-CSCF silently drops
+; it, so hanging up never ended the call for the caller. MO calls are unaffected either way
+; (responses come from port-s). There is no NAT inside the tunnel to compensate for.
+rewrite_contact=no
 from_domain={{ realm }}
 from_user={{ msisdn }}
 volte=yes

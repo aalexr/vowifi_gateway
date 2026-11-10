@@ -514,6 +514,8 @@ def upsert_instance(inst: dict) -> dict:
     # Runtime-only fields sometimes ride along on the instance object (the API returns
     # instances with a computed `status` and `has_pin`); never persist them to config.
     inst = {k: v for k, v in inst.items() if k not in ("status", "has_pin")}
+    if "ims_codecs" in inst:
+        inst["ims_codecs"] = normalize_ims_codecs(inst["ims_codecs"])
     existing = data["instances"].get(iid, {})
     if "index" not in existing:
         inst["index"] = next_index(data)
@@ -671,6 +673,40 @@ PANI_ACCESS_TYPES = frozenset({
 })
 
 
+# Codecs a line may offer/accept on the carrier (IMS) leg, in preference order. AMR-WB + AMR
+# is what a phone offers; G.722 / G.711 are opt-in for carriers that accept them (O2 DE offers
+# G.722 itself), so a G.722 local client (FRITZ!Box DECT HD) is bridged without transcoding.
+# No EVS: the fork's codec_vevs needs the proprietary libvocal.so, which the image lacks.
+IMS_CODECS_ALLOWED = ("amrwb", "amr", "g722", "alaw", "ulaw")
+IMS_CODECS_DEFAULT = ["amrwb", "amr"]
+
+
+def normalize_ims_codecs(value) -> list:
+    """Ordered, de-duplicated carrier-leg codec list; None/empty -> the phone-like default.
+    Accepts a list or a comma-separated string. Raises ValueError on unknown codecs."""
+    if value is None or value == "" or value == []:
+        return list(IMS_CODECS_DEFAULT)
+    items = value.split(",") if isinstance(value, str) else value
+    if not isinstance(items, (list, tuple)):
+        raise ValueError("ims_codecs must be a list of codec names")
+    out: list = []
+    for c in items:
+        c = str(c).strip().lower()
+        if not c:
+            continue
+        if c not in IMS_CODECS_ALLOWED:
+            raise ValueError(f"unknown carrier codec '{c}' (allowed: {', '.join(IMS_CODECS_ALLOWED)})")
+        if c not in out:
+            out.append(c)
+    if not out:
+        return list(IMS_CODECS_DEFAULT)
+    if not any(c in ("amrwb", "amr") for c in out):
+        # Every IMS core supports AMR; a list without it fails calls the carrier routes
+        # without a transcoder (e.g. to mobiles that only do AMR/AMR-WB/EVS).
+        raise ValueError("ims_codecs must include amrwb or amr")
+    return out
+
+
 def normalize_pani_country(c) -> str:
     """ISO 3166-1 alpha-2 country code for PANI country=. Strip + upper-case; invalid -> ''."""
     s = "".join(ch for ch in str(c or "").strip().upper() if ch.isalpha())
@@ -809,6 +845,11 @@ def render_instance_json(inst: dict, settings: dict) -> dict:
         # Outgoing calls with preconditions: send the QoS UPDATE only after the 183 PRACK is
         # answered (Asterisk fork, UPDATE after PRACK); off by default.
         "update_after_prack": bool(inst.get("update_after_prack", False)),
+        # Incoming calls: use QoS preconditions only if the INVITE requires them (Asterisk fork,
+        # MT precondition require-only); off by default. Needed for Vodafone DE incoming audio.
+        "mt_precondition_require_only": bool(inst.get("mt_precondition_require_only", False)),
+        # Carrier (IMS) leg codecs, in preference order (normalize_ims_codecs).
+        "ims_codecs": normalize_ims_codecs(inst.get("ims_codecs")),
         # IMEISV (16 digits) for the ePDG DEVICE_IDENTITY response. Explicit stored value wins;
         # otherwise auto-derive from the IMEI (14-digit base + '00' SVN). Empty stays empty
         # (swu_ike then derives its own or falls back).
