@@ -13,11 +13,12 @@ server, with SMS and eSIM (lpac) management. Two planes:
 | Plane | Where | What |
 |-------|-------|------|
 | **engine** (one container per SIM) | `engine/` | `swu_ike.py` (pure-Python SWu IKEv2 + EAP-AKA + userspace ESP on `ipsec0`), sysmocom Asterisk (IMS PJSIP), USIM bridges (`pin_keeper.py`, `ami_usim.py`), `notify.py` event hook |
-| **control** (singleton) | `control/` + `webui/` | FastAPI manager (Docker SDK against Podman's API socket, pyscard, SQLite) + React/Vite/Tailwind WebUI served by the manager |
+| **control** (singleton) | `control/` + `webui/` | FastAPI manager (Docker SDK against the user's Podman API socket, pyscard, SQLite) + React/Vite/Tailwind WebUI served by the manager |
 
-Deploy modes (`install.sh`): **local** (default; control plane = native venv + `vowifi-control`
-systemd service, Podman only for engines) and **container** (control plane in a privileged container;
-`docker` is a legacy alias). Everything runs under **rootful Podman**; there is no Docker dependency.
+Everything runs **rootless** under the installing user: the control plane is a native venv +
+`vowifi-control` **`systemd --user`** service (lingering for boot), engines run in that user's
+**rootless Podman** on pasta networking. There is no Docker dependency, no rootful mode and no
+containerized control plane (both were removed; `install.sh install` migrates such old installs).
 
 ## Layout
 
@@ -50,8 +51,7 @@ cd webui && npm ci && npm run build
 bash -n install.sh engine/entrypoint.sh
 
 # Images
-sudo podman build -t localhost/vowifi/engine engine/                        # slow: compiles Asterisk + pcsc-lite
-sudo podman build -t localhost/vowifi/control -f control/Containerfile .
+podman build -t localhost/vowifi/engine engine/        # slow: compiles Asterisk + pcsc-lite
 ```
 
 Running for real needs a PC/SC reader, a SIM and carrier access — usually not available to an
@@ -60,19 +60,20 @@ agent. Don't claim end-to-end verification you couldn't do; say what was checked
 Dev loops (see README **Development**):
 - Control plane by hand: venv, `pip install -r control/requirements.txt`, `VOWIFI_DATA=./data python control/run.py`.
 - WebUI: `cd webui && npm run dev` (proxies `/api` and `/ws` to `VOWIFI_DEV_API`, default `https://localhost:8443`).
-- Engine scripts without rebuild: start the control plane with `VOWIFI_DEV_MOUNTS=1`, then `sudo podman restart vowifi-engine-<id>`.
-- Installed system: `sudo ./install.sh restart` (control), `sudo ./install.sh reload [--engines]`.
+- Engine scripts without rebuild: give the control plane `VOWIFI_DEV_MOUNTS=1` via a user drop-in (README **Development**), then `podman restart vowifi-engine-<id>`. Mounted scripts need their executable bit (git mode 100755).
+- Installed system: `./install.sh restart` (control), `./install.sh reload [--engines]` — never as root; `install.sh` refuses root and calls `sudo` itself (`as_root`) only for one-time host setup (packages, pcscd, polkit rule, firewalld, lingering, SELinux label). `reload`/start/stop/status/logs must stay root-free.
 
 Don't run `install.sh` install/uninstall/patch/purge commands or anything touching host pcscd,
-systemd or Podman containers unless the user asks — they modify the host.
+systemd, firewalld or the user's Podman containers unless the user asks — they modify the host.
 
 ## Invariants — don't break these
 
-- **pcsc-lite version lock**: `PCSC_VERSION` (default `2.3.3`) must stay identical in `install.sh`, `engine/Containerfile` and `control/Containerfile`. The host pcscd owns the reader; containers are clients via the bind-mounted `/run/pcscd` socket.
-- **Per-instance port blocks**: instance `i` uses SIP UDP `5060+100*(i-1)`, TLS `5061+…`, WSS `8089+…`, AMI `5038+…`, RTP `10000+…` (+59). Keep `engine.py`, templates and README consistent.
+- **pcsc-lite version lock**: `PCSC_VERSION` (default `2.3.3`) must stay identical in `install.sh` and `engine/Containerfile`. The host pcscd owns the reader; containers are clients via the bind-mounted `/run/pcscd` socket. Distro pcscd builds check polkit — the installer's rule `/etc/polkit-1/rules.d/50-vowifi-pcsc.rules` is what lets the user service and engines in.
+- **Per-instance port blocks** (`config.py` `PORT_BASE` + `index*PORT_STRIDE`): block `k` uses SIP UDP `5060+10k`, TLS `5061+10k`, WSS `8089+10k`, AMI `5038+10k` (host loopback only), RTP `10000+2000k` (+59). IKE source ports `45000+2n`/`45001+2n` come from the instance's unique `index`. Keep `config.py`, `engine.py`, the firewalld port list in `install.sh` (`ensure_firewall`) and README consistent.
 - **Contract between control and engine** is `instance.json` (written by control, consumed by `render.py`) plus the env vars exported in `entrypoint.sh` and status files in the bind-mounted run dir (e.g. `swu_status.json`, `pin_status.json`). Adding a setting usually touches: `config.py` defaults → `main.py`/`engine.py` → `render.py` → template and/or `entrypoint.sh` export list → WebUI view (`SimConfig.jsx` / `Settings.jsx`) → README.
 - **State machine**: `NO_CARD → PIN_PROBLEM → EPDG_UNRESOLVED → TUNNEL_DOWN → REGISTERING → OK` (+ `STOPPED`). The WebUI and `apply_health` depend on these names.
-- **Podman specifics**: images are tagged `localhost/vowifi/*` and `FROM` lines are fully qualified (no short-name resolution). Engines use `restart_policy=always` (what `podman-restart.service` revives on boot) and `label=disable` (SELinux, for the pcscd socket + data mounts). Engines reach the manager at `host.containers.internal`. `control/app/engine.py` talks to `DOCKER_HOST` (default `unix:///run/podman/podman.sock`) via the Docker SDK — keep to API calls Podman's compat layer supports.
+- **Rootless only**: nothing may need host root at runtime or rely on a container bridge IP. Engines run on pasta (`engine._network_mode()`, MTU pinned to the host uplink), so `swu_ike` must keep `SWU_FORCE_NATT=1` (pasta carries no raw ESP) and unprivileged per-engine `SWU_IKE_LOCAL_PORT`/`SWU_NATT_LOCAL_PORT` (pasta drops source ports < 1024). The manager reaches AMI at `127.0.0.1:<ami port>`. Published ports are plain host sockets, so new ones must also be added to `ensure_firewall`.
+- **Podman specifics**: images are tagged `localhost/vowifi/*` and `FROM` lines are fully qualified (no short-name resolution). Engines use `restart_policy=always` (what the user's `podman-restart.service` revives) and `label=disable` (SELinux, for the pcscd socket + data mounts). Engines reach the manager at `host.containers.internal` (pasta maps it; podman ≥ 5.3). `control/app/engine.py` talks to `DOCKER_HOST` (default `unix://$XDG_RUNTIME_DIR/podman/podman.sock`) via the Docker SDK — keep to API calls Podman's compat layer supports.
 - **No carrier database**: carrier values are derived from IMSI/SIM (ePDG FQDN, realm, SMSC from EF_SMSP). `CARRIER_CP_PREF` is only a probe-order hint; don't make carrier presets required.
 - **SIM safety**: PIN retries are finite. Never add code paths that retry PIN verification blindly; respect the existing preflight/locked checks (`_preflight_pin_locked`, `pin_keeper.py`). Exclusive PC/SC access (eSIM ops) must stay guarded against a running engine on the same reader.
 - **3GPP behaviour** in `swu_ike.py` (TS 24.302 reject classification + back-off, DPD/liveness, rekey/reauth, RFC 7383 fragmentation) was tuned against live networks — change conservatively and explain the spec reasoning in comments.

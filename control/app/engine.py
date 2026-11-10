@@ -1,11 +1,23 @@
 """
-engine.py - Per-SIM engine container lifecycle via the Docker SDK, against rootful Podman's
-Docker-compatible API socket (DOCKER_HOST, default unix:///run/podman/podman.sock).
+engine.py - Per-SIM engine container lifecycle via the Docker SDK, against the user's ROOTLESS
+Podman Docker-compatible API socket (DOCKER_HOST, default unix://$XDG_RUNTIME_DIR/podman/podman.sock).
 
 Each instance runs one `vowifi/engine` container that owns its ePDG tunnel + Asterisk.
 The manager renders instance.json, starts/stops/recreates the container with the right
 mounts/caps/ports, and reads the engine's runtime status files (bind-mounted run dir):
 the swu_ike daemon publishes swu_status.json {state: CONNECTED} for tunnel state.
+
+Rootless specifics (engines run in this user's user namespace, on pasta networking):
+  * NET_ADMIN/NET_RAW, /dev/net/tun (ipsec0), routes and net.* sysctls all act on the engine's
+    OWN network namespace, which the user namespace owns — no host root involved.
+  * pasta is an L4 proxy: published ports keep the client's real source address (SIP needs it),
+    but PMTU discovery inside the container never sees the real path, so the container MTU is
+    pinned to the host's default-route NIC -> swu_ike's outer-MTU sensing still works.
+  * SWU_FORCE_NATT=1: pasta forwards only TCP/UDP/ICMP, never raw ESP (IP proto 50).
+  * SWU_IKE_LOCAL_PORT / SWU_NATT_LOCAL_PORT: unprivileged, per-engine IKE source ports (pasta
+    silently drops datagrams from source ports < 1024 and would collide engines on host 4500).
+  * no per-container IP: AMI is reached on the published host port over loopback (pasta splices
+    host 127.0.0.1 to the container's 127.0.0.1, which manager.conf permits).
 
 PC/SC: engine containers are pcscd CLIENTS — they mount the HOST pcscd socket (/run/pcscd).
 The pcsc-lite client library in the engine image is pinned to the SAME version as the host
@@ -25,35 +37,62 @@ log = logging.getLogger("vowifi.engine")
 
 DATA_DIR = cfg.DATA_DIR
 IMAGE = os.environ.get("VOWIFI_ENGINE_IMAGE", "localhost/vowifi/engine")
-# Podman API socket (Docker-compatible). DOCKER_HOST wins so the SDK's usual override still works.
-PODMAN_URL = os.environ.get("DOCKER_HOST", "unix:///run/podman/podman.sock")
+# The user's Podman API socket (Docker-compatible). DOCKER_HOST wins (the systemd unit sets it).
+_RUNTIME_DIR = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+PODMAN_URL = os.environ.get("DOCKER_HOST", f"unix://{_RUNTIME_DIR}/podman/podman.sock")
 PCSCD_SOCK = os.environ.get("VOWIFI_PCSCD_DIR", "/run/pcscd")
-# Absolute host path to the project data dir (needed for bind mounts when the manager
-# itself runs in a container; defaults to DATA_DIR on the host).
-HOST_DATA_DIR = os.environ.get("VOWIFI_HOST_DATA", DATA_DIR)
 
 
 def _client():
     return docker.DockerClient(base_url=PODMAN_URL)
 
 
+def _host_uplink_mtu() -> int:
+    """MTU of the host's default-route interface (lowest metric), 0 if unknown. Handed to pasta so
+    the container NIC reports the real uplink MTU (a WireGuard/1420 default route included)."""
+    best = None
+    try:
+        with open("/proc/net/route") as f:
+            next(f)
+            for line in f:
+                p = line.split()
+                if len(p) >= 7 and p[1] == "00000000":
+                    metric = int(p[6])
+                    if best is None or metric < best[0]:
+                        best = (metric, p[0])
+        if best:
+            with open(f"/sys/class/net/{best[1]}/mtu") as f:
+                return int(f.read().strip())
+    except Exception:
+        pass
+    return 0
+
+
+def _network_mode() -> str:
+    """pasta, with the container MTU pinned to the host uplink. VOWIFI_ENGINE_NETWORK overrides."""
+    explicit = os.environ.get("VOWIFI_ENGINE_NETWORK", "").strip()
+    if explicit:
+        return explicit
+    mtu = _host_uplink_mtu()
+    return f"pasta:--mtu,{mtu}" if mtu >= 1280 else "pasta"
+
+
 def container_name(iid: str) -> str:
     return f"vowifi-engine-{iid}"
 
 
-def _instance_paths(iid: str):
+def _instance_paths(iid: str) -> str:
     base = os.path.join(DATA_DIR, "instances", str(iid))
-    host_base = os.path.join(HOST_DATA_DIR, "instances", str(iid))
     os.makedirs(os.path.join(base, "run"), exist_ok=True)
     os.makedirs(os.path.join(base, "logs"), exist_ok=True)
-    return base, host_base
+    return base
 
 
 def start(inst: dict, settings: dict, dev_mounts: bool = False):
     """(Re)create and start the engine container for an instance."""
     iid = str(inst["id"])
     cfg.write_instance_json(inst, settings)
-    base, host_base = _instance_paths(iid)
+    base = _instance_paths(iid)
     ports = inst.get("ports", {})
     client = _client()
     # remove any existing container
@@ -64,17 +103,15 @@ def start(inst: dict, settings: dict, dev_mounts: bool = False):
         pass
 
     volumes = {
-        os.path.join(host_base, "instance.json"): {"bind": "/config/instance.json", "mode": "ro"},
-        os.path.join(host_base, "logs"): {"bind": "/logs", "mode": "rw"},
-        os.path.join(host_base, "run"): {"bind": "/run/vowifi", "mode": "rw"},
+        os.path.join(base, "instance.json"): {"bind": "/config/instance.json", "mode": "ro"},
+        os.path.join(base, "logs"): {"bind": "/logs", "mode": "rw"},
+        os.path.join(base, "run"): {"bind": "/run/vowifi", "mode": "rw"},
         PCSCD_SOCK: {"bind": "/run/pcscd", "mode": "rw"},
     }
     # TLS cert for the local SIP-TLS / WebRTC (WSS 8089) transport. An explicit cert in
     # settings.tls wins; otherwise fall back to the control plane's own self-signed cert
     # (generated by run.py under $VOWIFI_DATA/certs) so the engine's WSS listener always has
     # a cert — without it Asterisk fails to bind 8089 and the browser softphone can't connect.
-    # Bind-mounts must use the HOST path (engine is a sibling container); check existence via
-    # the in-container DATA_DIR but mount the HOST_DATA_DIR path.
     tls = settings.get("tls", {})
     cert_host = key_host = None
     if tls.get("cert_path") and os.path.exists(tls["cert_path"]) and \
@@ -86,8 +123,7 @@ def start(inst: dict, settings: dict, dev_mounts: bool = False):
         ss_crt = os.path.join(DATA_DIR, "certs", "self-signed.crt")
         ss_key = os.path.join(DATA_DIR, "certs", "self-signed.key")
         if os.path.exists(ss_crt) and os.path.exists(ss_key):
-            cert_host = os.path.join(HOST_DATA_DIR, "certs", "self-signed.crt")
-            key_host = os.path.join(HOST_DATA_DIR, "certs", "self-signed.key")
+            cert_host, key_host = ss_crt, ss_key
         else:
             log.warning("no TLS cert available for engine %s WSS/8089 — browser softphone will "
                         "not connect until a cert exists (control plane cert at %s missing)", iid, ss_crt)
@@ -106,26 +142,44 @@ def start(inst: dict, settings: dict, dev_mounts: bool = False):
         f"{5060}/udp": ports.get("sip_udp", 5060),
         f"{5061}/tcp": ports.get("sip_tls", 5061),
         f"{8089}/tcp": ports.get("webrtc", 8089),
-        f"{5038}/tcp": ports.get("ami", 5038),
+        # AMI only on host loopback: the manager is its sole client, and nothing on the LAN
+        # should reach Asterisk's management interface.
+        f"{5038}/tcp": ("127.0.0.1", ports.get("ami", 5038)),
     }
     # RTP range
     for p in range(ports.get("rtp_start", 10000), ports.get("rtp_start", 10000) + 60):
         port_bindings[f"{p}/udp"] = p
 
+    # pasta drops flows from privileged source ports and maps each container source port to the
+    # same host port, so every engine gets its own unprivileged IKE / NAT-T source pair:
+    # 45000+2k / 45001+2k with k = the instance's persistent, unique `index` (config.next_index).
+    # Not derived from the SIP port: a manually chosen SIP port could map two lines to one pair.
+    k = int(inst.get("index", 0) or 0)
+    ike_base = int(os.environ.get("VOWIFI_IKE_LOCAL_PORT_BASE") or 45000)
+    env = {
+        "VOWIFI_ID": iid,
+        "SWU_FORCE_NATT": "1",
+        "SWU_IKE_LOCAL_PORT": str(ike_base + 2 * k),
+        "SWU_NATT_LOCAL_PORT": str(ike_base + 2 * k + 1),
+    }
+    network = _network_mode()
+
     c = client.containers.run(
         IMAGE,
         name=container_name(iid),
         detach=True,
+        # Capabilities inside the engine's own user + network namespace (not on the host).
         # NET_RAW: swu_ike's raw ESP socket (and ping). Docker granted NET_RAW, MKNOD and
         # AUDIT_WRITE by default; podman's default set omits them, so add them back explicitly.
         cap_add=["NET_ADMIN", "NET_RAW", "MKNOD", "AUDIT_WRITE"],
         devices=["/dev/net/tun:/dev/net/tun:rwm"],
         volumes=volumes,
+        network_mode=network,
         ports=port_bindings,
-        # "always": podman-restart.service only brings back "always" containers on boot.
+        # "always": the user's podman-restart.service only brings back "always" containers.
         # stop() removes the container, so a user stop is never undone by this.
         restart_policy={"Name": "always"},
-        environment={"VOWIFI_ID": iid},
+        environment=env,
         # The bind-mounted pcscd socket + data dir carry host SELinux labels a confined
         # container can't use; Docker never applied labels here either.
         security_opt=["label=disable"],
@@ -137,9 +191,9 @@ def start(inst: dict, settings: dict, dev_mounts: bool = False):
         # inside the container, so this must be set at creation.
         sysctls={"net.ipv6.conf.default.autoconf": "0"},
         # notify.py reaches the manager via host.containers.internal, which podman adds to
-        # every container's /etc/hosts.
+        # every container's /etc/hosts (pasta maps it to the host).
     )
-    log.info("started engine container %s", c.name)
+    log.info("started engine container %s (network %s)", c.name, network)
     return c.id
 
 
@@ -160,16 +214,10 @@ def is_running(iid: str) -> bool:
         return False
 
 
-def container_ip(iid: str) -> str | None:
-    try:
-        c = _client().containers.get(container_name(iid))
-        nets = c.attrs["NetworkSettings"]["Networks"]
-        for n in nets.values():
-            if n.get("IPAddress"):
-                return n["IPAddress"]
-    except Exception:
-        return None
-    return None
+def ami_endpoint(inst: dict) -> tuple[str, int]:
+    """(host, port) the manager uses for an instance's AMI: its published host port on loopback
+    (rootless engines have no container IP the host could route to)."""
+    return ("127.0.0.1", int(inst.get("ports", {}).get("ami", 5038)))
 
 
 def read_run_json(iid: str, name: str) -> dict | None:

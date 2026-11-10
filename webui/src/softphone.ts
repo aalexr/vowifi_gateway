@@ -21,6 +21,8 @@ export class Softphone {
   onEvent: (type: string, data?: any) => void;
   ua: JsSIP.UA | null = null;
   session: RTCSession | null = null;
+  // SIP domain the UA registered with; call targets are built in the same domain.
+  domain = "";
   remoteAudio: HTMLAudioElement | null;
   _dead = false;
   _unlocked = false;
@@ -136,6 +138,7 @@ export class Softphone {
     const wsUrl = `wss://${host}:${prov.ws_port}/ws`;
     const socket = new JsSIP.WebSocketInterface(wsUrl);
     const domain = prov.domain || host;
+    this.domain = domain;
     this.ua = new JsSIP.UA({
       sockets: [socket],
       uri: `sip:${prov.username}@${domain}`,
@@ -258,7 +261,9 @@ export class Softphone {
 
   call(number: string) {
     if (!this.ua) return;
-    const domain = URL.parse(this.ua.get("uri"))?.host;
+    // Not URL.parse(ua.get("uri")): the WHATWG parser yields an empty host for "sip:user@host"
+    // (no "//" authority), which made every outgoing call throw "Invalid domain".
+    const domain = this.domain;
     if (!domain) throw new Error("Invalid domain");
     const opts: CallOptions = {
       mediaConstraints: { audio: true, video: false },

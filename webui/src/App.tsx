@@ -229,6 +229,7 @@ export default function App() {
               path="/softphone"
               element={
                 <Softphone
+                  selected={selectedConfig}
                   instances={instances}
                   cards={cards}
                   noReaders={noReaders}

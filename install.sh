@@ -1,42 +1,48 @@
 #!/bin/sh
 # install.sh — one-click installer / lifecycle manager for the VoWiFi→SIP gateway.
 #
-# Deploys the whole system on any Linux with Podman (rootful) and a PC/SC reader, in one of two
-# DEPLOY MODES:
+# Deploys the gateway on any systemd Linux with Podman and a PC/SC reader, ROOTLESS:
+#   - the control plane (FastAPI manager + WebUI) runs natively from this checkout as a
+#     `systemd --user` service (vowifi-control) of YOUR account, from a Python venv;
+#   - one engine container per SIM runs in YOUR rootless Podman on pasta networking
+#     (forced NAT-T, per-engine IKE source ports — see control/app/engine.py);
+#   - lingering is enabled so both start at boot without a login; the user podman-restart.service
+#     brings the engines back.
+# The WebUI is compiled with a throwaway Node container, so the host needs no Node/JS toolchain.
 #
-#   local   (DEFAULT) — control plane runs NATIVELY on the host (Python venv + systemd unit);
-#                       Podman is used only as the ENGINE layer (per-SIM engine containers).
-#                       The WebUI is still compiled with a throwaway Node container, so the
-#                       host needs no Node/JS toolchain.
-#   container         — control plane AND engine both run in containers (control plane in a
-#                       privileged container with the host Podman API + pcscd sockets bind-mounted).
-#                       ('docker' is accepted as a legacy alias for this mode.)
+# Shared with the host:
+#   - host pcscd owns the reader; containers are its clients over /run/pcscd. pcsc-lite is
+#     version-LOCKED (PCSC_VERSION) between the host and the engine image so the PC/SC
+#     client/server protocol matches (distro defaults differ -> "Failed to establish context").
+#   - the engine image is built from source with all bug-fix patches baked in (engine/patches/*).
 #
-# In BOTH modes:
-#   - Podman (rootful, with its Docker-compatible API socket podman.socket) + host pcscd are
-#     installed and running; podman-restart.service brings containers back after a reboot
-#   - pcsc-lite is version-LOCKED (PCSC_VERSION) across the host + every container image so the
-#     PC/SC client/server protocol always matches (distro defaults differ -> "Failed to
-#     establish context")
-#   - the engine image is built from source with all bug-fix patches baked in (engine/patches/*)
+# Usage (as your normal user — NOT root, NOT sudo):
+#   ./install.sh install                 # full install
+#   ./install.sh reload [--no-cache] [--engines]
+#   ./install.sh build-lpac [--lpac-src PATH] [--dest DIR]   # local eSIM LPA (lpac)
+#   ./install.sh start | stop | restart | status | logs
+#   ./install.sh enable-autostart | disable-autostart
+#   ./install.sh firewall                # (re)open the gateway ports to the LAN in firewalld
+#   ./install.sh uninstall [--purge]     # --purge also deletes ./data (+ venv)
 #
-# Usage:
-#   sudo ./install.sh install [--mode local|container]   # full install (default mode: local)
-#   sudo ./install.sh reload  [--mode local|container] [--no-cache] [--engines]
-#   sudo ./install.sh build-lpac [--lpac-src PATH] [--dest DIR]   # local eSIM LPA (lpac)
-#   sudo ./install.sh enable-autostart | disable-autostart
-#   sudo ./install.sh uninstall [--purge]             # --purge also deletes ./data (+ venv)
-#   ./install.sh status | logs
+# PRIVILEGES: root is only needed for one-time host setup, and the script asks sudo for exactly
+# those steps: distro packages, the pinned pcscd / CCID driver, `modprobe tun`, lingering, the
+# polkit rule that lets this user reach pcscd, the firewalld service and the SELinux label on
+# the venv (install / uninstall / build-lpac / patch* / firewall). reload, start/stop/restart,
+# status, logs and autostart never need root.
 #
-# The chosen mode is remembered (persisted under the data dir), so reload/status/logs/uninstall
-# don't need --mode again. An explicit --mode or the VOWIFI_MODE env var always overrides.
+# Installs made by older versions (rootful Podman, system unit or the privileged "container"
+# deploy mode) are migrated by `install`: the old unit and root's vowifi containers are removed,
+# root's engine image is copied instead of rebuilt, and ./data is handed to you.
 #
 # Config via env (or a .env file next to this script):
-#   VOWIFI_MODE            deploy mode: local | container             (default local)
-#   VOWIFI_PORT            host port to publish/serve the WebUI on    (default 8443)
+#   VOWIFI_PORT            WebUI port                                 (default 8443)
 #   VOWIFI_DATA_DIR        runtime data dir                           (default <repo>/data)
 #   VOWIFI_ADVERTISE_ADDR  host LAN IP for SIP/WebRTC media           (default: auto-detect)
 #   VOWIFI_BIND            control bind addr                          (default 0.0.0.0)
+#   VOWIFI_FW_INSTANCES    SIM port blocks opened in firewalld        (default 10)
+#   VOWIFI_FW_ZONE         firewalld zone to open them in             (default: the LAN's zone)
+#   VOWIFI_FW_SOURCE       source subnet allowed through firewalld    (default: the LAN subnet)
 #   PCSC_VERSION           pinned pcsc-lite version                   (default 2.3.3)
 #   LPAC_SRC               optional path to lpac source (for build-lpac)
 #   CMAKE_FETCH_VER        Kitware cmake version if system is too old (default 3.31.12)
@@ -53,32 +59,34 @@ VOWIFI_BIND="${VOWIFI_BIND:-0.0.0.0}"
 VOWIFI_ADVERTISE_ADDR="${VOWIFI_ADVERTISE_ADDR:-}"
 
 # Fully qualified: podman stores locally built images under localhost/.
-CONTROL_IMAGE="localhost/vowifi/control"
 ENGINE_IMAGE="localhost/vowifi/engine"
-CONTROL_NAME="vowifi-control"
 ENGINE_PREFIX="vowifi-engine-"
-
-# Rootful podman's Docker-compatible API socket. The control plane drives engine containers
-# through it with the Docker SDK (DOCKER_HOST), so no daemon other than podman is needed.
-PODMAN_SOCK="/run/podman/podman.sock"
 # Base image for the throwaway WebUI build (fully qualified: podman doesn't assume docker.io).
 NODE_IMAGE="docker.io/library/node:22-alpine"
 
-# Native (local-mode) control plane bits.
 VENV_DIR="$REPO_DIR/control/.venv"
 WEBUI_DIST="$REPO_DIR/webui/dist"
-SYSTEMD_UNIT="/etc/systemd/system/vowifi-control.service"
-# Where the selected deploy mode is remembered between invocations.
-MODE_STATE="$VOWIFI_DATA_DIR/install-mode"
+# The control plane: a systemd USER unit of the installing account.
+USER_UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+USER_UNIT="$USER_UNIT_DIR/vowifi-control.service"
+# Oldest podman whose pasta networking maps host.containers.internal to the host (--map-guest-addr);
+# before 5.3 that name resolved to the container's own (host-copied) address under pasta.
+PODMAN_MIN=5.3
 
-# pcsc-lite version pinned across host + both container images so the PC/SC client/server
+# Left behind by installs from older versions (rootful); only used to migrate them away.
+LEGACY_SYSTEM_UNIT="/etc/systemd/system/vowifi-control.service"
+LEGACY_CONTROL_IMAGE="localhost/vowifi/control"
+# Instance ids whose engines were running under a rootful install, restarted after migration.
+MIGRATE_RESTART_FILE="$VOWIFI_DATA_DIR/.migrate-restart"
+
+# pcsc-lite version pinned across the host + the engine image so the PC/SC client/server
 # protocol always matches (distro defaults differ -> "Failed to establish context").
 PCSC_VERSION="${PCSC_VERSION:-2.3.3}"
 # Set by ensure_pcscd: 1 if we source-built pcsc-lite on the host (headers already in /usr),
 # 0 if the distro package already matched the pin (need the distro -dev pkg for pyscard headers).
 PCSC_SOURCE_BUILT=0
 # CCID USB driver version, built from source ON THE HOST with local fixes (patches/ccid/*).
-# NOT installed by default — run `sudo ./install.sh patch` to build + install it. Needed only
+# NOT installed by default — run `./install.sh patch` to build + install it. Needed only
 # for the HSIC CCID-Reader (1d99:0016): its firmware always answers "no ICC present" to
 # GetSlotStatus even while a card is inserted and powered, so stock libccid never powers
 # the card. NotifySlotChange only sets a pending flag; IFDHICCPresence tick probes
@@ -95,13 +103,40 @@ warn() { printf '%s!!%s %s\n'  "$Y$B" "$N" "$*"; }
 err()  { printf '%sxx%s %s\n'  "$R$B" "$N" "$*" >&2; }
 die()  { err "$@"; exit 1; }
 
-# ------------------------------------------------------------------ helpers
-need_root() {
-  if [ "$(id -u)" -ne 0 ]; then
-    die "this command needs root — re-run with: sudo $0 $CMD"
+# ------------------------------------------------------------------ privileges
+# Admin tools (semanage, restorecon, ldconfig, pcscd, firewall-cmd) live in sbin, which is not on
+# a normal user's PATH on Debian-likes — append it so `have` finds them.
+PATH="$PATH:/usr/local/sbin:/usr/sbin:/sbin"; export PATH
+
+# Everything (podman storage, the user unit, ./data) belongs to the account running this script,
+# so it must never run as root: a root run would install into root's Podman and systemd instead.
+if [ "$(id -u)" -eq 0 ]; then
+  die "run install.sh as the user that will own the gateway, not as root or via sudo — it asks for sudo itself where needed"
+fi
+ME=$(id -un)
+
+# Run one host-setup command as root (sudo can't run shell functions — real commands only).
+as_root() { sudo -- "$@"; }
+
+# Commands that change the host call this first: make sure we CAN escalate, and ask for the
+# sudo password once, up front, instead of halfway through a 20-minute build.
+SUDO_READY=0
+need_sudo() {
+  [ "$SUDO_READY" = 1 ] && return 0
+  command -v sudo >/dev/null 2>&1 || die "'$CMD' needs sudo for one-time host setup, and sudo is not installed"
+  # Try a non-interactive run first: `sudo -v` alone demands a password whenever ANY matching
+  # sudoers entry needs one (verifypw=all), even if a NOPASSWD rule would let every command through.
+  if ! sudo -n true 2>/dev/null; then
+    info "'$CMD' needs root for one-time host setup (packages, pcscd, firewall) — sudo may ask for your password"
+    sudo -v || die "could not obtain sudo privileges"
   fi
+  SUDO_READY=1
 }
 
+# Remove a tree that may still be root-owned from an install by an older (rootful) version.
+rm_tree() { rm -rf "$1" 2>/dev/null || as_root rm -rf "$1"; }
+
+# ------------------------------------------------------------------ helpers
 have() { command -v "$1" >/dev/null 2>&1; }
 
 # Best-effort primary LAN IPv4 of THIS host (the address SIP/WebRTC clients must reach).
@@ -136,21 +171,21 @@ detect_lan_ip() {
 
 # Detect the host package manager and install the given packages.
 pkg_install() {
-  if   have apt-get; then apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y "$@"
-  elif have dnf;     then dnf install -y "$@"
-  elif have yum;     then yum install -y "$@"
-  elif have pacman;  then pacman -Sy --noconfirm "$@"
-  elif have zypper;  then zypper install -y "$@"
-  elif have apk;     then apk add --no-cache "$@"
+  if   have apt-get; then as_root apt-get update -qq && as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y "$@"
+  elif have dnf;     then as_root dnf install -y "$@"
+  elif have yum;     then as_root yum install -y "$@"
+  elif have pacman;  then as_root pacman -Sy --noconfirm "$@"
+  elif have zypper;  then as_root zypper install -y "$@"
+  elif have apk;     then as_root apk add --no-cache "$@"
   else die "no supported package manager found (apt/dnf/yum/pacman/zypper/apk)"
   fi
 }
 
 svc_enable_start() {
   # Enable+start a system service across init systems (best-effort).
-  if have systemctl; then systemctl enable --now "$1" 2>/dev/null || systemctl start "$1" 2>/dev/null || true
-  elif have rc-update; then rc-update add "$1" default 2>/dev/null || true; rc-service "$1" start 2>/dev/null || true
-  elif have service; then service "$1" start 2>/dev/null || true
+  if have systemctl; then as_root systemctl enable --now "$1" 2>/dev/null || as_root systemctl start "$1" 2>/dev/null || true
+  elif have rc-update; then as_root rc-update add "$1" default 2>/dev/null || true; as_root rc-service "$1" start 2>/dev/null || true
+  elif have service; then as_root service "$1" start 2>/dev/null || true
   fi
 }
 
@@ -162,15 +197,15 @@ svc_enable_start() {
 enable_pcscd_autostart() {
   if have systemctl; then
     # Enable the socket (on-boot autostart, incl. socket-activated setups) and the service.
-    systemctl enable pcscd.socket 2>/dev/null || true
-    systemctl enable pcscd.service 2>/dev/null || systemctl enable pcscd 2>/dev/null || true
+    as_root systemctl enable pcscd.socket 2>/dev/null || true
+    as_root systemctl enable pcscd.service 2>/dev/null || as_root systemctl enable pcscd 2>/dev/null || true
     # Start now: the socket triggers the daemon on first use; also start the service directly
     # for distros where the service isn't socket-activated.
-    systemctl start pcscd.socket 2>/dev/null || true
-    systemctl start pcscd.service 2>/dev/null || systemctl start pcscd 2>/dev/null || true
+    as_root systemctl start pcscd.socket 2>/dev/null || true
+    as_root systemctl start pcscd.service 2>/dev/null || as_root systemctl start pcscd 2>/dev/null || true
     # Verify. If neither the daemon nor its socket is present, force the service up once.
     if ! systemctl is-active --quiet pcscd 2>/dev/null && [ ! -S /run/pcscd/pcscd.comm ]; then
-      systemctl restart pcscd.service 2>/dev/null || systemctl restart pcscd 2>/dev/null || true
+      as_root systemctl restart pcscd.service 2>/dev/null || as_root systemctl restart pcscd 2>/dev/null || true
     fi
   else
     svc_enable_start pcscd
@@ -178,98 +213,194 @@ enable_pcscd_autostart() {
   # Last-resort: if systemd units are absent/broken but the binary exists, launch it detached so
   # the reader is usable this session (autostart on non-systemd hosts is best-effort).
   if [ ! -S /run/pcscd/pcscd.comm ] && have pcscd && ! pgrep -x pcscd >/dev/null 2>&1; then
-    mkdir -p /run/pcscd
-    pcscd 2>/dev/null || true   # daemonizes by default; harmless if a unit already owns it
+    as_root mkdir -p /run/pcscd
+    as_root pcscd 2>/dev/null || true   # daemonizes by default; harmless if a unit already owns it
   fi
 }
 
 data_dir_abs() { CDPATH= cd -- "$VOWIFI_DATA_DIR" 2>/dev/null && pwd -P || printf '%s' "$VOWIFI_DATA_DIR"; }
 
-# ------------------------------------------------------------------ deploy-mode state
-persist_mode() {
-  mkdir -p "$VOWIFI_DATA_DIR"
-  printf '%s\n' "$1" > "$MODE_STATE" 2>/dev/null || true
-}
-
-# Detect an EXISTING installation from real artifacts (not just the state file), and which
-# plane it uses. Prints: local | container | none.
-#   local     = native systemd unit present
-#   container = control container present
-detect_installed_mode() {
-  if [ -f "$SYSTEMD_UNIT" ]; then echo local; return; fi
-  if have podman && podman container exists "$CONTROL_NAME" 2>/dev/null; then echo container; return; fi
-  echo none
-}
-
-# Resolve the deploy mode. For lifecycle commands (start/stop/status/…): prefer what's actually
-# installed, so controls act on the real plane regardless of the state file. Precedence:
-#   --mode arg > VOWIFI_MODE env > detected-from-artifacts > persisted state > default(local).
-resolve_mode() {
-  m="${MODE_ARG:-}"
-  [ -z "$m" ] && m="${VOWIFI_MODE:-}"
-  if [ -z "$m" ]; then d=$(detect_installed_mode); [ "$d" != none ] && m="$d"; fi
-  [ -z "$m" ] && [ -f "$MODE_STATE" ] && m=$(cat "$MODE_STATE" 2>/dev/null || true)
-  [ -z "$m" ] && m="local"
-  case "$m" in
-    local|container) ;;
-    docker) m=container ;;   # legacy name (pre-podman installs persisted "docker")
-    *) die "invalid deploy mode '$m' (use: local | container)";;
-  esac
-  MODE="$m"
-}
+installed() { [ -f "$USER_UNIT" ]; }
 
 # True (0) if the control plane is currently running.
-control_running() {
-  if [ "${MODE:-}" = local ]; then
-    have systemctl && systemctl is-active --quiet vowifi-control
-  else
-    [ "$(podman inspect -f '{{.State.Running}}' "$CONTROL_NAME" 2>/dev/null)" = true ]
+control_running() { have systemctl && systemctl --user is-active --quiet vowifi-control; }
+
+engine_names() { podman ps -a --format '{{.Names}}' 2>/dev/null | grep "^${ENGINE_PREFIX}" || true; }
+
+# ------------------------------------------------------------------ prerequisites
+# Distro pcscd builds (Fedora, Debian, Arch…) authorise clients via polkit: only root and
+# processes in an ACTIVE local login session may talk to the reader. The control plane
+# (systemd --user service, started at boot via lingering) and its engines (container root =
+# this user on the host) are in no session, so pcscd answers "Access denied" (0x8010006A,
+# "NOT authorized for action: access_pcsc"). Grant exactly this user the two pcsc-lite actions.
+# Not needed for our source-built pcscd (-Dpolkit=false), harmless there.
+PCSC_POLKIT_RULE=/etc/polkit-1/rules.d/50-vowifi-pcsc.rules
+ensure_pcsc_polkit_rule() {
+  [ -d /etc/polkit-1/rules.d ] || return 0
+  rule=$(cat <<EOF
+// Installed by vowifi_gateway install.sh: let the gateway user (control plane +
+// rootless engine containers, which run outside any login session) use the PC/SC reader.
+polkit.addRule(function(action, subject) {
+  if ((action.id == "org.debian.pcsc-lite.access_pcsc" ||
+       action.id == "org.debian.pcsc-lite.access_card") && subject.user == "$1") {
+    return polkit.Result.YES;
+  }
+});
+EOF
+)
+  if [ "$(cat "$PCSC_POLKIT_RULE" 2>/dev/null)" != "$rule" ]; then
+    info "allowing $1 to use the PC/SC reader outside a login session (polkit rule $PCSC_POLKIT_RULE)"
+    printf '%s\n' "$rule" | as_root tee "$PCSC_POLKIT_RULE" >/dev/null
   fi
 }
 
-# ------------------------------------------------------------------ prerequisites
+# version_ge A B: true if dotted version A >= B (major.minor compare is all we need).
+version_ge() {
+  a1=${1%%.*}; a2=${1#*.}; a2=${a2%%.*}
+  b1=${2%%.*}; b2=${2#*.}; b2=${b2%%.*}
+  [ "$a1" -gt "$b1" ] 2>/dev/null && return 0
+  [ "$a1" -eq "$b1" ] 2>/dev/null && [ "$a2" -ge "$b2" ] 2>/dev/null
+}
+
+# Rootless Podman + the one-time host bits it needs. The containers themselves never get root:
+# NET_ADMIN, the ipsec0 tun device, routes and net.* sysctls all live in each engine's own
+# network namespace, owned by this user's user namespace.
 ensure_podman() {
-  # Rootful podman: engines need NET_ADMIN + /dev/net/tun + the host pcscd socket, and the
-  # control plane runs as root, so everything lives in root's container storage.
-  if ! have podman; then
-    info "installing Podman…"
-    pkg_install podman
-  fi
-  have podman || die "Podman installation failed"
-  podman info >/dev/null 2>&1 || die "Podman is installed but not working (podman info failed)"
-  # A Docker Engine install also uses /usr/bin/docker + docker.sock; engines it still runs would
-  # hold the per-SIM ports and be invisible to podman. (podman-docker's shim is fine.)
-  if have docker && ! docker --version 2>/dev/null | grep -qi podman \
-      && docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q '^vowifi-'; then
-    warn "Docker still has vowifi containers — remove them first (old ./install.sh uninstall,"
-    warn "or: docker rm -f \$(docker ps -aq --filter name=^vowifi-)) so their ports are freed"
-  fi
-  # A running Docker Engine sets the iptables FORWARD policy to DROP and only whitelists its own
-  # bridge, so rootful podman containers (podman0) get no outbound traffic at all: the engine
-  # build fails resolving the Fedora mirrors and engines could never reach the ePDG.
-  if have systemctl && systemctl is-active --quiet docker 2>/dev/null \
-      && have iptables && iptables -S FORWARD 2>/dev/null | grep -qx -- '-P FORWARD DROP'; then
-    err "Docker Engine is running and its firewall rules (FORWARD policy DROP) block podman containers."
-    err "Stop it (it is no longer needed) and reset the policy, then re-run:"
-    printf '\n  sudo systemctl disable --now docker.socket docker.service\n  sudo iptables -P FORWARD ACCEPT\n\n' >&2
+  have podman || { info "installing Podman…"; pkg_install podman; }
+  # pasta (from the passt package) is rootless podman's network: it preserves client source
+  # addresses (SIP needs them) and forwards published ports without a root-owned bridge.
+  have pasta || { info "installing passt (pasta networking for rootless podman)…"; pkg_install passt; }
+  have pasta || die "pasta not found after installing passt"
+  pv=$(podman version --format '{{.Client.Version}}' 2>/dev/null || podman --version | awk '{print $3}')
+  version_ge "$pv" "$PODMAN_MIN" \
+    || die "needs podman >= $PODMAN_MIN (found $pv): older pasta setups can't reach host.containers.internal"
+  grep -q "^${ME}:" /etc/subuid 2>/dev/null && grep -q "^${ME}:" /etc/subgid 2>/dev/null || {
+    err "no subordinate UID/GID range for $ME (needed by rootless podman). Add one, then re-run:"
+    printf '\n  sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 %s\n  podman system migrate\n\n' "$ME" >&2
     exit 1
+  }
+  [ -c /dev/net/tun ] || as_root modprobe tun 2>/dev/null || true
+  [ -c /dev/net/tun ] || die "/dev/net/tun missing — the engine's SWu tunnel needs the tun module"
+  # Published SIP/WebUI ports must be bindable by an unprivileged user.
+  ups=$(cat /proc/sys/net/ipv4/ip_unprivileged_port_start 2>/dev/null || echo 1024)
+  [ "$ups" -le 5060 ] && [ "$ups" -le "$VOWIFI_PORT" ] \
+    || die "net.ipv4.ip_unprivileged_port_start=$ups blocks the SIP/WebUI ports for a normal user"
+  [ -n "${XDG_RUNTIME_DIR:-}" ] || die "XDG_RUNTIME_DIR is not set — run from a real login session (ssh/console), not su/sudo"
+  podman info >/dev/null 2>&1 || die "rootless podman is not working (podman info failed)"
+  # Docker-compatible API socket the control plane drives engines through (socket-activated),
+  # and the unit that restarts restart=always containers when the user manager starts.
+  systemctl --user enable --now podman.socket >/dev/null 2>&1 || warn "could not enable the user podman.socket"
+  systemctl --user enable podman-restart.service >/dev/null 2>&1 || warn "could not enable the user podman-restart.service (engines won't autostart on boot)"
+  ensure_linger
+  [ -S "$XDG_RUNTIME_DIR/podman/podman.sock" ] || die "user Podman API socket missing ($XDG_RUNTIME_DIR/podman/podman.sock)"
+  info "rootless Podman ready ($pv, pasta)"
+}
+
+# Without lingering the user's systemd (so the control plane + engines) only runs while logged in.
+linger_on() { [ "$(loginctl show-user "$ME" -p Linger --value 2>/dev/null)" = yes ]; }
+ensure_linger() {
+  linger_on && return 0
+  info "enabling lingering for $ME so the gateway starts at boot without a login…"
+  as_root loginctl enable-linger "$ME" || warn "could not enable lingering — the gateway stops when you log out"
+}
+
+# Migrate an install made by an older, ROOTFUL version of this script: its system unit and root's
+# vowifi containers (engines, or the privileged control container of the old "container" mode)
+# would hold the WebUI/SIP ports, and its ./data, venv and webui/dist are root-owned.
+migrate_legacy_rootful() {
+  legacy=0
+  [ -f "$LEGACY_SYSTEM_UNIT" ] && legacy=1
+  root_ctrs=$(as_root podman ps -a --format '{{.Names}}' 2>/dev/null | grep '^vowifi-' || true)
+  [ -n "$root_ctrs" ] && legacy=1
+  if [ "$legacy" = 1 ]; then
+    warn "removing the previous rootful install (system unit + root's vowifi containers); data is kept"
+    # Engines owe their uptime to restart=always, and the manager never starts lines on its own,
+    # so remember which ones were RUNNING (stopped/frozen lines stay stopped) and start them again
+    # through the manager once it is up (restore_migrated_engines). Kept in a file so a failed
+    # install that is re-run still restores them.
+    running=$(as_root podman ps --filter status=running --format '{{.Names}}' 2>/dev/null \
+      | sed -n "s/^${ENGINE_PREFIX}//p" || true)
+    [ -n "$running" ] && MIGRATE_RESTART_IDS="$running"
+    if [ -f "$LEGACY_SYSTEM_UNIT" ]; then
+      as_root systemctl disable --now vowifi-control >/dev/null 2>&1 || true
+      as_root rm -f "$LEGACY_SYSTEM_UNIT"
+      as_root systemctl daemon-reload 2>/dev/null || true
+    fi
+    for n in $root_ctrs; do as_root podman rm -f "$n" >/dev/null 2>&1 || true; done
+    as_root podman rmi -f "$LEGACY_CONTROL_IMAGE" >/dev/null 2>&1 || true
   fi
-  if have systemctl; then
-    # Docker-compatible API socket the control plane talks to (socket-activated).
-    systemctl enable --now podman.socket >/dev/null 2>&1 || warn "could not enable podman.socket"
-    # Podman has no daemon: this unit restarts containers with a restart policy on boot.
-    systemctl enable podman-restart.service >/dev/null 2>&1 || warn "could not enable podman-restart.service (containers won't autostart on boot)"
+  # Root's engine image is stale for rootless use (see ensure_engine_image); just free the space.
+  if as_root podman image exists "$ENGINE_IMAGE" >/dev/null 2>&1; then
+    info "removing root's old engine image — the rootless one is rebuilt from the current sources"
+    as_root podman rmi -f "$ENGINE_IMAGE" >/dev/null 2>&1 || true
   fi
-  [ -S "$PODMAN_SOCK" ] || die "Podman API socket $PODMAN_SOCK missing (is podman.socket available?)"
-  info "Podman ready ($(podman --version | awk '{print $3}'))"
+  for d in "$VOWIFI_DATA_DIR" "$VENV_DIR"; do
+    if [ -d "$d" ] && [ -n "$(find "$d" ! -user "$ME" -print -quit 2>/dev/null)" ]; then
+      info "handing $d to $ME"
+      as_root chown -R "$(id -u):$(id -g)" "$d"
+    fi
+  done
+  [ -d "$WEBUI_DIST" ] && [ "$(stat -c %u "$WEBUI_DIST")" != "$(id -u)" ] && rm_tree "$WEBUI_DIST"
+  # State files of the removed deploy-mode switch.
+  rm -f "$VOWIFI_DATA_DIR/install-mode" "$VOWIFI_DATA_DIR/install-rootless" 2>/dev/null || true
+  if [ -n "${MIGRATE_RESTART_IDS:-}" ]; then
+    mkdir -p "$VOWIFI_DATA_DIR"
+    printf '%s\n' $MIGRATE_RESTART_IDS >> "$MIGRATE_RESTART_FILE"
+  fi
+}
+
+# Start the lines that were running under the old rootful install, through the manager's normal
+# Start path (/api/instances/<id>/start: PIN preflight, card-identity check, reader rebind) — never
+# by recreating containers behind its back. A line the preflight refuses (PIN needed, card gone)
+# is reported and left for the user to start from the WebUI.
+restore_migrated_engines() {
+  [ -s "$MIGRATE_RESTART_FILE" ] || return 0
+  case "$VOWIFI_BIND" in 0.0.0.0|::|'') host=127.0.0.1 ;; *:*) host="[$VOWIFI_BIND]" ;; *) host=$VOWIFI_BIND ;; esac
+  info "restarting the lines that were running before the migration…"
+  # The venv's python (no curl dependency); the manager's cert is self-signed.
+  if "$VENV_DIR/bin/python" - "https://$host:$VOWIFI_PORT" "$MIGRATE_RESTART_FILE" <<'PY'
+import json, ssl, sys, time, urllib.error, urllib.request
+base, path = sys.argv[1], sys.argv[2]
+ctx = ssl._create_unverified_context()
+ids = list(dict.fromkeys(l.strip() for l in open(path) if l.strip()))
+deadline = time.monotonic() + 90
+while True:
+    try:
+        resp = json.load(urllib.request.urlopen(f"{base}/api/instances", context=ctx, timeout=5))
+        break
+    except Exception as e:
+        if time.monotonic() > deadline:
+            print(f"!! manager not reachable at {base} ({e}) — start these lines from the WebUI: {' '.join(ids)}")
+            sys.exit(1)
+        time.sleep(2)
+known = {str(i.get("id")) for i in resp.get("instances", [])}
+for iid in ids:
+    if iid not in known:
+        print(f"   {iid}: no longer configured — skipped")
+        continue
+    req = urllib.request.Request(f"{base}/api/instances/{iid}/start", data=b"{}", method="POST",
+                                 headers={"Content-Type": "application/json"})
+    try:
+        urllib.request.urlopen(req, context=ctx, timeout=120)
+        print(f"   {iid}: started")
+    except urllib.error.HTTPError as e:
+        print(f"!! {iid}: not started ({e.code} {e.read().decode(errors='replace')[:200]}) — start it from the WebUI")
+    except Exception as e:
+        print(f"!! {iid}: not started ({e}) — start it from the WebUI")
+PY
+  then
+    # Every line was attempted (or reported) once — don't repeat it on later installs.
+    rm -f "$MIGRATE_RESTART_FILE"
+  else
+    warn "manager not reachable — kept $MIGRATE_RESTART_FILE; the next './install.sh install' retries"
+  fi
 }
 
 ensure_pcscd() {
   # We PIN pcsc-lite to $PCSC_VERSION everywhere (host pcscd + container client libs) so the
   # PC/SC client/server protocol always matches — distro-default versions differ and cause
-  # "Failed to establish context" between a client and the host daemon.  In BOTH deploy modes
-  # the reader is owned by the HOST pcscd; engine containers (and, in container mode, the control
-  # container) are pcscd clients over the shared /run/pcscd socket.
+  # "Failed to establish context" between a client and the host daemon. The reader is owned by
+  # the HOST pcscd; the control plane and the engine containers are its clients over /run/pcscd.
   installed_ver=""
   if have pcscd; then installed_ver=$(pcscd --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1); fi
 
@@ -331,7 +462,7 @@ ensure_pcscd() {
 # The build installs into the pcsc-lite usbdropdir, replacing the distro libccid bundle files.
 # Idempotent via a per-set marker file (switching sets rebuilds); on apt systems the distro
 # libccid package is held so an upgrade can't clobber the patched driver.
-# OPT-IN: not part of `install` — run `sudo ./install.sh patch | patch2 | patchall`.
+# OPT-IN: not part of `install` — run `./install.sh patch | patch2 | patchall`.
 ensure_ccid_host() {
   set_label="$1"; shift
   ccid_patches="$*"
@@ -365,16 +496,16 @@ ensure_ccid_host() {
     && tar xf ccid.tar.gz && cd "CCID-${CCID_VERSION}" \
     && for p in $ccid_patches; do echo "applying $p"; patch -p1 < "$REPO_DIR/patches/ccid/$p" || exit 1; done \
     && meson setup builddir \
-    && ninja -C builddir && ninja -C builddir install \
+    && ninja -C builddir && as_root ninja -C builddir install \
   ) || die "failed to build CCID driver $CCID_VERSION from source"
-  rm -rf "$tmp"
+  rm_tree "$tmp"   # `ninja install` ran as root and left root-owned files in builddir
   # drop any other-set markers so `status`/idempotency reflect the set just installed
-  rm -f "$drivers_dir/ifd-ccid.bundle/Contents/.vowifi-ccid-${CCID_VERSION}-"* 2>/dev/null || true
-  touch "$ccid_marker" 2>/dev/null || true
+  as_root sh -c 'rm -f "$1"/.vowifi-ccid-"$2"-*' _ "$drivers_dir/ifd-ccid.bundle/Contents" "$CCID_VERSION" 2>/dev/null || true
+  as_root touch "$ccid_marker" 2>/dev/null || true
   # keep a distro libccid upgrade from clobbering the patched bundle files
-  if have apt-mark; then apt-mark hold libccid >/dev/null 2>&1 || true; fi
+  if have apt-mark; then as_root apt-mark hold libccid >/dev/null 2>&1 || true; fi
   # reload the driver if pcscd is already running
-  if have systemctl; then systemctl restart pcscd 2>/dev/null || true; fi
+  if have systemctl; then as_root systemctl restart pcscd 2>/dev/null || true; fi
   info "patched CCID driver $CCID_VERSION (set: $set_label) installed to $drivers_dir"
 }
 
@@ -387,10 +518,10 @@ _build_pcsclite_host() {
          || wget -qO pcsc.tar.gz "https://github.com/LudovicRousseau/PCSC/archive/refs/tags/${PCSC_VERSION}.tar.gz"; } \
     && tar xf pcsc.tar.gz && cd "PCSC-${PCSC_VERSION}" \
     && meson setup builddir --prefix=/usr -Dpolkit=false -Dsystemdunit=system \
-    && ninja -C builddir && ninja -C builddir install \
+    && ninja -C builddir && as_root ninja -C builddir install \
   ) || die "failed to build pcsc-lite $PCSC_VERSION from source"
-  ldconfig 2>/dev/null || true
-  rm -rf "$tmp"
+  as_root ldconfig 2>/dev/null || true
+  rm_tree "$tmp"   # `ninja install` ran as root and left root-owned files in builddir
   # meson installs pcscd.service + pcscd.socket under /usr/lib/systemd/system (-Dsystemdunit=system).
   # Drop per-user units left by earlier builds (meson's default): a user-session pcscd can't
   # create /run/pcscd and only logs "Permission denied". Keep any a distro package owns.
@@ -399,9 +530,9 @@ _build_pcsclite_host() {
     if { have dpkg && dpkg -S "$u" >/dev/null 2>&1; } || { have rpm && rpm -qf "$u" >/dev/null 2>&1; }; then
       continue
     fi
-    rm -f "$u"
+    as_root rm -f "$u"
   done
-  if have systemctl; then systemctl daemon-reload 2>/dev/null || true; fi
+  if have systemctl; then as_root systemctl daemon-reload 2>/dev/null || true; fi
   info "host pcscd built + installed at $PCSC_VERSION"
 }
 
@@ -416,42 +547,41 @@ ensure_engine_image() {
     info "engine image $ENGINE_IMAGE present — reusing (patches from engine/patches/* are baked in). Use 'reload --engines' or '--no-cache' to force a rebuild."
     return
   fi
+  # No shortcut for upgrades from a rootful install: root's old engine image predates the
+  # rootless SWu changes (unprivileged IKE/NAT-T source ports, forced NAT-T — without them no
+  # tunnel comes up behind pasta) and may carry another pcsc-lite than $PCSC_VERSION, so it is
+  # never reused; migrate_legacy_rootful deletes it and this builds from the current sources.
   info "building engine image ($ENGINE_IMAGE) from source — long; compiles Asterisk+pcsc-lite+Python SWu tunnel deps and bakes engine/patches/*…"
   # shellcheck disable=SC2086
   podman build $NOCACHE_FLAG --build-arg "PCSC_VERSION=$PCSC_VERSION" -t "$ENGINE_IMAGE" "$REPO_DIR/engine"
   info "engine image built"
 }
 
-build_control_image() {
-  info "building control image ($CONTROL_IMAGE) from source (WebUI + FastAPI)…"
-  # shellcheck disable=SC2086
-  podman build $NOCACHE_FLAG --build-arg "PCSC_VERSION=$PCSC_VERSION" -t "$CONTROL_IMAGE" -f "$REPO_DIR/control/Containerfile" "$REPO_DIR"
-  info "control image built"
-}
-
-# Compile the React WebUI to webui/dist using a throwaway Node container — so LOCAL mode needs
-# no Node/JS toolchain on the host. Builds in an isolated dir inside the container (ignores any
-# host node_modules that might be built for another arch), then copies dist back to the host.
-build_webui_local() {
+# Compile the React WebUI to webui/dist using a throwaway Node container — so the host needs no
+# Node/JS toolchain. Builds in an isolated dir inside the container (ignores any host
+# node_modules that might be built for another arch), then copies dist back to the host.
+build_webui() {
   info "building WebUI (webui/dist) via a throwaway node:22-alpine container (no host Node needed)…"
   # label=disable: the repo checkout isn't labelled for container access on SELinux hosts.
-  podman run --rm --security-opt label=disable -v "$REPO_DIR/webui":/host-webui "$NODE_IMAGE" sh -euc '
-    cp -a /host-webui /build && cd /build && rm -rf node_modules dist
+  # --userns=keep-id: the container user is you, so dist/ comes out owned by you.
+  podman run --rm --security-opt label=disable --userns=keep-id -e HOME=/tmp \
+      -v "$REPO_DIR/webui":/host-webui "$NODE_IMAGE" sh -euc '
+    cp -a /host-webui /tmp/build && cd /tmp/build && rm -rf node_modules dist
     npm ci
     npm run build
-    rm -rf /host-webui/dist && cp -a /build/dist /host-webui/dist
+    rm -rf /host-webui/dist && cp -a /tmp/build/dist /host-webui/dist
   '
   [ -f "$WEBUI_DIST/index.html" ] || die "WebUI build produced no dist/index.html"
   info "WebUI built at $WEBUI_DIST"
 }
 
-# ------------------------------------------------------------------ native (local) control plane
-# Install host packages the native control plane needs: python venv + the toolchain to build
+# ------------------------------------------------------------------ control plane (user service)
+# Install host packages the control plane needs: python venv + the toolchain to build
 # pyscard (SWIG binding) against the pinned pcsc-lite, plus headers for cryptography if wheels
 # are unavailable. pcsc-lite headers come from our source build (if we did one) or the distro
 # -dev package (version already matches the pin, since ensure_pcscd aligned it).
-ensure_control_local_deps() {
-  info "installing native control-plane dependencies (python venv + pyscard build toolchain)…"
+ensure_control_deps() {
+  info "installing control-plane dependencies (python venv + pyscard build toolchain)…"
   if   have apt-get; then
     pkg_install python3 python3-venv python3-pip python3-dev swig gcc pkg-config libffi-dev libssl-dev
     if [ "$PCSC_SOURCE_BUILT" = 0 ] && [ ! -f /usr/include/PCSC/pcsclite.h ]; then pkg_install libpcsclite-dev; fi
@@ -474,14 +604,15 @@ setup_venv() {
   info "creating Python venv + installing control requirements ($VENV_DIR)…"
   [ -d "$VENV_DIR" ] || python3 -m venv "$VENV_DIR"
   "$VENV_DIR/bin/pip" install --quiet --upgrade pip wheel
-  "$VENV_DIR/bin/pip" install --quiet -r "$REPO_DIR/control/requirements.txt"
+  "$VENV_DIR/bin/pip" install --quiet -r "$REPO_DIR/control/requirements.txt" \
+    || die "pip install failed — if a system package (e.g. a -devel header) is missing, run: $0 install"
   info "venv ready"
 }
 
 # SELinux (Fedora/RHEL, enforcing): the venv lives in the repo, typically under /home, so its
-# files are labelled user_home_t — and systemd (init_t) may not execute those (status=203/EXEC,
+# files are labelled user_home_t — and the service manager may not execute those (status=203/EXEC,
 # AVC "denied { read } ... lnk_file" on .venv/bin/python). A persistent fcontext rule labels the
-# venv's bin/ as bin_t (survives relabels); the service then runs as unconfined_service_t.
+# venv's bin/ as bin_t (survives relabels; files pip adds later inherit it from the directory).
 SELINUX_VENV_FCONTEXT="$VENV_DIR/bin(/.*)?"
 selinux_label_venv() {
   have selinuxenabled && selinuxenabled 2>/dev/null || return 0
@@ -489,174 +620,123 @@ selinux_label_venv() {
     if have dnf || have yum; then pkg_install policycoreutils-python-utils; fi
   fi
   have semanage || { warn "SELinux is enabled but semanage is missing — vowifi-control may fail with 203/EXEC"; return 0; }
-  semanage fcontext -a -t bin_t "$SELINUX_VENV_FCONTEXT" 2>/dev/null \
-    || semanage fcontext -m -t bin_t "$SELINUX_VENV_FCONTEXT" 2>/dev/null \
+  as_root semanage fcontext -a -t bin_t "$SELINUX_VENV_FCONTEXT" 2>/dev/null \
+    || as_root semanage fcontext -m -t bin_t "$SELINUX_VENV_FCONTEXT" 2>/dev/null \
     || warn "could not add SELinux file context for $VENV_DIR/bin"
-  restorecon -R "$VENV_DIR/bin" 2>/dev/null || true
+  as_root restorecon -R "$VENV_DIR/bin" 2>/dev/null || true
   info "SELinux: labelled $VENV_DIR/bin as bin_t"
 }
 
 selinux_unlabel_venv() {
   have selinuxenabled && selinuxenabled 2>/dev/null && have semanage || return 0
-  semanage fcontext -d "$SELINUX_VENV_FCONTEXT" 2>/dev/null || true
-  [ -d "$VENV_DIR/bin" ] && restorecon -R "$VENV_DIR/bin" 2>/dev/null || true
+  as_root semanage fcontext -d "$SELINUX_VENV_FCONTEXT" 2>/dev/null || true
+  [ -d "$VENV_DIR/bin" ] && as_root restorecon -R "$VENV_DIR/bin" 2>/dev/null || true
 }
 
-# Write + (re)start the native control-plane systemd unit. Runs as root (needs the reader via
-# host pcscd + the Podman API socket to manage engine containers). Because the control plane runs
-# ON the host, VOWIFI_HOST_DATA == VOWIFI_DATA (the real host path the manager hands to engine
-# bind-mounts). Engines reach it back over host.containers.internal:<port> (podman adds that
-# name to every container's /etc/hosts), same as in container mode.
-run_control_local() {
-  have systemctl || die "local mode needs systemd (systemctl not found). Re-run with --mode container."
-  mkdir -p "$VOWIFI_DATA_DIR"
+# Write + (re)start the control-plane user unit. It runs ON the host from this checkout, so the
+# data paths it hands to engine bind-mounts are real host paths. Engines reach it back over
+# host.containers.internal:<port> (podman adds that name to every container's /etc/hosts).
+# %t = $XDG_RUNTIME_DIR, where the user's podman.socket lives. A user unit can't order itself
+# after system units (pcscd); pcscd is socket-activated, so that's fine.
+run_control() {
+  have systemctl || die "needs systemd (systemctl not found)"
+  mkdir -p "$VOWIFI_DATA_DIR" "$USER_UNIT_DIR"
   DATA_ABS=$(data_dir_abs)
   LAN_IP="$VOWIFI_ADVERTISE_ADDR"
   [ -z "$LAN_IP" ] && LAN_IP=$(detect_lan_ip)
   [ -z "$LAN_IP" ] && warn "could not auto-detect a LAN IP; set VOWIFI_ADVERTISE_ADDR — SIP/WebRTC audio needs a routable host address"
-
-  selinux_label_venv
-  info "installing systemd unit $SYSTEMD_UNIT (native control plane)"
-  cat > "$SYSTEMD_UNIT" <<EOF
+  info "installing systemd user unit $USER_UNIT"
+  cat > "$USER_UNIT" <<EOF
 [Unit]
-Description=VoWiFi Gateway control surface (native / manager + WebUI)
-After=network-online.target pcscd.service podman.socket
+Description=VoWiFi Gateway control surface (manager + WebUI)
+After=network-online.target podman.socket
 Wants=network-online.target podman.socket
 
 [Service]
 Type=simple
 WorkingDirectory=$REPO_DIR/control
 Environment=VOWIFI_DATA=$DATA_ABS
-Environment=VOWIFI_HOST_DATA=$DATA_ABS
 Environment=VOWIFI_WEBUI=$WEBUI_DIST
 Environment=VOWIFI_HTTP_PORT=$VOWIFI_PORT
 Environment=VOWIFI_BIND=$VOWIFI_BIND
 Environment=VOWIFI_ADVERTISE_ADDR=$LAN_IP
 Environment=VOWIFI_ENGINE_IMAGE=$ENGINE_IMAGE
 Environment=VOWIFI_MANAGER_URL=https://host.containers.internal:$VOWIFI_PORT
-Environment=DOCKER_HOST=unix://$PODMAN_SOCK
+Environment=DOCKER_HOST=unix://%t/podman/podman.sock
 Environment=VOWIFI_PCSCD_DIR=/run/pcscd
 Environment=PYTHONUNBUFFERED=1
 ExecStart=$VENV_DIR/bin/python run.py
 Restart=on-failure
 RestartSec=3
-User=root
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target
 EOF
-  systemctl daemon-reload
-  systemctl enable vowifi-control >/dev/null 2>&1 || true
-  systemctl restart vowifi-control
-  info "started native control plane on https://${LAN_IP:-<host>}:${VOWIFI_PORT}"
+  systemctl --user daemon-reload
+  systemctl --user enable vowifi-control >/dev/null 2>&1 || true
+  systemctl --user restart vowifi-control
+  info "started control plane on https://${LAN_IP:-<host>}:${VOWIFI_PORT}"
 }
 
-remove_control_local() {
-  if have systemctl; then
-    systemctl disable --now vowifi-control >/dev/null 2>&1 || true
-  fi
-  if [ -f "$SYSTEMD_UNIT" ]; then
-    rm -f "$SYSTEMD_UNIT"
-    have systemctl && systemctl daemon-reload 2>/dev/null || true
-  fi
+remove_control() {
+  have systemctl || return 0
+  systemctl --user disable --now vowifi-control >/dev/null 2>&1 || true
+  rm -rf "$USER_UNIT" "$USER_UNIT.d"
+  systemctl --user daemon-reload 2>/dev/null || true
 }
-
-# ------------------------------------------------------------------ containerized control plane
-run_control() {
-  mkdir -p "$VOWIFI_DATA_DIR"
-  DATA_ABS=$(data_dir_abs)
-  LAN_IP="$VOWIFI_ADVERTISE_ADDR"
-  [ -z "$LAN_IP" ] && LAN_IP=$(detect_lan_ip)
-  [ -z "$LAN_IP" ] && warn "could not auto-detect a LAN IP; set VOWIFI_ADVERTISE_ADDR — SIP/WebRTC audio needs a routable host address"
-
-  podman rm -f "$CONTROL_NAME" >/dev/null 2>&1 || true
-  info "starting control plane container ($CONTROL_NAME) on https://${LAN_IP:-<host>}:${VOWIFI_PORT}"
-  # restart=always (not unless-stopped): podman-restart.service only revives "always" containers
-  # on boot across podman versions.
-  podman run -d --name "$CONTROL_NAME" \
-    --privileged \
-    --restart always \
-    -p "${VOWIFI_PORT}:8443" \
-    -v "${PODMAN_SOCK}:${PODMAN_SOCK}" \
-    -e DOCKER_HOST="unix://${PODMAN_SOCK}" \
-    -v /run/pcscd:/run/pcscd \
-    -v "${DATA_ABS}:/data" \
-    -e VOWIFI_DATA=/data \
-    -e VOWIFI_HOST_DATA="${DATA_ABS}" \
-    -e VOWIFI_HTTP_PORT=8443 \
-    -e VOWIFI_BIND="${VOWIFI_BIND}" \
-    -e VOWIFI_ADVERTISE_ADDR="${LAN_IP}" \
-    -e VOWIFI_MANAGER_URL="https://host.containers.internal:${VOWIFI_PORT}" \
-    -e VOWIFI_ENGINE_IMAGE="${ENGINE_IMAGE}" \
-    -e VOWIFI_PCSCD_DIR=/run/pcscd \
-    "$CONTROL_IMAGE"
-}
-
-engine_names() { podman ps -a --format '{{.Names}}' 2>/dev/null | grep "^${ENGINE_PREFIX}" || true; }
 
 # ------------------------------------------------------------------ subcommands
 cmd_install() {
-  need_root
-  resolve_mode
-  info "VoWiFi gateway install — repo: $REPO_DIR  (mode: ${B}$MODE${N})"
+  need_sudo
+  info "VoWiFi gateway install — repo: $REPO_DIR (rootless, user $ME)"
   # The engine image compiles pcsc-lite + the Python SWu tunnel deps (and Asterisk, unless the fork's
-  # CI published a prebuilt tarball for ASTERISK_REF) from source. On low-power ARM boards (Raspberry Pi, Armbian SBCs) this first build can take 20-30 minutes —
-  # only once, since later installs reuse the built image. Warn up front so a long, quiet build
-  # isn't mistaken for a hang.
+  # CI published a prebuilt tarball for ASTERISK_REF) from source. On low-power ARM boards
+  # (Raspberry Pi, Armbian SBCs) this first build can take 20-30 minutes — only once, since later
+  # installs reuse the built image. Warn up front so a long, quiet build isn't mistaken for a hang.
   if ! podman image exists "$ENGINE_IMAGE" 2>/dev/null; then
     warn "the engine image builds from source (pcsc-lite + SWu tunnel deps; Asterisk too if no prebuilt"
     warn "tarball exists for ASTERISK_REF). On low-power ARM machines a full build can take 20-30 minutes —"
     warn "this is normal, please be patient. It runs only once; later installs/reloads reuse the image."
   fi
   ensure_podman
+  migrate_legacy_rootful
   ensure_pcscd
+  ensure_pcsc_polkit_rule "$ME"
+  ensure_firewall
   ensure_engine_image
-  persist_mode "$MODE"
-  if [ "$MODE" = container ]; then
-    build_control_image
-    run_control
-  else
-    build_webui_local
-    ensure_control_local_deps
-    setup_venv
-    run_control_local
-  fi
+  build_webui
+  ensure_control_deps
+  setup_venv
+  selinux_label_venv
+  run_control
+  restore_migrated_engines
   DATA_ABS=$(data_dir_abs)
   LAN_IP="${VOWIFI_ADVERTISE_ADDR:-$(detect_lan_ip)}"
   printf '\n'
-  info "install complete (mode: $MODE)"
+  info "install complete"
   printf '   %sWebUI:%s   https://%s:%s\n' "$B" "$N" "${LAN_IP:-<host-ip>}" "$VOWIFI_PORT"
   printf '   %sData:%s    %s\n' "$B" "$N" "$DATA_ABS"
-  if [ "$MODE" = local ]; then
-    printf '   %sControl:%s native systemd service (vowifi-control); engines run in Podman\n' "$B" "$N"
-  else
-    printf '   %sControl:%s Podman container (%s); engines run in Podman\n' "$B" "$N" "$CONTROL_NAME"
-  fi
+  printf '   %sControl:%s systemd --user service vowifi-control; engines in your rootless Podman\n' "$B" "$N"
   printf '   %sManage:%s  %s status | logs | reload | disable-autostart | uninstall\n' "$B" "$N" "$0"
   printf '   Accept the self-signed cert in your browser, then provision your SIM in the dashboard.\n'
 }
 
+# Rebuild + restart from the checkout. No root: system packages, pcscd, polkit, firewall and the
+# SELinux file context were set up by install (new venv/bin files inherit their bin_t label).
 cmd_reload() {
-  need_root
-  resolve_mode
+  installed || die "not installed yet — run: $0 install"
   RECREATE_ENGINES=0
   for a in $ARGS; do [ "$a" = "--engines" ] && RECREATE_ENGINES=1; done
-  info "reload (mode: $MODE)"
+  info "reload"
   # Engine image: only rebuilt on --engines or --no-cache (otherwise reuse the patched image).
   if [ "$RECREATE_ENGINES" = 1 ] || [ -n "$NOCACHE_FLAG" ]; then
     ensure_engine_image force
   else
     ensure_engine_image
   fi
-  if [ "$MODE" = container ]; then
-    build_control_image
-    run_control
-  else
-    build_webui_local
-    ensure_control_local_deps
-    setup_venv
-    run_control_local
-  fi
+  build_webui
+  setup_venv
+  run_control
   if [ "$RECREATE_ENGINES" = 1 ]; then
     warn "engines will be re-created by the control plane on next start/provision (image updated)"
     for n in $(engine_names); do podman rm -f "$n" >/dev/null 2>&1 || true; done
@@ -665,103 +745,173 @@ cmd_reload() {
 }
 
 cmd_start() {
-  need_root
-  resolve_mode
-  if [ "$MODE" = local ]; then
-    have systemctl || die "local mode needs systemd"
-    systemctl start vowifi-control && info "control plane started (systemd)" || warn "could not start vowifi-control"
-  else
-    podman start "$CONTROL_NAME" >/dev/null 2>&1 && info "control plane started (container)" || warn "control container not found"
-  fi
+  systemctl --user start vowifi-control && info "control plane started" || warn "could not start vowifi-control"
 }
 
 cmd_stop() {
-  need_root
-  resolve_mode
-  if [ "$MODE" = local ]; then
-    have systemctl || die "local mode needs systemd"
-    systemctl stop vowifi-control && info "control plane stopped (systemd)" || warn "could not stop vowifi-control"
-  else
-    podman stop "$CONTROL_NAME" >/dev/null 2>&1 && info "control plane stopped (container)" || warn "control container not found"
-  fi
+  systemctl --user stop vowifi-control && info "control plane stopped" || warn "could not stop vowifi-control"
   info "note: engine containers keep running; the control plane just stops managing them until restarted"
 }
 
 cmd_restart() {
-  need_root
-  resolve_mode
-  if [ "$MODE" = local ]; then
-    have systemctl || die "local mode needs systemd"
-    systemctl restart vowifi-control && info "control plane restarted (systemd)" || warn "could not restart vowifi-control"
-  else
-    podman restart "$CONTROL_NAME" >/dev/null 2>&1 && info "control plane restarted (container)" || warn "control container not found"
-  fi
+  systemctl --user restart vowifi-control && info "control plane restarted" || warn "could not restart vowifi-control"
 }
 
 cmd_enable_autostart() {
-  need_root
-  resolve_mode
-  if [ "$MODE" = local ]; then
-    have systemctl && systemctl enable vowifi-control >/dev/null 2>&1 && info "control autostart ON (systemd)" || warn "systemd unit not found"
-  else
-    podman update --restart always "$CONTROL_NAME" >/dev/null 2>&1 && info "control autostart ON" || warn "control container not found (or podman too old for 'update --restart')"
-  fi
+  systemctl --user enable vowifi-control >/dev/null 2>&1 && info "control autostart ON" || warn "systemd user unit not found"
   for n in $(engine_names); do podman update --restart always "$n" >/dev/null 2>&1 || true; done
-  have systemctl && systemctl enable podman-restart.service >/dev/null 2>&1 || true
+  systemctl --user enable podman-restart.service >/dev/null 2>&1 || true
+  linger_on || warn "lingering is off: user services only start once you log in. Fix: sudo loginctl enable-linger $ME"
 }
 
 cmd_disable_autostart() {
-  need_root
-  resolve_mode
-  if [ "$MODE" = local ]; then
-    have systemctl && systemctl disable vowifi-control >/dev/null 2>&1 && info "control autostart OFF (systemd)" || warn "systemd unit not found"
-  else
-    podman update --restart no "$CONTROL_NAME" >/dev/null 2>&1 && info "control autostart OFF" || warn "control container not found (or podman too old for 'update --restart')"
-  fi
+  systemctl --user disable vowifi-control >/dev/null 2>&1 && info "control autostart OFF" || warn "systemd user unit not found"
   for n in $(engine_names); do podman update --restart no "$n" >/dev/null 2>&1 || true; done
   info "note: already-running components keep running until stopped or the host reboots"
 }
 
 cmd_uninstall() {
-  need_root
-  resolve_mode
+  need_sudo
   PURGE=0
   for a in $ARGS; do [ "$a" = "--purge" ] && PURGE=1; done
-  info "uninstalling (mode: $MODE)…"
-  # Tear down BOTH possible control planes so switching modes leaves nothing behind.
-  info "removing native control plane (if any)…"
-  remove_control_local
+  info "uninstalling…"
+  remove_control
   selinux_unlabel_venv
+  [ -f "$PCSC_POLKIT_RULE" ] && as_root rm -f "$PCSC_POLKIT_RULE"
+  remove_firewall
   info "removing vowifi containers…"
-  podman rm -f "$CONTROL_NAME" >/dev/null 2>&1 || true
   for n in $(engine_names); do podman rm -f "$n" >/dev/null 2>&1 || true; done
   if [ "$PURGE" = 1 ]; then
-    # Full teardown: also drop images (incl. the slow, patched engine image) and data+venv.
-    info "removing vowifi images…"
-    podman rmi -f "$CONTROL_IMAGE" "$ENGINE_IMAGE" >/dev/null 2>&1 || true
+    # Full teardown: also drop the (slow, patched) engine image and data+venv.
+    info "removing the engine image…"
+    podman rmi -f "$ENGINE_IMAGE" >/dev/null 2>&1 || true
     warn "purging data dir: $(data_dir_abs) and venv $VENV_DIR"
-    rm -rf "$VOWIFI_DATA_DIR" "$VENV_DIR"
+    # Files an engine wrote as a non-root container user belong to a subordinate UID;
+    # `podman unshare` deletes them inside the user namespace without root.
+    rm -rf "$VOWIFI_DATA_DIR" "$VENV_DIR" 2>/dev/null || podman unshare rm -rf "$VOWIFI_DATA_DIR" "$VENV_DIR"
   else
-    # Keep the ~15-20 min patched engine image (and the control image) so a reinstall reuses
-    # them; only the running components are torn down. Data + venv are preserved too.
-    podman rmi -f "$CONTROL_IMAGE" >/dev/null 2>&1 || true
-    info "data kept at $(data_dir_abs); engine image + venv preserved (use --purge to delete all). Podman & pcscd left installed."
+    # Keep the ~15-20 min patched engine image so a reinstall reuses it. Data + venv are kept too.
+    info "data kept at $(data_dir_abs); engine image + venv preserved (use --purge to delete all). Podman, pcscd and lingering left as they are."
   fi
   info "uninstall complete"
 }
 
-cmd_status() {
-  resolve_mode
-  printf '%sMode:%s    %s\n' "$B" "$N" "$MODE"
-  printf '%sControl:%s\n' "$B" "$N"
-  if [ "$MODE" = local ]; then
-    if have systemctl; then
-      systemctl is-active vowifi-control >/dev/null 2>&1 \
-        && printf '  vowifi-control  %s\n' "$(systemctl show -p ActiveState -p SubState --value vowifi-control 2>/dev/null | tr '\n' ' ')" \
-        || printf '  vowifi-control  (not running)\n'
+# ------------------------------------------------------------------ host firewall (firewalld)
+# The WebUI on $VOWIFI_PORT and every port an engine publishes through pasta are plain host
+# sockets of this user, so firewalld drops them unless allowed.
+# We define one firewalld service, "vowifi" (the exact ports, nothing in between), and allow it
+# through a rich rule that ALSO matches the LAN subnet as source, in the zone the host's LAN
+# traffic lands in (a zone bound to the LAN subnet as a source wins over the interface's zone).
+# The source match matters: a zone is not "the LAN" — on hosts where the LAN and WAN interfaces
+# share a zone (often `public`, the default zone) a bare --add-service would open the gateway to
+# every source on every interface in it. Every run first strips the service / our rules from ALL
+# zones, so changing the zone or subnet leaves nothing open in the old one.
+# Port blocks follow control/app/config.py (PORT_BASE + index*PORT_STRIDE, RTP_SPAN 60) and the
+# protocols engine.py publishes, for up to VOWIFI_FW_INSTANCES SIMs. AMI (5038+) stays closed:
+# the manager reaches it over loopback.
+VOWIFI_FW_INSTANCES="${VOWIFI_FW_INSTANCES:-10}"
+FW_SERVICE=vowifi
+
+# IPv4 subnet of the LAN (the on-link route of the interface carrying the advertised address),
+# or VOWIFI_FW_SOURCE. Empty if it can't be determined.
+fw_lan_source() {
+  [ -n "${VOWIFI_FW_SOURCE:-}" ] && { printf '%s' "$VOWIFI_FW_SOURCE"; return; }
+  lan_ip="${VOWIFI_ADVERTISE_ADDR:-$(detect_lan_ip)}"
+  lan_if=$(ip -4 -o addr show 2>/dev/null | awk -v ip="$lan_ip" '{split($4,a,"/"); if (a[1]==ip) {print $2; exit}}')
+  [ -n "$lan_if" ] || return 0
+  ip -4 -o route show dev "$lan_if" scope link 2>/dev/null | awk '{print $1; exit}'
+}
+
+# Zone that LAN clients' packets are classified into: one with the LAN subnet ($1) as a source,
+# else the zone of the interface on that subnet, else the default zone. Override: VOWIFI_FW_ZONE.
+fw_lan_zone() {
+  [ -n "${VOWIFI_FW_ZONE:-}" ] && { printf '%s' "$VOWIFI_FW_ZONE"; return; }
+  lan_net="$1"
+  if [ -n "$lan_net" ]; then
+    z=$(as_root firewall-cmd --get-zone-of-source="$lan_net" 2>/dev/null) && [ -n "$z" ] && { printf '%s' "$z"; return; }
+    lan_if=$(ip -4 -o route show "$lan_net" scope link 2>/dev/null | awk '{for (i=1;i<NF;i++) if ($i=="dev") {print $(i+1); exit}}')
+    if [ -n "$lan_if" ]; then
+      z=$(as_root firewall-cmd --get-zone-of-interface="$lan_if" 2>/dev/null) && [ -n "$z" ] && { printf '%s' "$z"; return; }
     fi
+  fi
+  as_root firewall-cmd --get-default-zone
+}
+
+# Remove the service and every rich rule referencing it from all permanent zones.
+fw_clear_zones() {
+  for z in $(as_root firewall-cmd --permanent --get-zones 2>/dev/null); do
+    as_root firewall-cmd --permanent --zone="$z" --remove-service="$FW_SERVICE" >/dev/null 2>&1 || true
+    as_root firewall-cmd --permanent --zone="$z" --list-rich-rules 2>/dev/null \
+      | grep -F "service name=\"$FW_SERVICE\"" \
+      | while IFS= read -r rule; do
+          as_root firewall-cmd --permanent --zone="$z" --remove-rich-rule="$rule" >/dev/null 2>&1 || true
+        done
+  done
+}
+
+ensure_firewall() {
+  have firewall-cmd && systemctl is-active --quiet firewalld 2>/dev/null || return 0
+  n=$VOWIFI_FW_INSTANCES
+  if ! as_root firewall-cmd --permanent --info-service="$FW_SERVICE" >/dev/null 2>&1; then
+    as_root firewall-cmd --permanent --new-service="$FW_SERVICE" >/dev/null
+  fi
+  as_root firewall-cmd --permanent --service="$FW_SERVICE" --set-short="VoWiFi gateway" >/dev/null
+  as_root firewall-cmd --permanent --service="$FW_SERVICE" \
+    --set-description="VoWiFi->SIP gateway: WebUI, SIP UDP/TLS, WebRTC WSS and RTP for $n instances" >/dev/null
+  # Replace the port list wholesale so a changed VOWIFI_PORT / instance count leaves nothing stale.
+  for old in $(as_root firewall-cmd --permanent --service="$FW_SERVICE" --get-ports 2>/dev/null); do
+    as_root firewall-cmd --permanent --service="$FW_SERVICE" --remove-port="$old" >/dev/null
+  done
+  # Exactly what engine.py publishes per block k — no ranges spanning the gaps between blocks.
+  ports="$VOWIFI_PORT/tcp"
+  k=0
+  while [ "$k" -lt "$n" ]; do
+    rtp=$((10000 + 2000 * k))
+    ports="$ports $((5060 + 10 * k))/udp $((5061 + 10 * k))/tcp $((8089 + 10 * k))/tcp $rtp-$((rtp + 59))/udp"
+    k=$((k + 1))
+  done
+  for port in $ports; do
+    as_root firewall-cmd --permanent --service="$FW_SERVICE" --add-port="$port" >/dev/null
+  done
+  fw_clear_zones
+  src=$(fw_lan_source)
+  zone=$(fw_lan_zone "$src")
+  if [ -z "$src" ]; then
+    as_root firewall-cmd --reload >/dev/null
+    warn "firewalld: couldn't determine the LAN subnet — gateway ports NOT opened." \
+      "Set VOWIFI_FW_SOURCE=<lan cidr> (e.g. 192.168.1.0/24) and run './install.sh firewall'."
+    return 0
+  fi
+  as_root firewall-cmd --permanent --zone="$zone" \
+    --add-rich-rule="rule family=\"ipv4\" source address=\"$src\" service name=\"$FW_SERVICE\" accept" >/dev/null
+  as_root firewall-cmd --reload >/dev/null
+  last=$((n - 1))
+  info "firewalld: service '$FW_SERVICE' allowed from $src only (zone '$zone'): $VOWIFI_PORT/tcp + $n port blocks" \
+    "(SIP 5060+10k udp, TLS 5061+10k, WSS 8089+10k, RTP 10000+2000k..+59; k=0..$last)"
+}
+
+remove_firewall() {
+  have firewall-cmd && systemctl is-active --quiet firewalld 2>/dev/null || return 0
+  as_root firewall-cmd --permanent --info-service="$FW_SERVICE" >/dev/null 2>&1 || return 0
+  fw_clear_zones
+  as_root firewall-cmd --permanent --delete-service="$FW_SERVICE" >/dev/null 2>&1 || true
+  as_root firewall-cmd --reload >/dev/null 2>&1 || true
+}
+
+cmd_firewall() {
+  need_sudo
+  have firewall-cmd && systemctl is-active --quiet firewalld 2>/dev/null || { info "firewalld not active — nothing to do"; return; }
+  ensure_firewall
+}
+
+cmd_status() {
+  printf '%sControl:%s\n' "$B" "$N"
+  if have systemctl && installed; then
+    systemctl --user is-active vowifi-control >/dev/null 2>&1 \
+      && printf '  vowifi-control  %s\n' "$(systemctl --user show -p ActiveState -p SubState --value vowifi-control 2>/dev/null | tr '\n' ' ')" \
+      || printf '  vowifi-control  (not running)\n'
   else
-    podman ps -a --filter "name=^${CONTROL_NAME}$" --format '  {{.Names}}  {{.Status}}  {{.Ports}}' 2>/dev/null || true
+    printf '  (not installed)\n'
   fi
   printf '%sEngines:%s\n' "$B" "$N"
   podman ps -a --filter "name=^${ENGINE_PREFIX}" --format '  {{.Names}}  {{.Status}}' 2>/dev/null || true
@@ -774,28 +924,27 @@ cmd_status() {
 #   patch2    compatibility fix only (02) — synthesize missing ATR TCK for HSIC reader.
 #   patchall  both (01 + 02).
 cmd_patch() {
-  need_root
+  need_sudo
   ensure_ccid_host slot 01_hsic_slot_status.patch
 }
 
 cmd_patch2() {
-  need_root
+  need_sudo
   ensure_ccid_host atr 02_hsic_malformed_atr.patch
 }
 
 cmd_patchall() {
-  need_root
+  need_sudo
   ensure_ccid_host all 01_hsic_slot_status.patch 02_hsic_malformed_atr.patch
 }
 
 cmd_build_lpac() {
   # Compile lpac (PC/SC + curl, STANDALONE) into $VOWIFI_DATA_DIR/lpac for the eSIM UI.
-  # Local-mode only — containerized control plane is out of scope for this integration.
   #
   # lpac STANDALONE uses cmake_policy(CMP0177) which needs CMake >= 3.31.
   # Ubuntu 22.04 / Armbian ship 3.22 — we fetch a Kitware binary toolchain into
   # $VOWIFI_DATA_DIR/tools/cmake when needed.
-  need_root
+  need_sudo   # build dependencies only
   LPAC_SRC="${LPAC_SRC:-}"
   DEST=""
   CMAKE_MIN=3.31
@@ -824,8 +973,8 @@ cmd_build_lpac() {
       err "lpac source not found (looked for ../lpac and ./lpac)."
       err "Clone it next to this repo, then re-run:"
       printf '\n  git clone https://github.com/estkme-group/lpac.git ../lpac\n' >&2
-      printf '  sudo %s build-lpac\n\n' "$0" >&2
-      err "Or point at an existing tree: sudo $0 build-lpac --lpac-src /path/to/lpac"
+      printf '  %s build-lpac\n\n' "$0" >&2
+      err "Or point at an existing tree: $0 build-lpac --lpac-src /path/to/lpac"
       exit 1
     fi
   fi
@@ -876,7 +1025,7 @@ cmd_build_lpac() {
       curl -fsSL "$url" -o "$tmp/cmake.tgz"
     fi
     tar -xzf "$tmp/cmake.tgz" -C "$tmp"
-    rm -rf "$CMAKE_HOME"
+    rm_tree "$CMAKE_HOME"
     mv "$tmp/cmake-${CMAKE_FETCH_VER}-linux-${cmake_arch}" "$CMAKE_HOME"
     rm -rf "$tmp"
     export PATH="$CMAKE_HOME/bin:$PATH"
@@ -904,10 +1053,10 @@ cmd_build_lpac() {
   BUILD_DIR="$LPAC_SRC/build-vowifi"
   STAGE_DIR=$(mktemp -d)
   # shellcheck disable=SC2064
-  trap 'rm -rf "$STAGE_DIR"' EXIT
+  trap 'rm_tree "$STAGE_DIR"' EXIT
 
   info "configuring lpac (STANDALONE, PCSC+curl) in $BUILD_DIR"
-  rm -rf "$BUILD_DIR"
+  rm_tree "$BUILD_DIR"
   # BUILD_TESTING=OFF: lpac's unit tests need the Criterion library, which we don't install.
   "$CMAKE_BIN" -S "$LPAC_SRC" -B "$BUILD_DIR" \
     -DCMAKE_BUILD_TYPE=Release \
@@ -926,7 +1075,7 @@ cmd_build_lpac() {
   "$CMAKE_BIN" --build "$BUILD_DIR" --parallel "$(nproc 2>/dev/null || echo 2)"
 
   info "installing to staging"
-  DESTDIR="$STAGE_DIR" "$CMAKE_BIN" --install "$BUILD_DIR"
+  env DESTDIR="$STAGE_DIR" "$CMAKE_BIN" --install "$BUILD_DIR"
 
   SRC_BIN="$STAGE_DIR/executables"
   if [ ! -x "$SRC_BIN/lpac" ]; then
@@ -940,13 +1089,13 @@ cmd_build_lpac() {
 
   info "deploying to $DEST"
   mkdir -p "$(dirname -- "$DEST")"
-  rm -rf "$DEST.tmp"
+  rm_tree "$DEST.tmp"
   mkdir -p "$DEST.tmp"
   cp -a "$SRC_BIN/lpac" "$DEST.tmp/lpac"
   [ -d "$SRC_BIN/lib" ] && cp -a "$SRC_BIN/lib" "$DEST.tmp/lib"
   [ -d "$SRC_BIN/driver" ] && cp -a "$SRC_BIN/driver" "$DEST.tmp/driver"
   chmod +x "$DEST.tmp/lpac"
-  rm -rf "$DEST"
+  rm_tree "$DEST"
   mv "$DEST.tmp" "$DEST"
 
   info "self-check: lpac driver apdu list"
@@ -957,34 +1106,27 @@ cmd_build_lpac() {
     info "OK: $DEST/lpac"
   fi
   trap - EXIT
-  rm -rf "$STAGE_DIR"
+  rm_tree "$STAGE_DIR"
 }
 
 cmd_logs() {
-  resolve_mode
+  have systemctl || die "systemd not available"
   # `|| true` so that Ctrl-C'ing out of a follow (non-zero exit) doesn't abort the caller —
   # matters when invoked from the interactive control menu.
-  if [ "$MODE" = local ]; then
-    have systemctl || die "systemd not available"
-    journalctl -fu vowifi-control || true
-  else
-    podman logs -f "$CONTROL_NAME" || true
-  fi
+  journalctl --user -fu vowifi-control || true
 }
 
 # Default action when invoked with no subcommand. Multi-functional:
-#   - NOT installed  -> run the installer (needs root).
-#   - installed      -> auto-detect the mode and offer basic controls. On a TTY this is an
-#                       interactive menu; non-interactively it prints status + the command list.
+#   - NOT installed  -> run the installer.
+#   - installed      -> offer basic controls. On a TTY this is an interactive menu;
+#                       non-interactively it prints status + the command list.
 cmd_auto() {
-  installed=$(detect_installed_mode)
-  if [ "$installed" = none ]; then
+  if ! installed; then
     info "no existing installation detected — installing…"
     cmd_install
     return
   fi
-  MODE="$installed"
-  info "existing installation detected — mode: ${B}$MODE${N}"
+  info "existing installation detected"
   cmd_status
   if [ ! -t 0 ]; then
     printf '\n%sControls:%s %s start | stop | restart | enable-autostart | disable-autostart | reload | logs | uninstall\n' \
@@ -992,17 +1134,10 @@ cmd_auto() {
     return
   fi
   # Interactive control menu.
-  autostart_state() {
-    if [ "$MODE" = local ]; then
-      systemctl is-enabled --quiet vowifi-control 2>/dev/null && echo on || echo off
-    else
-      case "$(podman inspect -f '{{.HostConfig.RestartPolicy.Name}}' "$CONTROL_NAME" 2>/dev/null)" in
-        ""|no) echo off;; *) echo on;; esac
-    fi
-  }
+  autostart_state() { systemctl --user is-enabled --quiet vowifi-control 2>/dev/null && echo on || echo off; }
   while :; do
     control_running && run="running" || run="stopped"
-    printf '\n%sVoWiFi control (%s) — %s, autostart %s%s\n' "$B" "$MODE" "$run" "$(autostart_state)" "$N"
+    printf '\n%sVoWiFi control — %s, autostart %s%s\n' "$B" "$run" "$(autostart_state)" "$N"
     printf '  1) %s control plane\n' "$([ "$run" = running ] && echo stop || echo start)"
     printf '  2) restart control plane\n'
     printf '  3) %s autostart\n' "$([ "$(autostart_state)" = on ] && echo disable || echo enable)"
@@ -1029,58 +1164,53 @@ cmd_auto() {
 
 usage() {
   cat <<EOF
-${B}VoWiFi→SIP gateway installer${N}
+${B}VoWiFi→SIP gateway installer${N}  (run as your normal user, not root/sudo)
 
   $0                      auto: install if absent, else show status + control menu
-  $0 install [--mode local|container]   build + run (default mode: local)
-  $0 reload  [--mode local|container] [--no-cache] [--engines]   rebuild + restart (keep data)
-  $0 start | stop | restart          control-plane lifecycle (systemd or container per mode)
-  $0 enable-autostart     start on boot
+  $0 install              build + run (asks sudo for one-time host setup)
+  $0 reload [--no-cache] [--engines]   rebuild + restart, keep data (no root)
+  $0 start | stop | restart          control-plane lifecycle (systemd --user)
+  $0 enable-autostart     start on boot (lingering)
   $0 disable-autostart    do not start on boot
-  $0 uninstall [--purge]  remove vowifi containers/images/service (--purge also deletes data+venv)
-  $0 status               show mode + component status
+  $0 uninstall [--purge]  remove the service + engines (--purge also deletes image, data and venv)
+  $0 status               show component status
   $0 logs                 follow control-plane logs
+  $0 firewall             (re)open the gateway ports to the LAN in firewalld (also done by install)
   $0 build-lpac [--lpac-src PATH] [--dest DIR]   compile lpac into data/lpac (local eSIM LPA)
   $0 patch                build + install the CCID driver with the base HSIC fix (01) — opt-in,
                           for the HSIC 1d99:0016 reader (safe for every card, incl. physical eSIM)
   $0 patch2               add only the ATR-compatibility fix (02) for non-compliant (U)SIM ATRs
   $0 patchall             apply both CCID patches (01 + 02); use for SIMs that need the ATR fix
 
-${B}Modes:${N}
-  local  (default) control plane runs natively (venv + systemd 'vowifi-control');
-                   Podman is the engine layer only. WebUI compiled via a throwaway
-                   Node container, so the host needs no Node.
-  container        control plane AND engine run in Podman containers
-                   ('docker' = legacy alias).
-  Both modes version-lock pcsc-lite ($PCSC_VERSION) and bake engine patches.
-  Run with no arguments to auto-install, or to manage an existing install.
+The control plane runs as a systemd --user service of your account; one engine container per
+SIM runs in your rootless Podman (pasta networking). pcsc-lite is version-locked ($PCSC_VERSION)
+between the host and the engine image.
 
-Env: VOWIFI_MODE(=local) VOWIFI_PORT(=$VOWIFI_PORT) VOWIFI_DATA_DIR(=$VOWIFI_DATA_DIR)
-     VOWIFI_ADVERTISE_ADDR(auto) VOWIFI_BIND(=$VOWIFI_BIND) PCSC_VERSION(=$PCSC_VERSION)
+Env: VOWIFI_PORT(=$VOWIFI_PORT) VOWIFI_DATA_DIR(=$VOWIFI_DATA_DIR) VOWIFI_ADVERTISE_ADDR(auto)
+     VOWIFI_BIND(=$VOWIFI_BIND) VOWIFI_FW_INSTANCES(=10) VOWIFI_FW_ZONE(auto) VOWIFI_FW_SOURCE(auto) PCSC_VERSION(=$PCSC_VERSION)
 EOF
 }
 
 # ------------------------------------------------------------------ dispatch
 CMD="${1:-}"; [ $# -gt 0 ] && shift || true
 
-# Parse args: extract --mode <val> / --mode=<val>, collect the rest into ARGS, note --no-cache.
-# The bottom `shift` is always safe: we only reach it inside `while [ $# -gt 0 ]`, and the
-# `--mode <val>` branch consumes its value with `shift 2` + `continue` (avoids a bare `shift`
-# on an empty arg list, which is a fatal special-builtin error in dash even with `|| true`).
-MODE_ARG=""
+# Collect args into ARGS and note --no-cache. The deploy-mode switches of older versions are
+# accepted where harmless, and refused with an explanation where they asked for root.
 ARGS=""
 NOCACHE_FLAG=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --mode)
-      [ $# -ge 2 ] || die "--mode requires a value: local | container"
-      MODE_ARG="$2"; shift 2; continue ;;
-    --mode=*)   MODE_ARG="${1#--mode=}" ;;
+    --mode|--mode=*)
+      m="${1#--mode=}"; if [ "$1" = --mode ]; then [ $# -ge 2 ] || die "--mode requires a value"; m="$2"; shift; fi
+      [ "$m" = local ] || die "--mode $m was removed: the gateway runs rootless only (the old container mode needed a privileged rootful control container)" ;;
+    --rootless) ;;   # the default (and only) mode now
+    --rootful)  die "--rootful was removed: the gateway runs rootless only" ;;
     --no-cache) NOCACHE_FLAG="--no-cache"; ARGS="$ARGS $1" ;;
     *)          ARGS="$ARGS $1" ;;
   esac
   shift
 done
+[ "${VOWIFI_MODE:-local}" = local ] || die "VOWIFI_MODE=$VOWIFI_MODE was removed: the gateway runs rootless only"
 
 case "$CMD" in
   install)            cmd_install ;;
@@ -1093,6 +1223,7 @@ case "$CMD" in
   uninstall)          cmd_uninstall ;;
   status)             cmd_status ;;
   logs)               cmd_logs ;;
+  firewall)           cmd_firewall ;;
   build-lpac)         cmd_build_lpac ;;
   patch)              cmd_patch ;;
   patch2)             cmd_patch2 ;;

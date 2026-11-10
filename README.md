@@ -12,9 +12,10 @@ A **containerized VoWiFi→SIP gateway** that turns a physical VoWiFi-capable SI
 
 **What you need:**
 - A Linux host (amd64/arm64, Raspberry Pi works) with `/dev/net/tun` + kernel ESP/XFRM
-- **Podman** (rootful; the installer adds it from your distro if missing) + a **PC/SC smart-card reader** (USB CCID)
+- **Podman ≥ 5.3** with `passt` (the installer adds both from your distro if missing), systemd, and a normal user account with a `/etc/subuid` range — everything runs **rootless** under that account
+- A **PC/SC smart-card reader** (USB CCID)
 - A **VoWiFi-capable SIM** from a carrier that allows ePDG (tested: Telus Canada 302-220; T-Mobile US + many EU carriers should work)
-- *(Optional, for the eSIM tab)* an **eUICC** in the reader, plus a one-time local lpac build (`git clone` [estkme-group/lpac](https://github.com/estkme-group/lpac) next to this repo, then `sudo ./install.sh build-lpac`)
+- *(Optional, for the eSIM tab)* an **eUICC** in the reader, plus a one-time local lpac build (`git clone` [estkme-group/lpac](https://github.com/estkme-group/lpac) next to this repo, then `./install.sh build-lpac`)
 
 ---
 
@@ -38,16 +39,20 @@ The control-plane WebUI — dashboard, browser softphone, SMS messaging, and eSI
 The gateway has two planes:
 
 1. **`vowifi/engine`** (per-SIM, always a Podman container): a pure-Python SWu IKEv2/IPsec client (`swu_ike.py`, based on [fasferraz/SWu-IKEv2](https://github.com/fasferraz/SWu-IKEv2)) for the ePDG tunnel (IKEv2 + EAP-AKA, userspace ESP) + sysmocom Asterisk (IMS PJSIP) + USIM bridge scripts (PIN keeper, AMI ↔ PC/SC). One container per SIM, each with `NET_ADMIN` + `/dev/net/tun` + its own port block (5060+, 10000+ RTP). The tunnel client carries VoWiFi resilience: it verifies the SIM PIN (CHV1) in its own PC/SC connection on every EAP-AKA authentication, sends NAT-T keepalives to hold the tunnel open when idle, runs an initiator-side liveness/DPD check to detect a silently-dead ePDG, re-syncs the P-CSCF into PJSIP on reconnect, advertises IKEv2 fragmentation (RFC 7383) and reassembles fragmented ePDG responses (fragmenting its own oversized messages too), classifies reject Notifies per 3GPP TS 24.302 §7.2.2.2 (honouring an attached back-off timer instead of hammering the network), answers the ePDG's IKEv2 `DEVICE_IDENTITY`/DPD/P-CSCF-restoration requests, and records every received 3GPP Notify — so it rekeys/re-auths and self-heals after a full re-establishment (see [Troubleshooting](#troubleshooting)).
-2. **control plane** (singleton): FastAPI manager + React WebUI dashboard. Manages engine containers via the Docker SDK pointed at rootful Podman's Docker-compatible API socket (`/run/podman/podman.sock`) and reads the SIM via pyscard over the host pcscd socket.
+2. **control plane** (singleton): FastAPI manager + React WebUI dashboard. Runs natively from the checkout as a **`systemd --user` service** (`vowifi-control`) from a Python venv, manages the engine containers via the Docker SDK pointed at your user's Podman API socket (`$XDG_RUNTIME_DIR/podman/podman.sock`), and reads the SIM via pyscard over the host pcscd socket. The WebUI is compiled with a throwaway `node:22-alpine` container, so the host needs no Node/JS toolchain.
 
-The control plane runs in one of two **deploy modes** (chosen at install time):
+### Rootless by design
 
-- **`local`** *(default)* — the control plane runs **natively on the host** as a Python venv + a `vowifi-control` systemd service; Podman is used **only as the engine layer**. The WebUI is still compiled with a throwaway `node:22-alpine` container, so the host needs no Node/JS toolchain.
-- **`container`** — the control plane runs in a **privileged container** (host Podman API socket + host pcscd socket bind-mounted), alongside the engine containers. (`docker` is still accepted as a legacy alias.)
+Everything runs under **your own account** — rootless Podman for the engines, a user service for the control plane — and `./data`, the venv and `webui/dist` all belong to you. Nothing in the engine needs host root: `NET_ADMIN`/`NET_RAW`, the `ipsec0` tun device, routes and `net.*` sysctls all act on the container's own network namespace, which your user namespace owns. Lingering is enabled so the control plane and engines start at boot without a login (the user `podman-restart.service` brings back the `restart=always` engines).
 
-All containers run under **rootful Podman** (engines need `NET_ADMIN`, `/dev/net/tun` and the host pcscd socket). Podman has no daemon, so the installer enables `podman.socket` (the API the control plane uses) and `podman-restart.service` (restarts the `--restart always` containers on boot).
+Engines use **pasta** networking, which keeps SIP clients' real source addresses. What that implies inside the engine:
+- **Forced NAT-T** (`SWU_FORCE_NATT=1`): pasta forwards only TCP/UDP/ICMP, so raw ESP (IP protocol 50) can never leave the host. `swu_ike` sends a deliberately non-matching `NAT_DETECTION_SOURCE_IP` (RFC 7296 §2.23, like strongSwan's `encap=yes`) so the ePDG moves the SA to ESP-in-UDP:4500 even when the host has a public IP. Ignored if the ePDG doesn't do NAT-T at all.
+- **Unprivileged IKE source ports**: pasta silently drops datagrams sent from source ports below 1024 and re-sends each flow from the same host port, so every engine sends IKE from its own pair (`45000+2n` / `45001+2n`, `n` = the line's internal index, 0 for the first line; base via `VOWIFI_IKE_LOCAL_PORT_BASE`) to the ePDG's 500/4500. RFC 7296 §2.11 has the ePDG answer whatever port the request came from.
+- **MTU**: pasta is an L4 proxy, so PMTU discovery inside the container never sees the real path. Engines start with `pasta:--mtu,<host default-route NIC MTU>` (override with `VOWIFI_ENGINE_NETWORK`, or pin `SWU_OUTER_MTU`) so the tunnel's outer-MTU sensing still works.
+- **AMI** is published on host loopback only; the manager connects to `127.0.0.1:<ami port>`.
+- **Manager callbacks**: `host.containers.internal` is a link-local address under pasta that an IPv4 IMS PDN's `/1` routes would capture; `swu_ike` pins it to the LAN gateway when that happens.
 
-In **both** modes the reader is owned by the **host's pcscd**, and **pcsc-lite is version-locked** (`PCSC_VERSION`, default 2.3.3) across the host + every container image so the PC/SC client/server protocol always matches. Runtime data (`config.yaml`, per-instance configs, SQLite call logs, TLS certs) lives in `./data`.
+The reader is owned by the **host's pcscd**, and **pcsc-lite is version-locked** (`PCSC_VERSION`, default 2.3.3) between the host and the engine image so the PC/SC client/server protocol always matches. Distro pcscd builds authorise clients through polkit (only root or an active login session), so the installer adds a polkit rule that lets exactly your user use the reader from the user service and its engines. Runtime data (`config.yaml`, per-instance configs, SQLite call logs, TLS certs) lives in `./data`.
 
 ---
 
@@ -56,19 +61,19 @@ In **both** modes the reader is owned by the **host's pcscd**, and **pcsc-lite i
 ```bash
 git clone https://github.com/pagecat/vowifi_gateway.git
 cd vowifi_gateway
-sudo ./install.sh install                 # default: local mode (native control plane)
-# or, fully containerized:
-sudo ./install.sh install --mode container
+./install.sh install
 ```
 
+Run it as your **normal user — not as root and not via `sudo`**. Root is only needed for one-time host setup, and the script asks sudo for exactly those steps: distro packages, the pinned pcscd (if your distro's version differs from `PCSC_VERSION`), `modprobe tun`, lingering, the pcscd polkit rule, the firewalld service, and the SELinux label on the venv. `reload`, `start`/`stop`/`restart`, `status`, `logs` and autostart never need root.
+
 The installer:
-- Installs Podman (distro package, if missing) + enables `podman.socket` / `podman-restart.service`, and host pcscd, **version-locked** to `PCSC_VERSION`
+- Installs Podman + passt (distro packages, if missing), enables your user's `podman.socket` / `podman-restart.service` and lingering, and the host pcscd, **version-locked** to `PCSC_VERSION`
+- Opens the gateway's ports to your **LAN only** in firewalld, if it is active (a rich rule allowing the `vowifi` service from the LAN subnet, in the zone your LAN traffic lands in; see [Per-instance ports](#per-instance-ports))
 - Builds the engine image (compiles pcsc-lite + the Python SWu tunnel deps, bakes `engine/patches/*`; Asterisk is downloaded prebuilt from the fork's CI release for `ASTERISK_REF` when one exists, otherwise compiled from source, ~10–15 min on a Pi)
-- **local mode**: compiles the WebUI in a throwaway Node container, creates a Python venv (`control/.venv`), and starts the `vowifi-control` systemd service
-- **container mode**: builds the `localhost/vowifi/control` image and starts the control plane in a privileged container
+- Compiles the WebUI in a throwaway Node container, creates a Python venv (`control/.venv`), and starts the `vowifi-control` user service
 - Autostart is enabled; prints `https://<host-lan-ip>:8443` — open it in your browser
 
-The chosen mode is remembered (persisted under the data dir), so `reload`/`status`/`logs`/`uninstall` don't need `--mode` again. An explicit `--mode` or the `VOWIFI_MODE` env var always overrides.
+**Upgrading from an older, rootful install** (system unit, `sudo ./install.sh`, or the removed `--mode container`): just run `./install.sh install`. It removes the old system unit and root's vowifi containers and root's old engine image (it predates the rootless tunnel changes, so the engine image is rebuilt — ~10–15 min), and hands `./data` and the venv to you. Your SIM configs, SMS and call history are kept. Lines that were running before are started again through the manager once it is up (same PIN checks as the Start button; a line that needs a PIN is reported and left for you to start); lines you had stopped stay stopped.
 
 Accept the self-signed cert, then **provision your SIM** in the dashboard:
 1. Insert the SIM into the reader; the `/` tab shows detected cards
@@ -84,16 +89,18 @@ Set via **env vars** (or a `.env` file next to `install.sh`) before running `ins
 
 | Env var | Default | What |
 |---------|---------|------|
-| `VOWIFI_MODE` | `local` | Deploy mode: `local` (native control plane, Podman engines only) or `container` (both containerized; `docker` = legacy alias). Overridable per-command with `--mode`. |
 | `VOWIFI_PORT` | `8443` | Host port the WebUI is served/published on |
 | `VOWIFI_DATA_DIR` | `<repo>/data` | Runtime data directory (config, logs, DB, certs) |
 | `VOWIFI_ADVERTISE_ADDR` | auto-detect | Host LAN IP advertised to local SIP/WebRTC clients for RTP, Contact and SDP. It overrides **Settings → SIP / WebRTC advertise address**. Auto-detection prefers a real LAN NIC and skips common VPN/container interfaces; pin it explicitly on multi-homed hosts. |
 | `VOWIFI_BIND` | `0.0.0.0` | Bind address for the control plane (rarely changed) |
-| `PCSC_VERSION` | `2.3.3` | pcsc-lite version pinned across host + all images |
+| `PCSC_VERSION` | `2.3.3` | pcsc-lite version pinned between the host pcscd and the engine image. If your distro already ships a newer pcsc-lite, set it to that version (e.g. in `.env`) instead of having the installer replace the host's pcscd. Keep it set for later `reload`s, which rebuild the engine image with it. |
+| `VOWIFI_FW_INSTANCES` | `10` | How many SIM port blocks the firewalld `vowifi` service opens |
+| `VOWIFI_FW_ZONE` | auto | firewalld zone to add the rule to (default: the zone your LAN subnet/interface is in) |
+| `VOWIFI_FW_SOURCE` | auto | IPv4 subnet allowed through firewalld (default: the on-link subnet of the LAN interface, e.g. `192.168.1.0/24`) |
 
 Example:
 ```bash
-sudo VOWIFI_PORT=9443 VOWIFI_ADVERTISE_ADDR=192.168.1.100 ./install.sh install
+VOWIFI_PORT=9443 VOWIFI_ADVERTISE_ADDR=192.168.1.100 ./install.sh install
 ```
 
 ---
@@ -101,57 +108,55 @@ sudo VOWIFI_PORT=9443 VOWIFI_ADVERTISE_ADDR=192.168.1.100 ./install.sh install
 ## Lifecycle
 
 ```bash
-# Check status (mode + control + engine containers)
+# Check status (control service + engine containers)
 ./install.sh status
 
-# View control-plane logs (live) — journalctl in local mode, podman logs in container mode
+# View control-plane logs (live) — journalctl --user -u vowifi-control
 ./install.sh logs
 
-# Start / stop / restart just the control plane (systemd service or container, per mode)
-sudo ./install.sh start
-sudo ./install.sh stop
-sudo ./install.sh restart
+# Start / stop / restart just the control plane (systemd --user service)
+./install.sh start
+./install.sh stop
+./install.sh restart
 
-# Run with NO arguments: installs if nothing is present, otherwise auto-detects the mode and
+# Run with NO arguments: installs if nothing is present, otherwise
 # opens an interactive control menu (start/stop, autostart, status, logs, reload, uninstall).
-sudo ./install.sh
+./install.sh
 
-# Rebuild + restart the control plane (preserves data). In local mode this rebuilds the
-# WebUI + refreshes the venv + restarts the systemd service; in container mode it rebuilds
-# the control image + recreates the container. The engine image is reused unless forced.
-sudo ./install.sh reload
+# Rebuild + restart the control plane (preserves data, no root): rebuilds the WebUI, refreshes
+# the venv and restarts the user service. The engine image is reused unless forced.
+./install.sh reload
 
 # Rebuild from scratch (no Podman build cache; also forces an engine-image rebuild)
-sudo ./install.sh reload --no-cache
+./install.sh reload --no-cache
 
 # Rebuild + also recreate engine containers (forces an engine-image rebuild — e.g. after
 # changing engine code/patches)
-sudo ./install.sh reload --engines
+./install.sh reload --engines
 
 # Build/install a local lpac binary for the eSIM tab (PC/SC + curl, STANDALONE).
 # Output: $VOWIFI_DATA_DIR/lpac/lpac (or <repo>/data/lpac/lpac). Needed once before
 # using WebUI → eSIM; safe to re-run after lpac upgrades.
 # Requires the lpac source next to this repo (or pass --lpac-src /path/to/lpac):
 git clone https://github.com/estkme-group/lpac.git ../lpac
-sudo ./install.sh build-lpac
-# Or: sudo ./install.sh build-lpac --lpac-src /path/to/lpac
+./install.sh build-lpac
+# Or: ./install.sh build-lpac --lpac-src /path/to/lpac
 
-# Switch modes (tears down the old plane, brings up the new one, keeps data + engine image)
-sudo ./install.sh install --mode container
-sudo ./install.sh install --mode local
+# (Re)open the gateway's ports to the LAN in firewalld (install already does this)
+./install.sh firewall
 
 # Disable autostart (control + engines won't restart on reboot)
-sudo ./install.sh disable-autostart
+./install.sh disable-autostart
 
 # Re-enable autostart
-sudo ./install.sh enable-autostart
+./install.sh enable-autostart
 
-# Uninstall (removes vowifi containers + the native service; KEEPS the patched engine image,
-# venv, Podman, pcscd, and ./data so a reinstall is fast)
-sudo ./install.sh uninstall
+# Uninstall (removes the engines, the user service, the polkit rule and the firewalld service;
+# KEEPS the patched engine image, venv, Podman, pcscd, lingering and ./data so a reinstall is fast)
+./install.sh uninstall
 
-# Uninstall + delete everything (images, venv, and ./data)
-sudo ./install.sh uninstall --purge
+# Uninstall + delete everything (engine image, venv, and ./data)
+./install.sh uninstall --purge
 
 # OPT-IN: build + install a patched CCID driver (patches/ccid/*) on the host, replacing the
 # distro libccid. Only needed for readers with firmware quirks — e.g. the HSIC CCID-Reader
@@ -170,24 +175,27 @@ sudo ./install.sh uninstall --purge
 #              synthesizes it at power-on so normal PTS/SCardConnect can proceed.
 #   patchall   both (01 + 02): for such quirky (U)SIMs on the HSIC reader.
 # COMPATIBILITY NOTE: patch2/patchall add HSIC-specific ATR handling. If you use a physical eSIM
-# (or any compliant card), DON'T run `patchall` — just `sudo ./install.sh patch` is enough.
-sudo ./install.sh patch        # base HSIC fix (recommended; fine for physical eSIM)
-sudo ./install.sh patch2       # only the ATR-compatibility fix
-sudo ./install.sh patchall     # both — only for SIMs whose ATR the stock driver rejects
+# (or any compliant card), DON'T run `patchall` — just `./install.sh patch` is enough.
+./install.sh patch        # base HSIC fix (recommended; fine for physical eSIM)
+./install.sh patch2       # only the ATR-compatibility fix
+./install.sh patchall     # both — only for SIMs whose ATR the stock driver rejects
 ```
 
 ---
 
 ## Per-instance ports
 
-Each provisioned SIM gets a port block (no collisions across SIMs). Instance index `i` (first SIM = 1):
-- SIP UDP: `5060 + 100*(i-1)`  
-- SIP TLS: `5061 + 100*(i-1)`  
-- WebRTC/WSS: `8089 + 100*(i-1)`  
-- AMI: `5038 + 100*(i-1)` (Asterisk manager for advanced users; set credentials in the dashboard)
-- RTP: `10000 + 100*(i-1)` through `+59` (60-port range per instance)
+Each provisioned SIM gets a port block (no collisions across SIMs). Block `k` (0, 1, 2, …; a new SIM takes the first block whose ports are all free on the host, so a block held by another program is skipped):
+- SIP UDP: `5060 + 10*k`
+- SIP TLS: `5061 + 10*k`
+- WebRTC/WSS: `8089 + 10*k`
+- AMI: `5038 + 10*k` — published on **host loopback only** (the manager is its only client)
+- RTP: `10000 + 2000*k` through `+59` (60-port range per instance)
+- IKE source ports toward the ePDG (outbound only): `45000 + 2*n` and `45001 + 2*n`, where `n` is the line's internal index (0 for the first line provisioned; usually equal to `k`)
 
-Example: the **first** SIM is on 5060/5061/8089, the **second** on 5160/5161/8189, etc.
+Example: the first block is 5060/5061/8089 with RTP 10000–10059, the second 5070/5071/8099 with RTP 12000–12059. The dashboard's **SIP info** shows a line's actual ports.
+
+With firewalld active, `install` (or `./install.sh firewall`) opens the WebUI port plus exactly the SIP UDP, TLS, WSS and 60-port RTP range of each of the first `VOWIFI_FW_INSTANCES` (10) blocks — **only to sources in the LAN subnet** (`VOWIFI_FW_SOURCE`), through a rich rule in the LAN's zone, so a zone shared with a WAN interface stays closed to everything else. Each run first removes the service and its rules from every zone, so changing `VOWIFI_FW_ZONE`/`VOWIFI_FW_SOURCE` leaves nothing open behind. Lines moved to non-default ports are not covered; open those yourself. If the LAN subnet can't be detected, nothing is opened and the installer says so.
 
 ---
 
@@ -341,18 +349,30 @@ in practice); MOBIKE / `UPDATE_SA_ADDRESSES` (the host has a stable wired IP); m
   - **Advertise SRVCC capabilities in REGISTER**: `+g.3gpp.mid-call;+g.3gpp.srvcc-alerting;+g.3gpp.ps2cs-srvcc-orig-pre-alerting` in the Contact.
   - **IMEI with spare digit 0**: `+sip.instance` as `urn:gsma:imei:TAC-SNR-0` (RFC 7254) instead of ending in the check digit.
 - **Outgoing calls fail with `491 Request Pending` followed by `500 Server Internal Error` (Q.850 cause 47)**: the engine sent the precondition `UPDATE` while the carrier was still processing the `PRACK` for its `183`. Enable **SIM Config → Send the call-setup UPDATE only after the PRACK is answered** for that line (needed on MTS RU for calls to other Russian operators). Off by default.
-- **Engine build / engines have no network** (`Could not resolve host` during `dnf`, tunnel never comes up): a running Docker Engine sets the iptables `FORWARD` policy to `DROP`, which also drops rootful podman traffic. The installer refuses to continue in that state; fix with `sudo systemctl disable --now docker.socket docker.service && sudo iptables -P FORWARD ACCEPT`.
-- **External client no audio**: confirm `VOWIFI_ADVERTISE_ADDR` is the correct LAN IP (not 127.x, not a container-bridge IP such as 10.88.x). Check firewall rules allow RTP (UDP 10000–10059+ inbound).
+- **External client no audio**: confirm `VOWIFI_ADVERTISE_ADDR` is the correct LAN IP (not 127.x). Check that the firewall allows RTP from the client (`./install.sh firewall` opens UDP 10000+ for the LAN in firewalld).
+- **WebUI or SIP unreachable from the LAN, fine on the host itself**: the ports are plain host sockets of your user, so the host firewall filters them. `./install.sh firewall` (re)adds the rule allowing the `vowifi` firewalld service from your LAN subnet; set `VOWIFI_FW_SOURCE` / `VOWIFI_FW_ZONE` if it picked the wrong subnet or zone.
 - **Outbound works, inbound fails**: your router's NAT may mangle the SIP `Contact` header. Use the TLS transport (port 5061) if your client supports it, or set `settings.tls.domain` to a public FQDN + port-forward.
 
 **Control plane won't start:**  
-Check its logs with `./install.sh logs` (that's `journalctl -u vowifi-control` in local mode, `podman logs vowifi-control` in container mode). Common causes: `/run/pcscd/pcscd.comm` missing (host pcscd not running) or the Podman API not reachable (`systemctl status podman.socket`; in container mode the control container must be privileged; in local mode the service runs as root so it can reach the reader + `/run/podman/podman.sock`).
+Check its logs with `./install.sh logs` (`journalctl --user -u vowifi-control`). Common causes: `/run/pcscd/pcscd.comm` missing (host pcscd not running), the user Podman API not reachable (`systemctl --user status podman.socket`), or no SIM/reader visible with `Access denied (0x8010006A)` — the distro pcscd's polkit check; re-run `./install.sh install` to restore the `/etc/polkit-1/rules.d/50-vowifi-pcsc.rules` rule for your user.
+
+**Gateway gone after logout / not back after reboot:** lingering is off (`loginctl show-user $USER -p Linger`). Enable it with `sudo loginctl enable-linger $USER` (install does this).
+
+**Tunnel never answers (`IKE request retransmit 3/3` for `IKE_SA_INIT`):** check that the engine shows its `SWU_IKE_LOCAL_PORT` (≥ 1024) in `podman inspect vowifi-engine-<id>`, and that nothing else on the host holds that UDP port (`ss -uanp | grep 4500`). pasta drops flows it can't bind on the host.
 
 ---
 
 ## Development
 
-**Local mode already IS the dev-friendly path**: the control plane runs natively from `control/`, so editing `control/app/*.py` + `sudo ./install.sh restart` reloads it. To live-edit **engine** scripts without rebuilding the image, start the control plane with `VOWIFI_DEV_MOUNTS=1` set — the manager then bind-mounts the local `engine/*.py` + templates into each engine container as read-only overlays, so an edit + `sudo podman restart vowifi-engine-<id>` applies immediately.
+**The installed system already IS the dev-friendly path**: the control plane runs natively from `control/`, so editing `control/app/*.py` + `./install.sh restart` reloads it. To live-edit **engine** scripts without rebuilding the image, give the control plane `VOWIFI_DEV_MOUNTS=1` with a user drop-in (no root needed):
+
+```bash
+mkdir -p ~/.config/systemd/user/vowifi-control.service.d
+printf '[Service]\nEnvironment=VOWIFI_DEV_MOUNTS=1\n' > ~/.config/systemd/user/vowifi-control.service.d/dev-mounts.conf
+systemctl --user daemon-reload && ./install.sh restart
+```
+
+The manager then bind-mounts the local `engine/*.py`, `entrypoint.sh` and templates into each engine container as read-only overlays, so an edit + restarting the line (or `podman restart vowifi-engine-<id>`) applies immediately. The mounted scripts must keep their executable bit (Asterisk runs `notify.py` directly).
 
 **Control-plane only, by hand** (outside the installer): create a venv, `pip install -r control/requirements.txt`, `export VOWIFI_DATA=./data`, `python control/run.py`. The TypeScript WebUI dev server (`cd webui && npm run dev`) proxies `/api` + `/ws` to the control plane — point it with `VOWIFI_DEV_API=https://<gateway-host>:8443` (defaults to `localhost:8443`). Run `npm run typecheck` from `webui/` to type-check without building; `npm run build` type-checks and bundles the app.
 
@@ -362,8 +382,7 @@ Check its logs with `./install.sh logs` (that's `journalctl -u vowifi-control` i
 
 **Manual build**:
 ```bash
-sudo podman build -t localhost/vowifi/engine engine/
-sudo podman build -t localhost/vowifi/control -f control/Containerfile .
+podman build -t localhost/vowifi/engine engine/
 ```
 
 ---
