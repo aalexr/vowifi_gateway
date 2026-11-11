@@ -39,10 +39,12 @@
 #   VOWIFI_PORT            WebUI port                                 (default 8443)
 #   VOWIFI_DATA_DIR        runtime data dir                           (default <repo>/data)
 #   VOWIFI_ADVERTISE_ADDR  host LAN IP for SIP/WebRTC media           (default: auto-detect)
-#   VOWIFI_BIND            control bind addr                          (default 0.0.0.0)
+#   VOWIFI_BIND            control bind addr                          (default :: = IPv6 + IPv4)
 #   VOWIFI_FW_INSTANCES    SIM port blocks opened in firewalld        (default 10)
 #   VOWIFI_FW_ZONE         firewalld zone to open them in             (default: the LAN's zone)
 #   VOWIFI_FW_SOURCE       source subnet allowed through firewalld    (default: the LAN subnet)
+#   VOWIFI_FW_WEBUI_SOURCE6  IPv6 prefixes allowed to the WebUI port   (default: none; "any" = all)
+#   VOWIFI_FW_ZONE6        firewalld zone for those IPv6 rules        (default: the IPv6 uplink's zone)
 #   PCSC_VERSION           pinned pcsc-lite version                   (default 2.3.3)
 #   LPAC_SRC               optional path to lpac source (for build-lpac)
 #   CMAKE_FETCH_VER        Kitware cmake version if system is too old (default 3.31.12)
@@ -55,7 +57,7 @@ REPO_DIR="$SELF_DIR"
 
 VOWIFI_PORT="${VOWIFI_PORT:-8443}"
 VOWIFI_DATA_DIR="${VOWIFI_DATA_DIR:-$REPO_DIR/data}"
-VOWIFI_BIND="${VOWIFI_BIND:-0.0.0.0}"
+VOWIFI_BIND="${VOWIFI_BIND:-::}"
 VOWIFI_ADVERTISE_ADDR="${VOWIFI_ADVERTISE_ADDR:-}"
 
 # Fully qualified: podman stores locally built images under localhost/.
@@ -811,6 +813,10 @@ cmd_uninstall() {
 # the manager reaches it over loopback.
 VOWIFI_FW_INSTANCES="${VOWIFI_FW_INSTANCES:-10}"
 FW_SERVICE=vowifi
+# WebUI port only, for the opt-in IPv6 rule (VOWIFI_FW_WEBUI_SOURCE6). A separate service so the
+# IPv6 rule never opens SIP/RTP, and a changed VOWIFI_PORT leaves no stale port rule behind.
+FW_WEBUI_SERVICE=vowifi-webui
+VOWIFI_FW_WEBUI_SOURCE6="${VOWIFI_FW_WEBUI_SOURCE6:-}"
 
 # IPv4 subnet of the LAN (the on-link route of the interface carrying the advertised address),
 # or VOWIFI_FW_SOURCE. Empty if it can't be determined.
@@ -837,16 +843,60 @@ fw_lan_zone() {
   as_root firewall-cmd --get-default-zone
 }
 
-# Remove the service and every rich rule referencing it from all permanent zones.
+# Zone that inbound IPv6 from outside lands in: the zone of the IPv6 default-route interface,
+# else the default zone. Override: VOWIFI_FW_ZONE6.
+fw_wan6_zone() {
+  [ -n "${VOWIFI_FW_ZONE6:-}" ] && { printf '%s' "$VOWIFI_FW_ZONE6"; return; }
+  wan_if=$(ip -6 route show default 2>/dev/null | awk '{for (i=1;i<NF;i++) if ($i=="dev") {print $(i+1); exit}}')
+  if [ -n "$wan_if" ]; then
+    z=$(as_root firewall-cmd --get-zone-of-interface="$wan_if" 2>/dev/null) && [ -n "$z" ] && { printf '%s' "$z"; return; }
+  fi
+  as_root firewall-cmd --get-default-zone
+}
+
+# Remove our services and every rich rule referencing them from all permanent zones.
 fw_clear_zones() {
   for z in $(as_root firewall-cmd --permanent --get-zones 2>/dev/null); do
-    as_root firewall-cmd --permanent --zone="$z" --remove-service="$FW_SERVICE" >/dev/null 2>&1 || true
-    as_root firewall-cmd --permanent --zone="$z" --list-rich-rules 2>/dev/null \
-      | grep -F "service name=\"$FW_SERVICE\"" \
-      | while IFS= read -r rule; do
-          as_root firewall-cmd --permanent --zone="$z" --remove-rich-rule="$rule" >/dev/null 2>&1 || true
-        done
+    for svc in "$FW_SERVICE" "$FW_WEBUI_SERVICE"; do
+      as_root firewall-cmd --permanent --zone="$z" --remove-service="$svc" >/dev/null 2>&1 || true
+      as_root firewall-cmd --permanent --zone="$z" --list-rich-rules 2>/dev/null \
+        | grep -F "service name=\"$svc\"" \
+        | while IFS= read -r rule; do
+            as_root firewall-cmd --permanent --zone="$z" --remove-rich-rule="$rule" >/dev/null 2>&1 || true
+          done
+    done
   done
+}
+
+# Opt-in: let VOWIFI_FW_WEBUI_SOURCE6 (IPv6 prefixes, comma/space separated, or "any") reach the
+# WebUI port. Nothing else (SIP/WSS/RTP) is opened for IPv6. Called after fw_clear_zones.
+fw_webui_ipv6() {
+  srcs=$(printf '%s' "$VOWIFI_FW_WEBUI_SOURCE6" | tr ',' ' ')
+  if [ -z "$srcs" ]; then
+    as_root firewall-cmd --permanent --delete-service="$FW_WEBUI_SERVICE" >/dev/null 2>&1 || true
+    return 0
+  fi
+  if ! as_root firewall-cmd --permanent --info-service="$FW_WEBUI_SERVICE" >/dev/null 2>&1; then
+    as_root firewall-cmd --permanent --new-service="$FW_WEBUI_SERVICE" >/dev/null
+  fi
+  as_root firewall-cmd --permanent --service="$FW_WEBUI_SERVICE" --set-short="VoWiFi gateway WebUI" >/dev/null
+  for old in $(as_root firewall-cmd --permanent --service="$FW_WEBUI_SERVICE" --get-ports 2>/dev/null); do
+    as_root firewall-cmd --permanent --service="$FW_WEBUI_SERVICE" --remove-port="$old" >/dev/null
+  done
+  as_root firewall-cmd --permanent --service="$FW_WEBUI_SERVICE" --add-port="$VOWIFI_PORT/tcp" >/dev/null
+  zone6=$(fw_wan6_zone)
+  for s6 in $srcs; do
+    case "$s6" in
+      any|::/0)
+        rule="rule family=\"ipv6\" service name=\"$FW_WEBUI_SERVICE\" accept"
+        warn "firewalld: WebUI port $VOWIFI_PORT/tcp open to ALL IPv6 sources — the login is your Linux" \
+          "password, so the whole internet can try it (throttled); keep it strong" ;;
+      *:*) rule="rule family=\"ipv6\" source address=\"$s6\" service name=\"$FW_WEBUI_SERVICE\" accept" ;;
+      *) die "VOWIFI_FW_WEBUI_SOURCE6: '$s6' is not an IPv6 prefix (or 'any')" ;;
+    esac
+    as_root firewall-cmd --permanent --zone="$zone6" --add-rich-rule="$rule" >/dev/null
+  done
+  info "firewalld: WebUI $VOWIFI_PORT/tcp allowed over IPv6 from: $srcs (zone '$zone6')"
 }
 
 ensure_firewall() {
@@ -874,6 +924,7 @@ ensure_firewall() {
     as_root firewall-cmd --permanent --service="$FW_SERVICE" --add-port="$port" >/dev/null
   done
   fw_clear_zones
+  fw_webui_ipv6
   src=$(fw_lan_source)
   zone=$(fw_lan_zone "$src")
   if [ -z "$src" ]; then
@@ -895,6 +946,7 @@ remove_firewall() {
   as_root firewall-cmd --permanent --info-service="$FW_SERVICE" >/dev/null 2>&1 || return 0
   fw_clear_zones
   as_root firewall-cmd --permanent --delete-service="$FW_SERVICE" >/dev/null 2>&1 || true
+  as_root firewall-cmd --permanent --delete-service="$FW_WEBUI_SERVICE" >/dev/null 2>&1 || true
   as_root firewall-cmd --reload >/dev/null 2>&1 || true
 }
 
@@ -1116,6 +1168,13 @@ cmd_logs() {
   journalctl --user -fu vowifi-control || true
 }
 
+# Log every browser out of the WebUI (rotates the session key; the manager picks it up on its
+# next request). Runs as you, no root.
+cmd_logout_all() {
+  [ -x "$VENV_DIR/bin/python" ] || die "control venv missing ($VENV_DIR) — run './install.sh install' first"
+  ( cd "$REPO_DIR/control" && VOWIFI_DATA="$(data_dir_abs)" "$VENV_DIR/bin/python" -m app.auth logout-all )
+}
+
 # Default action when invoked with no subcommand. Multi-functional:
 #   - NOT installed  -> run the installer.
 #   - installed      -> offer basic controls. On a TTY this is an interactive menu;
@@ -1176,6 +1235,7 @@ ${B}VoWiFi→SIP gateway installer${N}  (run as your normal user, not root/sudo)
   $0 status               show component status
   $0 logs                 follow control-plane logs
   $0 firewall             (re)open the gateway ports to the LAN in firewalld (also done by install)
+  $0 logout-all           log every browser out of the WebUI (login = your Linux user + password)
   $0 build-lpac [--lpac-src PATH] [--dest DIR]   compile lpac into data/lpac (local eSIM LPA)
   $0 patch                build + install the CCID driver with the base HSIC fix (01) — opt-in,
                           for the HSIC 1d99:0016 reader (safe for every card, incl. physical eSIM)
@@ -1187,7 +1247,7 @@ SIM runs in your rootless Podman (pasta networking). pcsc-lite is version-locked
 between the host and the engine image.
 
 Env: VOWIFI_PORT(=$VOWIFI_PORT) VOWIFI_DATA_DIR(=$VOWIFI_DATA_DIR) VOWIFI_ADVERTISE_ADDR(auto)
-     VOWIFI_BIND(=$VOWIFI_BIND) VOWIFI_FW_INSTANCES(=10) VOWIFI_FW_ZONE(auto) VOWIFI_FW_SOURCE(auto) PCSC_VERSION(=$PCSC_VERSION)
+     VOWIFI_BIND(=$VOWIFI_BIND) VOWIFI_FW_INSTANCES(=10) VOWIFI_FW_ZONE(auto) VOWIFI_FW_SOURCE(auto) VOWIFI_FW_WEBUI_SOURCE6(none) VOWIFI_FW_ZONE6(auto) PCSC_VERSION(=$PCSC_VERSION)
 EOF
 }
 
@@ -1224,6 +1284,7 @@ case "$CMD" in
   status)             cmd_status ;;
   logs)               cmd_logs ;;
   firewall)           cmd_firewall ;;
+  logout-all)         cmd_logout_all ;;
   build-lpac)         cmd_build_lpac ;;
   patch)              cmd_patch ;;
   patch2)             cmd_patch2 ;;
