@@ -355,7 +355,11 @@ keepalives to hold it open. It also runs an **initiator-side liveness check** (R
 3GPP TS 24.302 §7.2.2A): after an idle period (`SWU_LIVENESS_PERIOD`, default 20 s) it sends an
 acknowledged empty `INFORMATIONAL` probe, and if several consecutive probes go unanswered
 (`SWU_LIVENESS_RETRIES`, default 4) it declares the ePDG dead and tears the tunnel down so the
-supervisor re-establishes it — instead of sitting "connected" on a black-holed tunnel. Carriers
+supervisor re-establishes it — instead of sitting "connected" on a black-holed tunnel. An
+unanswered probe is retransmitted with the same IKE message ID (the IKEv2 window is one request),
+and no rekey starts while one is outstanding. If the ePDG still refuses one of our requests with
+`INVALID_MESSAGE_ID`, the IKE SA can no longer send requests, so the client re-establishes the
+tunnel (`reason_code=ike_msgid_desync`). Carriers
 also periodically rekey or force a full re-authentication; because the client re-verifies the SIM
 PIN (CHV1) in its own PC/SC connection on every EAP-AKA run, and a supervisor restarts it on any
 exit, the tunnel recovers on its own (a brief media blip) instead of dying on a locked card — and
