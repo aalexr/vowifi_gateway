@@ -104,14 +104,14 @@ impl AmiClient {
     /// Connect + Login (bounded). Failure leaves the client disconnected (logged).
     pub async fn connect(self: &Arc<Self>) {
         match tokio::time::timeout(CONNECT_TIMEOUT, self.connect_inner()).await {
-            Ok(Ok(())) => tracing::info!("AMI connected instance={} {}:{}", self.instance_id, self.host, self.port),
+            Ok(Ok(())) => tracing::info!(instance = %self.instance_id, "AMI connected instance={} {}:{}", self.instance_id, self.host, self.port),
             Ok(Err(e)) => {
                 self.close().await;
-                tracing::warn!("AMI connect failed instance={}: {e:#}", self.instance_id);
+                tracing::warn!(instance = %self.instance_id, "AMI connect failed instance={}: {e:#}", self.instance_id);
             }
             Err(_) => {
                 self.close().await;
-                tracing::warn!("AMI connect failed instance={}: timed out", self.instance_id);
+                tracing::warn!(instance = %self.instance_id, "AMI connect failed instance={}: timed out", self.instance_id);
             }
         }
     }
@@ -156,7 +156,7 @@ impl AmiClient {
                     return;
                 }
                 if c.raw_action(&[("Action", "Ping")], ACTION_TIMEOUT).await.is_err() {
-                    tracing::warn!("AMI ping failed instance={} -> marking disconnected", c.instance_id);
+                    tracing::warn!(instance = %c.instance_id, "AMI ping failed instance={} -> marking disconnected", c.instance_id);
                     c.alive.store(false, Ordering::SeqCst);
                     return;
                 }
@@ -204,7 +204,7 @@ impl AmiClient {
         let r = self.raw_action(fields, timeout).await;
         if let Err(e) = &r
             && e.to_string().contains("timed out") {
-                tracing::warn!("AMI action timed out instance={} action={} -> marking disconnected",
+                tracing::warn!(instance = %self.instance_id, "AMI action timed out instance={} action={} -> marking disconnected",
                                self.instance_id, fields.first().map(|f| f.1).unwrap_or("?"));
                 self.alive.store(false, Ordering::SeqCst);
             }
@@ -254,14 +254,20 @@ impl AmiClient {
     /// "terminated;rejected"), or "". Asterisk keeps showing the outbound registration as
     /// Registered after a network-initiated removal; this is the only way to see it.
     pub async fn reginfo_state(&self) -> String {
+        self.db_get("volte", "reginfo").await
+    }
+
+    /// An astdb value via the DBGet action (its DBGetResponse event's `Val`), or "" when the key
+    /// is missing or AMI is down. The engine's Asterisk publishes state there for us: volte/reginfo
+    /// (reg-event state), volte/pau (the REGISTER 200 OK's P-Associated-URI).
+    pub async fn db_get(&self, family: &str, key: &str) -> String {
         if !self.connected() {
             return String::new();
         }
-        match self.command_output("database get volte reginfo").await {
-            Ok(text) => text.lines().map(str::trim).find_map(|l| l.strip_prefix("Value:"))
-                .map(|v| v.trim().to_string()).unwrap_or_default(),
+        match self.action(&[("Action", "DBGet"), ("Family", family), ("Key", key)], ACTION_TIMEOUT).await {
+            Ok(msgs) => db_get_value(&msgs),
             Err(e) => {
-                tracing::debug!("reginfo state error: {e:#}");
+                tracing::debug!(instance = %self.instance_id, "DBGet {family}/{key} error: {e:#}");
                 String::new()
             }
         }
@@ -361,6 +367,15 @@ async fn read_loop(mut reader: BufReader<tokio::net::tcp::OwnedReadHalf>, pendin
     }
 }
 
+/// `Val` of the DBGetResponse event in a DBGet reply ("" for "Database entry not found").
+fn db_get_value(msgs: &[Msg]) -> String {
+    msgs.iter()
+        .filter(|m| m.get("Event").is_some_and(|e| e.eq_ignore_ascii_case("DBGetResponse")))
+        .find_map(|m| m.get("Val"))
+        .map(|v| v.trim().to_string())
+        .unwrap_or_default()
+}
+
 fn dispatch(msg: Msg, pending: &Pending) {
     let Some(id) = msg.get("ActionID").map(str::to_string) else { return };
     let mut p = pending.lock().unwrap_or_else(|e| e.into_inner());
@@ -393,6 +408,18 @@ mod tests {
         let got = rx.try_recv().unwrap();
         assert_eq!(got.len(), 3);
         assert_eq!(got[1].get("status"), Some("Registered"));
+    }
+
+    #[test]
+    fn db_get_reply() {
+        let m = |pairs: &[(&str, &str)]| Msg(pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect());
+        let ok = [m(&[("Response", "Success"), ("EventList", "start")]),
+                  m(&[("Event", "DBGetResponse"), ("Family", "volte"), ("Key", "pau"),
+                      ("Val", "<sip:+491511@ims>, <tel:+491511>")]),
+                  m(&[("Event", "DBGetComplete"), ("EventList", "Complete")])];
+        assert_eq!(db_get_value(&ok), "<sip:+491511@ims>, <tel:+491511>");
+        let missing = [m(&[("Response", "Error"), ("Message", "Database entry not found")])];
+        assert_eq!(db_get_value(&missing), "");
     }
 
     #[test]

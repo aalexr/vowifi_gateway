@@ -14,7 +14,7 @@
 //!     resolves again, and a manual Stop never sets frozen_code, so it's never undone.
 //!   * PIN safety: the preflight never verifies blindly; a stale saved PIN is cleared and the
 //!     user must re-enter it. Card access is skipped while an engine or lpac holds the reader.
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -86,6 +86,24 @@ struct Health {
     last_recover_try: Option<Instant>,
 }
 
+/// One MO-SMS submit report from an engine (notify.py `sms_report`, fed by the Asterisk fork's
+/// VOWIFI_SMS_REPORT): the SMSC's RP-ACK / RP-ERROR, or a SIP failure of the MO MESSAGE.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SmsReport {
+    /// Unix seconds of arrival at the manager.
+    pub ts: i64,
+    /// "ack" | "error" | "sip"
+    pub kind: String,
+    /// RP-Cause (TS 24.011 8.2.5.4) of an RP-ERROR.
+    pub rp_cause: Option<u8>,
+    /// Final SIP status of a failed MO MESSAGE; 0 = no response / not registered.
+    pub sip_status: Option<u16>,
+    pub reason: String,
+}
+
+/// Reports kept per instance: enough for a multi-part SMS plus stragglers.
+const SMS_REPORTS_KEPT: usize = 32;
+
 /// WebSocket fan-out message.
 #[derive(Debug, Clone)]
 pub enum WsOut {
@@ -118,6 +136,7 @@ pub struct Hub {
     pushed_calls: Mutex<IndexSet<i64>>,
     reader_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     lpa_busy: Mutex<IndexSet<String>>,
+    sms_reports: Mutex<HashMap<String, VecDeque<SmsReport>>>,
 }
 
 impl Hub {
@@ -135,7 +154,25 @@ impl Hub {
             pushed_calls: Default::default(),
             reader_locks: Default::default(),
             lpa_busy: Default::default(),
+            sms_reports: Default::default(),
         })
+    }
+
+    // ------------------------------------------------------------------- MO-SMS submit reports
+    pub fn push_sms_report(&self, iid: &str, report: SmsReport) {
+        let mut all = lock(&self.sms_reports);
+        let q = all.entry(iid.to_string()).or_default();
+        if q.len() >= SMS_REPORTS_KEPT {
+            q.pop_front();
+        }
+        q.push_back(report);
+    }
+
+    /// Reports for `iid` that arrived at or after `since` (unix seconds), oldest first.
+    pub fn sms_reports_since(&self, iid: &str, since: i64) -> Vec<SmsReport> {
+        lock(&self.sms_reports).get(iid)
+            .map(|q| q.iter().filter(|r| r.ts >= since).cloned().collect())
+            .unwrap_or_default()
     }
 
     // ----------------------------------------------------------------------- websocket fan-out
@@ -371,9 +408,9 @@ impl Hub {
             (elapsed, freeze.then(|| e.clone()))
         };
         if let Some(h) = freeze {
-            tracing::warn!("instance {iid}: giving up after {}s ({}) -> engine stopped", elapsed.as_secs(), st.code());
+            tracing::warn!(instance = %iid, "instance {iid}: giving up after {}s ({}) -> engine stopped", elapsed.as_secs(), st.code());
             if let Err(e) = engine::stop(iid).await {
-                tracing::warn!("instance {iid}: stop after freeze failed: {e:#}");
+                tracing::warn!(instance = %iid, "instance {iid}: stop after freeze failed: {e:#}");
             }
             self.drop_ami(iid).await;
             let retrying = NETWORK_RECOVERABLE.contains(&st.code()) && auto_recover;
@@ -408,13 +445,13 @@ impl Hub {
                     "The card in {reader} now has a different identity (ICCID {iccid}; this line expects {}). \
                      Provision the active profile as its own line, or switch back, then start.",
                     inst.iccid.as_deref().unwrap_or("")));
-                tracing::warn!("auto-recover aborted — card mismatch instance={iid}");
+                tracing::warn!(instance = %iid, "auto-recover aborted — card mismatch instance={iid}");
                 return Ok(());
             }
             match self.preflight_pin(&inst).await {
                 Preflight::Ok => {}
                 Preflight::Fail { code: "no_card", .. } => {
-                    tracing::info!("auto-recover deferred — no card instance={iid}");
+                    tracing::info!(instance = %iid, "auto-recover deferred — no card instance={iid}");
                     return Ok(());
                 }
                 Preflight::Fail { code, clear, .. } => {
@@ -424,7 +461,7 @@ impl Hub {
                     let reason = status::reason(code);
                     let reason = if reason.is_empty() { "SIM PIN required or invalid — enter PIN and start again." } else { reason };
                     self.set_frozen(iid, code, reason.into());
-                    tracing::warn!("auto-recover aborted — {code} instance={iid}");
+                    tracing::warn!(instance = %iid, "auto-recover aborted — {code} instance={iid}");
                     return Ok(());
                 }
             }
@@ -433,7 +470,7 @@ impl Hub {
             // frozen_code stays until the start succeeds: a failed start leaves the freeze for
             // the next recover interval (and `recovering` blocks double-scheduling meanwhile).
             self.drop_ami(iid).await;
-            tracing::info!("auto-recover re-provisioning instance={iid} (network restored)");
+            tracing::info!(instance = %iid, "auto-recover re-provisioning instance={iid} (network restored)");
             engine::start(&inst, &config::get_settings()).await?;
             self.reset_health(iid);
             let hub = self.clone();
@@ -442,7 +479,7 @@ impl Hub {
             Ok(())
         }.await;
         if let Err(e) = r {
-            tracing::warn!("auto-recover failed instance={iid}: {e:#}");
+            tracing::warn!(instance = %iid, "auto-recover failed instance={iid}: {e:#}");
         }
         lock(&self.health).entry(iid.to_string()).or_default().recovering = false;
     }
@@ -500,24 +537,17 @@ impl Hub {
         }
     }
 
-    /// Learn the registered MSISDN from the P-Associated-URI in the engine log. Only when it
-    /// isn't there (SIP logger was off) turn the logger on and re-register: a forced re-REGISTER
-    /// right after the initial one can be rate-limited by the IMS (Telefonica DE: 503 +
-    /// Retry-After), which then reads as reg_rejected. Attempts are capped by the poller.
+    /// Learn the registered MSISDN from the REGISTER 200 OK's P-Associated-URI, which the engine's
+    /// Asterisk stores in astdb volte/pau (fork patch VOWIFI_PAU_DB). It is there before the line
+    /// reaches OK, so no re-REGISTER is needed (a forced one right after the initial REGISTER can
+    /// be rate-limited by the IMS: Telefonica DE answers 503 + Retry-After, which then reads as
+    /// reg_rejected). Attempts are capped by the poller.
     async fn learn_msisdn(self: &Arc<Self>, iid: &str) {
-        static RE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
-            Regex::new(r"(?i)P-Associated-Uri:\s*<(?:tel:|sip:)(\+\d+)").expect("valid regex")
-        });
-        let extract = |logs: &str| RE.captures(logs).map(|c| c[1].to_string());
-        // Wide tail: with Asterisk debug on, the 200 OK is quickly buried in console output.
-        let mut msisdn = extract(&engine::logs(iid, 20000, None).await);
-        if msisdn.is_none() {
-            engine::exec_cli(iid, "pjsip set logger on").await;
-            engine::exec_cli(iid, "pjsip send register volte_ims").await;
-            tokio::time::sleep(Duration::from_secs(8)).await;
-            msisdn = extract(&engine::logs(iid, 1200, None).await);
-        }
-        if let Some(m) = msisdn {
+        let pau = match self.ami_for(iid).await {
+            Some(ami) => ami.db_get("volte", "pau").await,
+            None => String::new(),
+        };
+        if let Some(m) = msisdn_from_pau(&pau) {
             let mut patch = Map::new();
             patch.insert("id".into(), json!(iid));
             patch.insert("msisdn".into(), json!(m));
@@ -526,7 +556,7 @@ impl Hub {
                     if let Some(c) = self.ami.lock().await.get(iid) {
                         c.set_msisdn(&m);
                     }
-                    tracing::info!("learned MSISDN {m} for instance {iid}");
+                    tracing::info!(instance = %iid, "learned MSISDN {m} for instance {iid}");
                     self.broadcast(json!({"type": "engine", "instance": iid, "event": "msisdn", "args": [m]}));
                 }
                 Err(e) => tracing::debug!("learn_msisdn persist failed: {e}"),
@@ -648,13 +678,13 @@ impl Hub {
         let mut patch = Map::new();
         if let Some(port) = self.reader_port_for_instance(&inst)
             && inst.reader_port() != Some(port.as_str()) {
-                tracing::info!("{why} instance {}: reader port {:?} -> {port}", inst.id, inst.reader_port);
+                tracing::info!(instance = %inst.id, "{why} instance {}: reader port {:?} -> {port}", inst.id, inst.reader_port);
                 patch.insert("reader_port".into(), json!(port));
                 inst.reader_port = Some(port);
             }
         if let Some(idx) = self.reader_index_for_instance(&inst).await
             && inst.reader_index != Some(idx as i64) {
-                tracing::info!("{why} instance {}: reader index {:?} -> {idx}", inst.id, inst.reader_index);
+                tracing::info!(instance = %inst.id, "{why} instance {}: reader index {:?} -> {idx}", inst.id, inst.reader_index);
                 patch.insert("reader_index".into(), json!(idx));
             }
         if patch.is_empty() {
@@ -860,4 +890,44 @@ fn preflight_locked(idx: usize, saved: Option<&str>) -> Preflight {
         return Preflight::Fail { code: "pin_invalid", clear: true, tries: chk.pin_tries };
     }
     Preflight::Ok
+}
+
+/// The MSISDN in a P-Associated-URI value ("<sip:+491...@ims...>, <tel:+491...>", possibly
+/// several headers comma-joined): the first tel:/sip: identity that is an E.164 number.
+/// Identities without one (sip:<IMSI>@...) are skipped.
+fn msisdn_from_pau(pau: &str) -> Option<String> {
+    static RE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
+        Regex::new(r"(?i)<(?:tel|sip):(\+\d+)").expect("valid regex")
+    });
+    RE.captures(pau).map(|c| c[1].to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn msisdn_from_pau_values() {
+        assert_eq!(msisdn_from_pau("<sip:+4915112345678@ims.mnc003.mcc262.3gppnetwork.org>, <tel:+4915112345678>"),
+                   Some("+4915112345678".into()));
+        assert_eq!(msisdn_from_pau("<sip:262031234567890@ims.example>, <tel:+4915112345678;cpc=x>"),
+                   Some("+4915112345678".into()));
+        assert_eq!(msisdn_from_pau("<sip:262031234567890@ims.example>"), None);
+        assert_eq!(msisdn_from_pau(""), None);
+    }
+
+    #[test]
+    fn sms_reports_window() {
+        let hub = Hub::new();
+        let r = |ts, kind: &str| SmsReport { ts, kind: kind.into(), rp_cause: None, sip_status: None,
+                                             reason: String::new() };
+        for i in 0..40 {
+            hub.push_sms_report("1", r(i, "ack"));
+        }
+        let got = hub.sms_reports_since("1", 30);
+        assert_eq!(got.len(), 10);
+        assert_eq!(got[0].ts, 30);
+        assert_eq!(hub.sms_reports_since("1", 0).len(), SMS_REPORTS_KEPT);
+        assert!(hub.sms_reports_since("2", 0).is_empty());
+    }
 }

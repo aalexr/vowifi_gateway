@@ -255,8 +255,10 @@ impl Esim {
     }
 }
 
+/// Asterisk debug is off by default: nothing in the manager reads the engine log any more, and
+/// debug level floods it (AMI actions every few seconds). Turn it on to troubleshoot.
 fn default_debug() -> Value {
-    json!({"asterisk": true, "charon": false, "pcap": false})
+    json!({"asterisk": false, "charon": false, "pcap": false})
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -861,7 +863,7 @@ pub fn update_settings(mut patch: Map<String, Value>) -> Result<Value, CfgError>
     if changed {
         for inst in instances.values() {
             if let Err(e) = write_instance_json(inst, &settings) {
-                tracing::warn!("instance {}: instance.json refresh failed: {e:#}", inst.id);
+                tracing::warn!(instance = %inst.id, "instance {}: instance.json refresh failed: {e:#}", inst.id);
             }
         }
     }
@@ -1190,7 +1192,7 @@ pub fn clear_pin(iid: &str) -> bool {
         let had = inst.has_pin();
         inst.pin = Some(String::new());
         if let Err(e) = save_locked(&data) {
-            tracing::error!("clear_pin {iid}: save failed: {e:#}");
+            tracing::error!(instance = %iid, "clear_pin {iid}: save failed: {e:#}");
         }
         had
     })

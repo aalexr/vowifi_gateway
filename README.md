@@ -99,6 +99,7 @@ Set via **env vars** (or a `.env` file next to `install.sh`) before running `ins
 | `VOWIFI_FW_SOURCE` | auto | IPv4 subnet allowed through firewalld (default: the on-link subnet of the LAN interface, e.g. `192.168.1.0/24`) |
 | `VOWIFI_FW_WEBUI_SOURCE6` | *(none)* | IPv6 prefixes (comma/space separated) allowed to reach the **WebUI port only** through firewalld, e.g. `2001:db8:1234::/48`; `any` allows every IPv6 source. Empty = no IPv6 rule. See [WebUI over IPv6](#webui-over-ipv6). |
 | `VOWIFI_FW_ZONE6` | auto | firewalld zone for the IPv6 WebUI rule (default: the zone of the IPv6 default-route interface) |
+| `VOWIFI_LOG_RETENTION` | *(none)* | journald time span (e.g. `30day`): journal entries older than this are dropped. Applies **host-wide**; empty = the host's journald policy. See [Logs](#logs). |
 
 Example:
 ```bash
@@ -113,7 +114,7 @@ VOWIFI_PORT=9443 VOWIFI_ADVERTISE_ADDR=192.168.1.100 ./install.sh install
 # Check status (control service + engine containers)
 ./install.sh status
 
-# View control-plane logs (live) — journalctl --user -u vowifi-control
+# View control-plane logs (live) — journalctl --user -u vowifi-control; `logs <id>` for an engine
 ./install.sh logs
 
 # Start / stop / restart just the control plane (systemd --user service)
@@ -187,6 +188,33 @@ git clone https://github.com/estkme-group/lpac.git ../lpac
 ./install.sh patch2       # only the ATR-compatibility fix
 ./install.sh patchall     # both — only for SIMs whose ATR the stock driver rejects
 ```
+
+### Logs
+
+All logs go to your user journal. The control plane logs there because it is a `systemd --user` service. Each engine logs there through Podman's journald log driver, tagged `CONTAINER_NAME=vowifi-engine-<id>`. The engine's output includes the Asterisk console with SIP traces, plus the entrypoint and supervisor lines.
+
+```bash
+./install.sh logs                                   # follow the control plane
+./install.sh logs 1                                 # follow engine 1
+journalctl --user -a CONTAINER_NAME=vowifi-engine-1 --since "1 hour ago"   # -a: Asterisk colours
+journalctl --user -u vowifi-control INSTANCE=1      # control-plane events for line 1
+```
+
+Control-plane events carry structured journal fields, so you can filter on them directly. `INSTANCE` is the line id. Run `journalctl --user -u vowifi-control -o verbose` to see all of them.
+
+Logs are for people only; nothing in the gateway parses them. The engine reports structured state instead:
+
+| What | How the control plane gets it |
+|------|-------------------------------|
+| Outgoing SMS outcome (*delivered* / *failed*) | The SMSC's RP-ACK or RP-ERROR, or a SIP error on the outgoing MESSAGE. Asterisk passes it to the `volte_ims_msg` dialplan, which posts a `notify.py sms_report` event. |
+| The line's MSISDN | The REGISTER 200 OK's P-Associated-URI, which Asterisk stores in astdb `volte/pau`; the control plane reads it over AMI `DBGet`. |
+| Why the tunnel is down | `swu_ike` writes `ike_reason` to `swu_status.json`. |
+
+So Asterisk debug logging can stay off. **Settings → Asterisk verbose/debug logging** is off by default and only adds detail for troubleshooting. At debug level the engine log is mostly the control plane's AMI polling (`Running action 'Ping'` / `'Command'` every few seconds). Lines provisioned before this change keep their own `debug:` block in `config.yaml`, and it overrides Settings. To make such a line follow Settings again, delete the block, then restart the line.
+
+Inside an engine, two working copies stay for interactive debugging. Asterisk's `/var/log/asterisk/full` holds the same content as the journal. The SWu/IKE log `run/charon.log` is very chatty, so it is kept off the journal. The entrypoint caps each file at 50 MB plus one `.1` generation. Both are lost when the engine is recreated.
+
+`install.sh install` makes the journal persistent by creating `/var/log/journal` where the distro keeps it in RAM only. Retention follows the host's journald policy, which by default caps the journal at 10 % of the filesystem. The engine logs contain phone numbers and IMSIs, so consider a time limit: `VOWIFI_LOG_RETENTION=30day ./install.sh install` adds `/etc/systemd/journald.conf.d/50-vowifi.conf` with `MaxRetentionSec=30day`. This limit applies to the **whole** host journal. Call and SMS history doesn't depend on any of this, because it lives in the SQLite DB in the data dir.
 
 ---
 
@@ -430,7 +458,7 @@ TUNNEL_DOWN → (IKEv2 EAP-AKA succeeds) →
 REGISTERING → (IMS REGISTER 200 OK) →
 OK
 ```
-`STOPPED` = user-initiated stop. Each transition logs to the engine's `/logs/<id>/entrypoint.log` and posts an event to the control plane (state + timestamp in the dashboard). The control plane also polls engine status files (`/run/<id>/status`, bind-mounted from the data dir).
+`STOPPED` = user-initiated stop. Each transition logs to the engine's journal (`./install.sh logs <id>`) and posts an event to the control plane (state + timestamp in the dashboard). The control plane also polls engine status files (`/run/<id>/status`, bind-mounted from the data dir).
 
 ---
 

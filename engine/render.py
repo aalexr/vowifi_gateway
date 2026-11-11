@@ -291,7 +291,7 @@ def build_context(cfg):
         "rtp_bind_addr": cfg.get("local_addr") or container_ipv4(),
         "rtp_start": cfg.get("rtp_start", 10000),
         "rtp_end": cfg.get("rtp_end", 11000),
-        "debug_asterisk": cfg.get("debug", {}).get("asterisk", True),
+        "debug_asterisk": cfg.get("debug", {}).get("asterisk", False),
         "debug_charon": cfg.get("debug", {}).get("charon", False),
     }
     return ctx

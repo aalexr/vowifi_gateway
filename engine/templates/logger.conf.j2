@@ -1,6 +1,11 @@
 [general]
 
 [logfiles]
-console => notice,warning,error,verbose{{ ',debug' if debug_asterisk else '' }}
+; console = the container's stdout -> Podman's journald log driver -> the host journal. That is
+; the durable, rotated record (`journalctl --user CONTAINER_NAME=vowifi-engine-<id>`, the WebUI
+; engine log), so it carries every level the `full` file does. It is for humans only: the manager
+; gets SMS reports and the MSISDN from notify.py events and astdb, never from this log.
+console => notice,warning,error,verbose,dtmf{{ ',debug' if debug_asterisk else '' }}
+; Working copy inside the container for `podman exec ... less /var/log/asterisk/full`; size-capped
+; by entrypoint.sh (full + full.1) and gone when the engine is recreated.
 full => notice,warning,error,verbose,dtmf{{ ',debug' if debug_asterisk else '' }}
-messages => notice,warning,error

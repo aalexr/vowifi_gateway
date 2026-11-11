@@ -1,31 +1,21 @@
 //! api/events.rs - The engine event hook (notify.py -> POST /api/engine/event) and the
 //! background MO-SMS delivery watcher.
-use std::sync::LazyLock;
 use std::time::Duration;
 
 use axum::extract::State;
 use base64::Engine as _;
-use regex::Regex;
 use serde_json::{Map, Value, json};
 
 use super::{ApiResult, AppState, Body, ok};
 use crate::config;
-use crate::hub::blocking;
+use crate::hub::{SmsReport, blocking};
 use crate::{engine, push, store};
 
 // ------------------------------------------------------------------- MO SMS delivery verdict
-/// The patched (sysmocom) Asterisk logs the raw 3GPP RP PDU of every SMS it parses
-/// (res_pjsip_messaging.c parse_rpdata). For an MO SMS the SMSC answers with an async RP-ACK /
-/// RP-ERROR submit report — THAT, not the SIP 202, is the delivery verdict. Byte 0 low 3 bits
-/// = RP-MTI: 3 = RP-ACK, 5 = RP-ERROR (+ RP-Cause), 1 = RP-DATA (a real inbound SMS, ignored).
-static RPDATA_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"parse_rpdata:\s*SMS RP-DATA\s*'([0-9a-fA-F]+)'").expect("regex"));
-static ANSI_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\x1b\[[0-9;]*m").expect("regex"));
-static SIP_STATUS_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"SIP/2\.0 (\d{3})([^\n]*)").expect("regex"));
-static CSEQ_MESSAGE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"CSeq:\s*\d+\s+MESSAGE").expect("regex"));
-
-const RP_ACK_MTI: u8 = 3;
-const RP_ERROR_MTI: u8 = 5;
+// For an MO SMS the SIP 202 only means the IMS took the MESSAGE; the SMSC's async RP-ACK /
+// RP-ERROR submit report is the delivery verdict. The engine's Asterisk (fork patch
+// VOWIFI_SMS_REPORT) passes it, and any SIP failure of the MO MESSAGE itself, to the dialplan,
+// which posts `sms_report` events here; the hub keeps them per line for `watch_sms_delivery`.
 
 /// RP-Cause (TS 24.011 8.2.5.4, values per TS 24.008) -> reason.
 fn rp_cause(c: u8) -> Option<&'static str> {
@@ -61,76 +51,64 @@ fn rp_cause(c: u8) -> Option<&'static str> {
 #[derive(Debug, PartialEq)]
 enum Verdict {
     Delivered,
+    /// The carrier refused it: an RP-ERROR (code None) or a SIP error response (code Some).
     Failed { reason: String, code: Option<u16> },
+    /// It never reached the carrier: no SIP response, or IMS not registered.
+    NotSent(String),
     Unknown,
 }
 
-/// Decode an RP submit report; None when the PDU isn't one (e.g. RP-DATA).
-fn decode_rp_report(pdu_hex: &str) -> Option<Verdict> {
-    let b = hex::decode(pdu_hex).ok()?;
-    let mti = b.first()? & 0x07;
-    match mti {
-        RP_ACK_MTI => Some(Verdict::Delivered),
-        RP_ERROR_MTI => {
-            // octet0 MTI, octet1 msg-ref, octet2 RP-Cause IE length, octet3 cause (bit8 = ext).
-            let reason = match b.get(3).map(|c| c & 0x7f) {
-                Some(c) => rp_cause(c).map(String::from).unwrap_or_else(|| format!("cause {c}")),
-                None => "delivery failed".into(),
-            };
-            Some(Verdict::Failed { reason, code: None })
+/// The MO SMS outcome from the submit reports that arrived since it was sent. Any failure wins
+/// (one failed part fails a multi-part SMS); otherwise an RP-ACK means delivered to the SMSC.
+fn sms_verdict(reports: &[SmsReport]) -> Verdict {
+    for r in reports {
+        match r.kind.as_str() {
+            "error" => {
+                let reason = match r.rp_cause {
+                    Some(c) => rp_cause(c).map(String::from).unwrap_or_else(|| format!("cause {c}")),
+                    None => "delivery failed".into(),
+                };
+                return Verdict::Failed { reason, code: None };
+            }
+            "sip" => {
+                return match r.sip_status {
+                    Some(code) if code >= 300 => Verdict::Failed { reason: r.reason.clone(), code: Some(code) },
+                    _ if r.reason == "not registered" => {
+                        Verdict::NotSent("the line is not registered with the IMS".into())
+                    }
+                    _ => Verdict::NotSent("no response from the IMS".into()),
+                };
+            }
+            _ => {}
         }
-        _ => None,
     }
+    if reports.iter().any(|r| r.kind == "ack") { Verdict::Delivered } else { Verdict::Unknown }
 }
 
-/// The real MO SMS outcome from the engine log since `since`: (1) the SMSC's RP-ACK/RP-ERROR
-/// (authoritative; the LAST one in the window is ours), else (2) a SIP 4xx/5xx to our MESSAGE.
-/// A SIP 202 is NOT success.
-fn detect_sms_result(raw: &str) -> Verdict {
-    let raw = ANSI_RE.replace_all(raw, "");
-    let reports: Vec<String> = RPDATA_RE.captures_iter(&raw).map(|c| c[1].to_string()).collect();
-    for h in reports.iter().rev() {
-        if let Some(v) = decode_rp_report(h) {
-            return v;
-        }
-    }
-    let mut result = Verdict::Unknown;
-    for seg in raw.split("Received SIP response").skip(1) {
-        let Some(m) = SIP_STATUS_RE.captures(seg) else { continue };
-        if CSEQ_MESSAGE_RE.is_match(seg) {
-            let code: u16 = m[1].parse().unwrap_or(0);
-            result = if (200..300).contains(&code) {
-                Verdict::Delivered
-            } else {
-                Verdict::Failed { reason: m[2].trim().to_string(), code: Some(code) }
-            };
-        }
-    }
-    result
-}
-
-/// Resolve an MO SMS's REAL outcome after the IMS accepted it (stored as 'sent'): poll for the
-/// SMSC's submit report (or a SIP 4xx) and flip the record to 'delivered' / 'failed', each
+/// Resolve an MO SMS's REAL outcome after the IMS accepted it (stored as 'sent'): wait for the
+/// SMSC's submit report (or a SIP failure) and flip the record to 'delivered' / 'failed', each
 /// change broadcast. On timeout it stays 'sent' (accepted, unconfirmed).
 pub async fn watch_sms_delivery(hub: AppState, iid: String, mid: i64, since: i64) {
-    for _ in 0..20 {
-        tokio::time::sleep(Duration::from_secs(2)).await;
-        if !engine::is_running(&iid).await {
-            return;
-        }
-        let logs = engine::logs(&iid, 4000, Some(since)).await;
-        let (status, err) = match detect_sms_result(&logs) {
+    for _ in 0..40 {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let (status, err) = match sms_verdict(&hub.sms_reports_since(&iid, since)) {
             Verdict::Delivered => ("delivered", None),
             Verdict::Failed { reason, code } => {
                 let reason = if reason.is_empty() { "unknown".to_string() } else { reason };
                 let sip = code.map(|c| format!(" (SIP {c})")).unwrap_or_default();
                 ("failed", Some(format!("Carrier rejected the SMS: {reason}{sip}")))
             }
-            Verdict::Unknown => continue,
+            Verdict::NotSent(why) => ("failed", Some(format!("SMS not sent: {why}"))),
+            Verdict::Unknown => {
+                if !engine::is_running(&iid).await {
+                    return;
+                }
+                continue;
+            }
         };
         let e = err.clone();
         if let Err(e) = blocking(move || store::set_message_status(mid, status, e.as_deref())).await {
-            tracing::warn!("sms {mid}: status update failed: {e:#}");
+            tracing::warn!(instance = %iid, "sms {mid}: status update failed: {e:#}");
         }
         hub.broadcast(json!({"type": "sms", "instance": iid,
                              "message": {"id": mid, "status": status, "direction": "out", "error": err}}));
@@ -196,7 +174,7 @@ pub async fn engine_event(State(hub): State<AppState>, body: Body) -> ApiResult 
             // data-download SMS (TP-DCS 0xF6 class 2) that decodes to "". A genuine text always
             // has a non-empty body, so nothing real is lost.
             if text.trim().is_empty() {
-                tracing::info!("dropping empty-body inbound SMS from {sender:?} (internal signalling / \
+                tracing::info!(instance = %iid, "dropping empty-body inbound SMS from {sender:?} (internal signalling / \
                                 binary/OTA SIM message — no displayable text)");
                 return ok(json!({"ok": true, "dropped": "empty_body"}));
             }
@@ -206,7 +184,7 @@ pub async fn engine_event(State(hub): State<AppState>, body: Body) -> ApiResult 
                 let (i, s, t) = (iid.clone(), sender.clone(), text.clone());
                 let part = blocking(move || store::add_message_part(&i, &s, r, total, seq, &t)).await?;
                 if !part.changed {
-                    tracing::info!("ignoring re-delivered SMS part {seq}/{total} (ref {r}) from {sender:?}");
+                    tracing::info!(instance = %iid, "ignoring re-delivered SMS part {seq}/{total} (ref {r}) from {sender:?}");
                     return ok(json!({"ok": true, "duplicate": true}));
                 }
                 hub.broadcast(json!({"type": "sms", "instance": iid, "message": part.message,
@@ -222,6 +200,26 @@ pub async fn engine_event(State(hub): State<AppState>, body: Body) -> ApiResult 
             hub.dispatch_push(push::EV_INCOMING_SMS, &iid, &sender, Some(text));
         }
         "sms_out" if args.len() >= 2 => {} // already stored by the send path
+        // <ack|error|sip> <rp_ref> <rp_cause> <sip_status> <reason_b64>: an MO SMS's outcome.
+        "sms_report" if !args.is_empty() => {
+            let kind = arg(&args, 0);
+            if !["ack", "error", "sip"].contains(&kind.as_str()) {
+                return ok(json!({"ok": false, "error": "unknown report kind"}));
+            }
+            let num = |i: usize| arg(&args, i).trim().parse::<i64>().ok();
+            let reason = base64::engine::general_purpose::STANDARD.decode(arg(&args, 4).trim())
+                .map(|b| String::from_utf8_lossy(&b).trim().to_string()).unwrap_or_default();
+            let report = SmsReport {
+                ts: now(),
+                rp_cause: num(2).and_then(|c| u8::try_from(c).ok()),
+                sip_status: num(3).and_then(|c| u16::try_from(c).ok()),
+                reason,
+                kind,
+            };
+            tracing::info!(instance = %iid, "SMS submit report: {} ref={} cause={:?} sip={:?} {}",
+                           report.kind, arg(&args, 1), report.rp_cause, report.sip_status, report.reason);
+            hub.push_sms_report(&iid, report);
+        }
         "call_in" => {
             // Logged even when the caller withholds the number (peer ""), so the 'h'
             // disposition can finalize it. The IMS delivers one INVITE several times
@@ -280,8 +278,8 @@ pub async fn engine_event(State(hub): State<AppState>, body: Body) -> ApiResult 
                         patch.insert("cp_mode".into(), json!(resolved));
                         patch.insert("cp_mode_source".into(), json!("auto"));
                         match blocking(move || config::upsert_instance(patch)).await {
-                            Ok(_) => tracing::info!("instance {iid}: CP auto-discovery resolved to {resolved} (repinned)"),
-                            Err(e) => tracing::warn!("cp_mode_resolved persist failed for {iid}: {e}"),
+                            Ok(_) => tracing::info!(instance = %iid, "instance {iid}: CP auto-discovery resolved to {resolved} (repinned)"),
+                            Err(e) => tracing::warn!(instance = %iid, "cp_mode_resolved persist failed for {iid}: {e}"),
                         }
                     }
             hub.broadcast(json!({"type": "engine", "instance": iid, "event": event, "args": args}));
@@ -304,17 +302,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rp_reports() {
-        assert_eq!(decode_rp_report("03010041"), Some(Verdict::Delivered));
-        assert_eq!(decode_rp_report("05010126"),
-                   Some(Verdict::Failed { reason: "network out of order".into(), code: None }));
-        assert_eq!(decode_rp_report("01020304"), None);
-        let log = "x parse_rpdata: SMS RP-DATA '0101' y parse_rpdata: SMS RP-DATA '\x1b[1m03aa' ";
-        // ANSI stripped, last report wins (and RP-DATA is skipped).
-        assert_eq!(detect_sms_result(log), Verdict::Delivered);
-        let sip = "Received SIP response from x\nSIP/2.0 403 Forbidden\nCSeq: 2 MESSAGE\n";
-        assert_eq!(detect_sms_result(sip), Verdict::Failed { reason: "Forbidden".into(), code: Some(403) });
-        assert_eq!(detect_sms_result("nothing"), Verdict::Unknown);
+    fn sms_verdicts() {
+        let r = |kind: &str, rp_cause, sip_status, reason: &str| SmsReport {
+            ts: 0, kind: kind.into(), rp_cause, sip_status, reason: reason.into() };
+        assert_eq!(sms_verdict(&[]), Verdict::Unknown);
+        assert_eq!(sms_verdict(&[r("ack", None, None, "")]), Verdict::Delivered);
+        assert_eq!(sms_verdict(&[r("error", Some(38), None, "")]),
+                   Verdict::Failed { reason: "network out of order".into(), code: None });
+        assert_eq!(sms_verdict(&[r("error", Some(200), None, "")]),
+                   Verdict::Failed { reason: "cause 200".into(), code: None });
+        // One failed part fails a multi-part SMS, whatever the order.
+        assert_eq!(sms_verdict(&[r("ack", None, None, ""), r("error", None, None, "")]),
+                   Verdict::Failed { reason: "delivery failed".into(), code: None });
+        assert_eq!(sms_verdict(&[r("sip", None, Some(403), "Forbidden")]),
+                   Verdict::Failed { reason: "Forbidden".into(), code: Some(403) });
+        assert_eq!(sms_verdict(&[r("sip", None, Some(0), "not registered")]),
+                   Verdict::NotSent("the line is not registered with the IMS".into()));
+        assert_eq!(sms_verdict(&[r("sip", None, Some(0), "")]),
+                   Verdict::NotSent("no response from the IMS".into()));
     }
 
     #[test]
