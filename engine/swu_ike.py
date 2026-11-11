@@ -5246,7 +5246,7 @@ class swu():
             if policy == "no_retry":
                 swu_log("attach rejected with no-retry policy (%s); not re-attempting on the same "
                         "SIM/PLMN — exiting for supervised back-off (durable Tw3 is the manager's "
-                        "job, see control/app/status.py / main.apply_health)" % reason)
+                        "job, see control/src/status.rs / hub.rs apply_health)" % reason)
             else:
                 bo = ("%ss" % self.reject_backoff_seconds) if self.reject_backoff_seconds \
                     else "implementation default (supervised restart cadence)"
