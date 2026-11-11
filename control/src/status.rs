@@ -47,6 +47,7 @@ impl State {
 pub fn reason(code: &str) -> &'static str {
     match code {
         "no_card" => "No SIM card detected in the reader.",
+        "card_mismatch" => "The card in this line's reader is a different SIM — insert this line's SIM.",
         "pin_wrong" => "SIM PIN is incorrect.",
         "pin_blocked" => "SIM PIN is blocked — PUK required.",
         "epdg_unresolved" => "Can't resolve the carrier's VoWiFi (ePDG) address — the carrier may \
@@ -155,6 +156,8 @@ pub async fn compute(inst: &Instance, ami: Option<&AmiClient>) -> Status {
     detail.insert("pin".into(), pin);
     match pstate.as_deref() {
         None | Some("NO_CARD") => return Status::new(State::NoCard, "no_card", detail),
+        // pin_keeper found another SIM (ICCID) in the bound reader and touched nothing.
+        Some("WRONG_CARD") => return Status::new(State::NoCard, "card_mismatch", detail),
         Some("WRONG_PIN") => return Status::new(State::PinProblem, "pin_wrong", detail),
         Some("PIN_BLOCKED") => return Status::new(State::PinProblem, "pin_blocked", detail),
         _ => {}

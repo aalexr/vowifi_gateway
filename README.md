@@ -346,6 +346,13 @@ so the two are not confused.
 **`PIN_PROBLEM`:**  
 Wrong PIN, or the SIM locked (PUK needed). Re-provision with the correct PIN; if the SIM is locked, unlock it first (SIM manager tool outside this gateway).
 
+**Start refused with *card mismatch*, or `NO_CARD` — "The card in this line's reader is a different SIM":**  
+Each line remembers its SIM's ICCID and its reader (USB port). When that reader now holds another
+SIM (cards swapped between lines, or an eSIM profile switch), the manager refuses to start the line,
+and an engine that comes up anyway (boot, self-heal restart) leaves the card alone: `pin_keeper`,
+`swu_ike` and `ami_usim` read the ICCID first and never send this line's PIN to another SIM. Insert
+the line's own SIM (it may go in any reader: the line follows its ICCID) and start it again.
+
 **`REGISTERING` → timeout:**  
 The tunnel is up (so the SIM already passed EAP-AKA), but IMS-AKA on `REGISTER` fails. The gateway never sees Ki/OPc — `ami_usim.py` forwards each SIP challenge to the card's AUTHENTICATE command — so check `usim_status.json` in the instance's run dir (`/run/vowifi` inside the engine): `AUTH_FAIL` means the card rejected the challenge, `PIN_FAIL`/`NO_CARD` means the SIP auth path can't reach the card (PIN or reader binding). If the card answers (`AUTH_OK`) and the network still rejects, the line is most likely not provisioned for IMS / Wi-Fi Calling — check with your carrier.
 

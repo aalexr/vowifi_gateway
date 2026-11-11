@@ -175,6 +175,11 @@ def read_iccid(conn):
     return swap_nibbles(hx).rstrip("f")
 
 
+def norm_iccid(s):
+    """Comparable ICCID: same form as the control plane's sim::dec_iccid (lowercase, no F pad)."""
+    return (s or "").strip().lower().rstrip("f")
+
+
 # --- Reader binding by physical USB port ----------------------------------------------------
 # Resolve a reader by its STABLE physical USB port path (e.g. "3-2") instead of the pcscd
 # enumeration index, which can flip between two identical (serial-less) readers on re-enumeration.
@@ -367,6 +372,16 @@ def ensure_pin(reader_spec, pin):
     rname = str(r)
     try:
         with _Tx(conn):
+            # The port binding / single-reader shortcut in find_reader takes whatever card is in
+            # that reader. Another line's SIM swapped in must never see THIS line's PIN: check
+            # the ICCID (EF 2FE2, readable without PIN) first. Unreadable -> fail open.
+            want = norm_iccid(os.environ.get("USIM_ICCID", ""))
+            got = norm_iccid(read_iccid(conn))
+            if want and got and got != want:
+                write_status("WRONG_CARD", reader=rname,
+                             detail=f"card ICCID {got}, this line expects {want}")
+                conn.disconnect()
+                return None
             if not select_adf_usim(conn):
                 write_status("NO_CARD", reader=rname, detail="ADF.USIM select failed")
                 conn.disconnect()

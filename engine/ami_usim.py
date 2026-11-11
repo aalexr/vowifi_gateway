@@ -288,7 +288,9 @@ def open_usim(reader_spec):
             except Exception:
                 continue
             with _Tx(conn):
-                if select_adf_usim(conn) and verify_pin(conn):
+                if card_is_other_sim(conn):
+                    pass  # another line's SIM: no PIN, no IMSI probe
+                elif select_adf_usim(conn) and verify_pin(conn):
                     conn.transmit(toBytes("00a40004026f0700"))
                     d, s1, s2 = conn.transmit(toBytes("00b0000009"))
                     if s1 == 0x90 and dec_imsi(bytes(d).hex()) == target:
@@ -307,6 +309,31 @@ def open_usim(reader_spec):
     conn = rlist[idx].createConnection()
     conn.connect()
     return conn
+
+
+def _read_iccid(connection):
+    """EF.ICCID (MF/2FE2, no PIN) in the control plane's form (lowercase, no F pad)."""
+    try:
+        connection.transmit(toBytes("00a40004023f0000"))
+        connection.transmit(toBytes("00a40004022fe200"))
+        d, s1, s2 = connection.transmit(toBytes("00b000000a"))
+    except Exception:
+        return ""
+    if s1 != 0x90:
+        return ""
+    hx = bytes(d).hex()
+    return "".join(y + x for x, y in zip(hx[0::2], hx[1::2])).lower().rstrip("f")
+
+
+def card_is_other_sim(connection):
+    """True only on a POSITIVE mismatch: the card's ICCID is readable and isn't this line's
+    (USIM_ICCID). Another line's SIM in our reader must never get our PIN VERIFY, which costs
+    one of its tries per attempt. Unknown either side -> False (fail open)."""
+    want = os.environ.get("USIM_ICCID", "").strip().lower().rstrip("f")
+    if not want:
+        return False
+    got = _read_iccid(connection)
+    return bool(got) and got != want
 
 
 def verify_pin(connection):
@@ -335,6 +362,9 @@ def read_res_ck_ik(reader_spec, rand, autn):
         return res, ck, ik, auts
     try:
         with _Tx(conn):
+            if card_is_other_sim(conn):
+                write_status(state="WRONG_CARD", detail="another SIM (ICCID) is in this line's reader")
+                return res, ck, ik, auts
             if not select_adf_usim(conn):
                 write_status(state="NO_CARD", detail="ADF.USIM select failed")
                 return res, ck, ik, auts

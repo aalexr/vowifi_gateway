@@ -1,3 +1,6 @@
 [options]
 verbose = {{ 5 if debug_asterisk else 1 }}
 debug = {{ 5 if debug_asterisk else 0 }}
+; The console is the container stdout -> journald -> log shippers (Vector/VictoriaLogs etc.):
+; plain text only, no ANSI colour escapes (same as `asterisk -n`).
+nocolor = yes

@@ -6046,6 +6046,24 @@ def _swu_select_adf_usim(conn):
     return s1 == 0x61
 
 
+def _swu_read_iccid(conn):
+    """EF.ICCID (MF/2FE2, no PIN) in pin_keeper.read_iccid's form; None if unreadable."""
+    try:
+        conn.transmit(toBytes("00a40004023f0000"))           # SELECT MF
+        conn.transmit(toBytes("00a40004022fe200"))           # SELECT EF.ICCID
+        d, s1, s2 = conn.transmit(toBytes("00b000000a"))     # READ BINARY 10
+    except Exception:
+        return None
+    if s1 != 0x90:
+        return None
+    hx = bytes(d).hex()
+    return "".join(y + x for x, y in zip(hx[0::2], hx[1::2]))
+
+
+def _swu_norm_iccid(s):
+    return (s or "").strip().lower().rstrip("f")
+
+
 def _swu_verify_chv1(conn, pin):
     """Non-consuming tries probe, then VERIFY if needed. PUK-safe (never spend below 2 tries)."""
     d, s1, s2 = conn.transmit(toBytes("0020000100"))         # VERIFY, empty body
@@ -6091,6 +6109,14 @@ def _read_res_ck_ik_pin(reader_index, rand, autn, pin):
         except Exception:
             hcard = None
     try:
+        # The reader index/port binding addresses whatever card is in that reader. If another
+        # line's SIM was swapped in, neither VERIFY this line's PIN on it (each attempt costs one
+        # of ITS tries) nor run AKA: check the ICCID (no PIN needed) first. Unreadable -> go on.
+        want = _swu_norm_iccid(os.environ.get("USIM_ICCID", ""))
+        got = _swu_norm_iccid(_swu_read_iccid(conn))
+        if want and got and got != want:
+            print("VoWiFi: card in reader has ICCID %s, this line expects %s — not touching it" % (got, want))
+            return None, None, None
         if not _swu_select_adf_usim(conn):
             print("VoWiFi: ADF.USIM select failed")
             return None, None, None
