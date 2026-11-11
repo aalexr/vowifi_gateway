@@ -255,8 +255,10 @@ impl Esim {
     }
 }
 
+/// Asterisk debug is off by default: nothing in the manager reads the engine log any more, and
+/// debug level floods it (AMI actions every few seconds). Turn it on to troubleshoot.
 fn default_debug() -> Value {
-    json!({"asterisk": true, "charon": false, "pcap": false})
+    json!({"asterisk": false, "charon": false, "pcap": false})
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

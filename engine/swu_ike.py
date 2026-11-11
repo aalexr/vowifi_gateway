@@ -147,18 +147,44 @@ IPV6_MIN_MTU      = 1280       # RFC 8200: an IPv6 link/interface must carry at 
 
 
 def swu_log(msg):
-    """Emit a tagged status line. swu_ike's stdout is redirected to run/charon.log by the
-    entrypoint, so a plain print() lands in the IKE log (which control-plane classify_ike /
-    charon_log read) without intermixing into Asterisk's console. Falls back to appending
-    directly only if stdout isn't already the IKE log (e.g. the netns probe run)."""
+    """Emit a tagged line to the IKE log. swu_ike's stdout is redirected to run/charon.log by
+    the entrypoint, so it doesn't intermix with Asterisk's console. The log is for humans only:
+    anything the manager acts on goes into swu_status.json (see swu_set_ike_reason)."""
     line = "[swu_ike] " + str(msg)
     print(line, flush=True)
 
 
+def _load_ike_reason():
+    """The last classified failure survives supervised restarts of this process (the entrypoint
+    removes swu_status.json only at container start), so the WebUI keeps showing why the tunnel
+    is down while the supervisor retries."""
+    try:
+        with open(os.path.join(SWU_RUNDIR, "swu_status.json")) as f:
+            return _json.load(f).get("ike_reason")
+    except Exception:
+        return None
+
+
+# Why the tunnel is not up, as a control-plane reason code (control/src/status.rs):
+#   tunnel_not_authorized  IKE_AUTH AUTHENTICATION_FAILED before any EAP-AKA challenge
+#   tunnel_sim_auth        EAP-AKA / SIM AUTHENTICATE failed
+#   tunnel_proposal        the ePDG refused our crypto (NO_PROPOSAL_CHOSEN, INVALID_KE, ...)
+#   tunnel_network         no IKE response after all retransmits, or the send itself failed
+# None = nothing classified (the manager shows "establishing"). Cleared once CONNECTED.
+_IKE_REASON = _load_ike_reason()
+_LAST_STATUS = None          # (state, extra) last written, so a reason change can rewrite it
+
+
 def swu_write_status(state, **extra):
+    global _IKE_REASON, _LAST_STATUS
+    if state == "CONNECTED":
+        _IKE_REASON = None
+    _LAST_STATUS = (state, dict(extra))
     try:
         os.makedirs(SWU_RUNDIR, exist_ok=True)
         data = {"state": state, "ts": int(time.time())}
+        if _IKE_REASON:
+            data["ike_reason"] = _IKE_REASON
         data.update(extra)
         tmp = os.path.join(SWU_RUNDIR, "swu_status.json.tmp")
         with open(tmp, "w") as f:
@@ -166,6 +192,17 @@ def swu_write_status(state, **extra):
         os.replace(tmp, os.path.join(SWU_RUNDIR, "swu_status.json"))
     except Exception as e:
         print("[swu_ike] status write failed: %r" % e, flush=True)
+
+
+def swu_set_ike_reason(reason):
+    """Record why the current attach attempt failed (see _IKE_REASON) and publish it at once:
+    the process may keep retrying for a while before it writes its next status."""
+    global _IKE_REASON
+    if reason == _IKE_REASON:
+        return
+    _IKE_REASON = reason
+    if _LAST_STATUS is not None and _LAST_STATUS[0] != "CONNECTED":
+        swu_write_status(_LAST_STATUS[0], **_LAST_STATUS[1])
 
 
 def swu_write_pcscf(addr):
@@ -1193,10 +1230,15 @@ class swu():
         # bytes so a duplicate request can be answered from cache without re-running side effects.
         if self._capture_buf is not None:
             self._capture_buf.append(data)
-        if self.userplane_mode == ESP_PROTOCOL:
-            self.socket.sendto(data, self.server_address)
-        else:
-            self.socket_nat.sendto(b'\x00'*4 + data, self.server_address_nat)
+        try:
+            if self.userplane_mode == ESP_PROTOCOL:
+                self.socket.sendto(data, self.server_address)
+            else:
+                self.socket_nat.sendto(b'\x00'*4 + data, self.server_address_nat)
+        except OSError:
+            # No route / network unreachable: classify for the manager, then fail as before.
+            swu_set_ike_reason("tunnel_network")
+            raise
 
     def _send_request_await_response(self, packet):
         """P2-5: send an initiator IKE request and wait for a decodable response, RETRANSMITTING
@@ -1232,6 +1274,8 @@ class swu():
                         self.decode_ike(data[4:])
                     if self.ike_decoded_ok == True:
                         return True
+            # The whole retransmit schedule went unanswered: the ePDG is unreachable from here.
+            swu_set_ike_reason("tunnel_network")
             return False
         finally:
             try:
@@ -1346,9 +1390,8 @@ class swu():
         That is an expired/forgotten pseudonym at the AAA, NOT a subscription or geo block: drop the
         identity, switch IDi back to the permanent NAI and grant one extra attach attempt so the
         retry happens immediately instead of costing a supervised restart (~tunnel downtime).
-        Deliberately avoids the 'before any EAP-AKA challenge' / 'not provisioned for VoWiFi'
-        wording — control/app/status.classify_ike matches those to report the line as
-        not-authorized, which would be a wrong diagnosis here."""
+        Sets no ike_reason: reporting the line as not-authorized (or a SIM fault) would be a
+        wrong diagnosis here."""
         stale = self.next_reauth_id
         self._reauth_id_rejected = True
         self.next_reauth_id = None
@@ -3728,6 +3771,14 @@ class swu():
         every auth-flow error return can call it consistently before returning OTHER_ERROR."""
         self.reject_reason_code = notify_name(code)
         self.reject_reason_policy = reject_policy(code)
+        # Manager-facing class. AUTHENTICATION_FAILED here is the post-EAP case; the pre-EAP
+        # one (identity refused, SIM never queried) is overridden by its caller.
+        if code in (NO_PROPOSAL_CHOSEN, INVALID_KE_PAYLOAD, INVALID_SYNTAX):
+            swu_set_ike_reason("tunnel_proposal")
+        elif code == AUTHENTICATION_FAILED:
+            swu_set_ike_reason("tunnel_sim_auth")
+        else:
+            swu_set_ike_reason(None)
         if payload_list is not None:
             self.reject_backoff_seconds = self._scan_backoff_timer(payload_list)
         bo = (" backoff=%ss" % self.reject_backoff_seconds) if self.reject_backoff_seconds else ""
@@ -4173,6 +4224,8 @@ class swu():
                         else:
                             self.log_notify_error(code, "IKE_AUTH")
                         self.note_reject(code, self.decoded_payload[0][1])
+                        if code == AUTHENTICATION_FAILED:
+                            swu_set_ike_reason("tunnel_not_authorized")
                         return OTHER_ERROR,str(code)
 
                 elif i[0] == EAP:
@@ -5135,6 +5188,7 @@ class swu():
             except Exception:
                 pass
             try:
+                swu_set_ike_reason("tunnel_network")
                 swu_write_status("DOWN", reason_code="liveness_timeout", reason_policy="transient")
                 swu_notify("tunnel_down")
             except Exception:
@@ -5222,12 +5276,13 @@ class swu():
         failure. The upstream code blindly did fromHex(None) here and crashed the ENTIRE tunnel
         process with a TypeError (ugly traceback + supervised restart storm). Instead classify it
         as an EAP-AKA authentication failure and reject cleanly so the supervisor + manager health
-        back off. The 'authentication failed' phrase is what control/app/status.classify_ike matches
-        to surface a 'SIM authentication (EAP-AKA)' reason instead of a raw traceback."""
+        back off; tunnel_sim_auth makes the WebUI show 'SIM authentication (EAP-AKA)' instead of a
+        raw traceback."""
         swu_log("SIM AUTHENTICATE returned no RES/CK/IK — EAP-AKA authentication failed "
                 "(wrong SIM in the bound reader, or a card auth error); rejecting attach")
         self.reject_reason_code = "AUTHENTICATION_FAILED"
         self.reject_reason_policy = "backoff"
+        swu_set_ike_reason("tunnel_sim_auth")
         return OTHER_ERROR, 'SIM AUTHENTICATE FAILED'
 
     def _reject_guard(self):

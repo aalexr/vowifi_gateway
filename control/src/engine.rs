@@ -253,11 +253,6 @@ pub fn run_text_tail(iid: &str, name: &str, tail: usize) -> String {
     lines[lines.len().saturating_sub(tail)..].concat()
 }
 
-/// Recent SWu tunnel (IKE) log lines. Named charon.log for WebUI compatibility.
-pub fn charon_log(iid: &str, tail: usize) -> String {
-    run_text_tail(iid, "charon.log", tail)
-}
-
 pub fn usim_status(iid: &str) -> Value {
     read_run_json(iid, "usim_status.json").unwrap_or_else(|| json!({}))
 }

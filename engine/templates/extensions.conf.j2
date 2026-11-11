@@ -47,7 +47,11 @@ same => n,Return()
 
 ; ===== Incoming SMS from the IMS/VoWiFi side =====
 [volte_ims_msg]
-exten => _.,1,NoOp(Incoming SMS from ${MESSAGE(from)})
+; Submit report for one of our MO SMS (res_pjsip_messaging VOWIFI_SMS_REPORT): the SMSC's
+; RP-ACK/RP-ERROR, or a SIP failure / "not registered" for the MO MESSAGE itself. Not a text:
+; hand the verdict to the manager and don't forward it to local clients.
+exten => _.,1,GotoIf($["${MESSAGE_DATA(SMS_REPORT)}" != ""]?report)
+same => n,NoOp(Incoming SMS from ${MESSAGE(from)})
 ; SMS_CONCAT ("ref:total:seq", set by res_pjsip_messaging from the UDH) marks one part of a
 ; concatenated SMS; the manager joins the parts. Empty for a single-part SMS.
 same => n,TrySystem(/usr/local/bin/notify.py sms_in "${MESSAGE(from)}" "${BASE64_ENCODE(${MESSAGE(body)})}" "${MESSAGE_DATA(SMS_CONCAT)}" &)
@@ -55,6 +59,13 @@ same => n,TrySystem(/usr/local/bin/notify.py sms_in "${MESSAGE(from)}" "${BASE64
 same => n,MessageSend(pjsip:{{ t }},${MESSAGE(from)},sip:{{ t }})
 {% endfor %}
 same => n,Hangup()
+; A non-SMS MESSAGE turns its SIP headers into variables, so SMS_REPORT* could be forged: only
+; the known kinds pass, numbers are FILTERed and the free-text reason goes base64-encoded, so
+; nothing from the network reaches the shell of TrySystem as-is.
+same => n(report),Set(KIND=${MESSAGE_DATA(SMS_REPORT)})
+same => n,GotoIf($["${KIND}" = "ack" | "${KIND}" = "error" | "${KIND}" = "sip"]?:done)
+same => n,TrySystem(/usr/local/bin/notify.py sms_report ${KIND} "${FILTER(0123456789,${MESSAGE_DATA(SMS_REPORT_REF)})}" "${FILTER(0123456789,${MESSAGE_DATA(SMS_REPORT_CAUSE)})}" "${FILTER(0123456789,${MESSAGE_DATA(SMS_REPORT_SIP_STATUS)})}" "${BASE64_ENCODE(${MESSAGE_DATA(SMS_REPORT_REASON)})}" &)
+same => n(done),Hangup()
 
 ; ===== Outgoing call from a local endpoint (softphone / external SIP) =====
 ; Single dial attempt (no auto-redial). The dial result (incl. far-end reject) is

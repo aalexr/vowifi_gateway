@@ -106,8 +106,8 @@ fi
 log "starting ami_usim bridge..."
 python3 -u /usr/local/bin/ami_usim.py /usr/local/etc/ami_usim.ini &
 
-# Enable the SIP message logger once Asterisk is ready (retry until it takes), so the
-# P-Associated-URI (registered MSISDN) and SIP traces are captured for the manager/Logs.
+# Enable the SIP message logger once Asterisk is ready (retry until it takes), so SIP traces
+# land in the engine log for troubleshooting. Nothing in the manager parses them.
 ( for _ in $(seq 1 40); do
     sleep 3
     asterisk -rx "pjsip set logger on" 2>/dev/null | grep -qi "enabled" && break

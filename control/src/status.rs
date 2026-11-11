@@ -110,30 +110,30 @@ pub async fn resolve_epdg(fqdn: &str) -> bool {
     tokio::net::lookup_host((fqdn, 0)).await.map(|mut a| a.next().is_some()).unwrap_or(false)
 }
 
-/// Why isn't the tunnel up? Classified from the recent IKE log + the USIM bridge status.
+/// Why isn't the tunnel up? swu_ike classifies each failed attach attempt into
+/// swu_status.json `ike_reason` (one of the tunnel_* codes below; kept across its supervised
+/// restarts, cleared once connected). The USIM bridge status adds SIM faults it can't see.
 pub fn classify_ike(iid: &str) -> &'static str {
-    let low = engine::charon_log(iid, 400).to_lowercase();
+    let swu = engine::read_run_json(iid, "swu_status.json").unwrap_or_else(|| json!({}));
     let usim = engine::usim_status(iid);
-    let has = |needles: &[&str]| needles.iter().any(|n| low.contains(n));
+    ike_reason(swu.get("ike_reason").and_then(Value::as_str).unwrap_or(""),
+               usim.get("state").and_then(Value::as_str).unwrap_or(""))
+}
+
+fn ike_reason(swu_reason: &str, usim_state: &str) -> &'static str {
     // ePDG refused the IKE_AUTH identity BEFORE any EAP-AKA challenge (SIM never queried): an
-    // authorization/subscription/geo decision, not a SIM fault. swu_ike logs a clear marker.
-    if has(&["before any eap-aka challenge", "authentication_failed before", "not provisioned for vowifi"]) {
+    // authorization/subscription/geo decision, not a SIM fault.
+    if swu_reason == "tunnel_not_authorized" {
         return "tunnel_not_authorized";
     }
-    let usim_state = usim.get("state").and_then(Value::as_str).unwrap_or("");
-    if ["AUTH_FAIL", "PIN_FAIL", "NO_CARD"].contains(&usim_state)
-        || has(&["eap_aka failed", "eap-aka failed", "authentication_failed", "eap method eap_aka fail",
-                 "received auth_failed", "authentication failed"])
-    {
+    if ["AUTH_FAIL", "PIN_FAIL", "NO_CARD"].contains(&usim_state) || swu_reason == "tunnel_sim_auth" {
         return "tunnel_sim_auth";
     }
-    if has(&["invalid_syntax", "no_proposal_chosen", "invalid_ke", "no proposal"]) {
-        return "tunnel_proposal";
+    match swu_reason {
+        "tunnel_proposal" => "tunnel_proposal",
+        "tunnel_network" => "tunnel_network",
+        _ => "tunnel_setup",
     }
-    if has(&["retransmit", "giving up", "no route", "destination unreachable", "timeout"]) {
-        return "tunnel_network";
-    }
-    "tunnel_setup"
 }
 
 pub async fn compute(inst: &Instance, ami: Option<&AmiClient>) -> Status {
@@ -195,5 +195,21 @@ pub async fn compute(inst: &Instance, ami: Option<&AmiClient>) -> Status {
         }
         "Rejected" => Status::new(State::Registering, "reg_rejected", detail),
         _ => Status::new(State::Registering, "registering", detail),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ike_reason;
+
+    #[test]
+    fn ike_reasons() {
+        assert_eq!(ike_reason("tunnel_not_authorized", "AUTH_FAIL"), "tunnel_not_authorized");
+        assert_eq!(ike_reason("tunnel_network", "AUTH_FAIL"), "tunnel_sim_auth");
+        assert_eq!(ike_reason("tunnel_sim_auth", ""), "tunnel_sim_auth");
+        assert_eq!(ike_reason("tunnel_proposal", "AUTH_OK"), "tunnel_proposal");
+        assert_eq!(ike_reason("tunnel_network", ""), "tunnel_network");
+        assert_eq!(ike_reason("", ""), "tunnel_setup");
+        assert_eq!(ike_reason("something_new", ""), "tunnel_setup");
     }
 }

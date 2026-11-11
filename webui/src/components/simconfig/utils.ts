@@ -107,7 +107,7 @@ export const emptyInstance = (): InstanceForm => ({
     pani_node_id: "",
     pani_access_type: "IEEE-802.11",
   },
-  debug: { asterisk: true, charon: false },
+  // No per-line `debug`: a new line follows Settings → Engine / debug defaults.
 });
 
 export function normalizePreviewCountry(c: string = "") {

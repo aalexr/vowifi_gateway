@@ -174,6 +174,7 @@ mod live_tests {
         println!("connected: {}", c.connected());
         println!("registration: {}", c.registration_state().await);
         println!("reginfo: {:?}", c.reginfo_state().await);
+        println!("pau: {:?}", c.db_get("volte", "pau").await);
         let st = status::compute(&inst, Some(&c)).await;
         println!("status: {}", serde_json::to_string(&st).unwrap());
         c.close().await;

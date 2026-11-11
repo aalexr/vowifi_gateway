@@ -202,6 +202,16 @@ journalctl --user -u vowifi-control INSTANCE=1      # control-plane events for l
 
 Control-plane events carry structured journal fields, so you can filter on them directly. `INSTANCE` is the line id. Run `journalctl --user -u vowifi-control -o verbose` to see all of them.
 
+Logs are for people only; nothing in the gateway parses them. The engine reports structured state instead:
+
+| What | How the control plane gets it |
+|------|-------------------------------|
+| Outgoing SMS outcome (*delivered* / *failed*) | The SMSC's RP-ACK or RP-ERROR, or a SIP error on the outgoing MESSAGE. Asterisk passes it to the `volte_ims_msg` dialplan, which posts a `notify.py sms_report` event. |
+| The line's MSISDN | The REGISTER 200 OK's P-Associated-URI, which Asterisk stores in astdb `volte/pau`; the control plane reads it over AMI `DBGet`. |
+| Why the tunnel is down | `swu_ike` writes `ike_reason` to `swu_status.json`. |
+
+So Asterisk debug logging can stay off. **Settings → Asterisk verbose/debug logging** is off by default and only adds detail for troubleshooting. At debug level the engine log is mostly the control plane's AMI polling (`Running action 'Ping'` / `'Command'` every few seconds). Lines provisioned before this change keep their own `debug:` block in `config.yaml`, and it overrides Settings. To make such a line follow Settings again, delete the block, then restart the line.
+
 Inside an engine, two working copies stay for interactive debugging. Asterisk's `/var/log/asterisk/full` holds the same content as the journal. The SWu/IKE log `run/charon.log` is very chatty, so it is kept off the journal. The entrypoint caps each file at 50 MB plus one `.1` generation. Both are lost when the engine is recreated.
 
 `install.sh install` makes the journal persistent by creating `/var/log/journal` where the distro keeps it in RAM only. Retention follows the host's journald policy, which by default caps the journal at 10 % of the filesystem. The engine logs contain phone numbers and IMSIs, so consider a time limit: `VOWIFI_LOG_RETENTION=30day ./install.sh install` adds `/etc/systemd/journald.conf.d/50-vowifi.conf` with `MaxRetentionSec=30day`. This limit applies to the **whole** host journal. Call and SMS history doesn't depend on any of this, because it lives in the SQLite DB in the data dir.
