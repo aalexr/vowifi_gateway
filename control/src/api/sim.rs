@@ -121,6 +121,8 @@ pub fn upsert_error(e: CfgError) -> ApiError {
         CfgError::Invalid(message) => {
             let code = if message.contains("more than once") || message.contains("reserved") {
                 "duplicate_sip_username"
+            } else if message.contains("ims_codecs") || message.contains("carrier codec") {
+                "invalid_ims_codecs"
             } else {
                 "invalid_sip_account"
             };

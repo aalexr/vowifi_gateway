@@ -280,6 +280,35 @@ Once an instance reaches `OK`, connect any SIP client to the **engine's** publis
 
 Tested clients: **MicroSIP** (Windows), **Zoiper** (multi-platform), Asterisk PJSIP trunk. Phones that can't dial `+` (e.g. FRITZ!Box DECT handsets) can dial `00…` instead if the line has **SIM Config → Dial a leading 00 as +** enabled; the gateway then sends `+…` to the carrier. Use it for carriers that don't accept `00` as the international prefix (MTS RU); it's off by default. The engine's `/` context accepts any `INVITE` and hairpins it to the IMS trunk (so you dial the **target number** directly, no prefix).
 
+### Codecs
+
+Each call has two legs, and Asterisk converts between them when their codecs differ:
+
+| Leg | Codecs, in preference order |
+|-----|-----------------------------|
+| Carrier (IMS) | **SIM Config → Carrier codecs**, per line. Default: AMR-WB, AMR, what a phone offers. |
+| External SIP clients | G.722, PCMU, PCMA, Opus, AMR |
+| Browser softphone | Opus, G.722, PCMU, PCMA |
+
+With the default, a FRITZ!Box DECT HD handset (G.722) on an AMR-WB carrier call is converted once, AMR-WB ↔ G.722, and stays wideband (16 kHz).
+
+On incoming calls, the gateway answers the carrier with exactly one speech codec, as 3GPP TS 24.229 requires of a terminating phone (plus `telephone-event` for DTMF). With the default list it takes the first one in the carrier's offer that it supports. With any other list it takes the first one in **this list's** order that the carrier also offers.
+
+Presets besides the default:
+- **G.722 first, then AMR-WB, AMR**, for carriers that accept G.722 themselves (O2 Germany offers it on incoming calls):
+  - G.722 calls with a FRITZ!Box pass through the gateway without any conversion; the carrier converts to AMR-WB where the far end needs it.
+  - The SDP bandwidth (`b=AS`) is raised from 41 to 88 kbit/s, the 64 kbit/s G.722 stream plus IPv6/UDP/RTP headers.
+- **AMR, then AMR-WB**, for carriers that end incoming calls answered with AMR-WB (see **Troubleshooting**, Beeline RU). Calls are then narrowband (8 kHz) end to end.
+- **Custom**: any order of `amrwb`, `amr`, `g722`, `alaw`, `ulaw`. The list must keep AMR-WB or AMR, so calls the carrier can't convert still work.
+
+Only use G.722 where you've tested an answered call in both directions: a carrier listing G.722 in its offer doesn't prove it carries it. Check the carrier's `b=AS` in its offer, too: G.722 needs about 88 kbit/s with IPv6/UDP/RTP headers.
+- **O2 Germany:** offers `b=AS:88` with G.722. Works.
+- **Vodafone Germany:** offers G.722 with only `b=AS:50`, and polices the call to that. Both directions lost a steady ~44 % of packets (RTCP), heard as clipped voice. Keep Vodafone DE on the default; AMR-WB at 23.85 kbit/s fits.
+
+**EVS** isn't available. The Asterisk fork's EVS codec (`codec_vevs`) loads a proprietary Vocal Technologies library (`libvocal.so`) at runtime, and the engine image doesn't include it.
+
+The codec setting is rendered into the engine's `pjsip.conf`. Changing it needs the engine image rebuilt once after upgrading (`./install.sh reload --engines`) and the line restarted.
+
 ---
 
 ## Carrier parameters (no required database)
@@ -419,6 +448,11 @@ in practice); MOBIKE / `UPDATE_SA_ADDRESSES` (the host has a stable wired IP); m
   - **Advertise SRVCC capabilities in REGISTER**: `+g.3gpp.mid-call;+g.3gpp.srvcc-alerting;+g.3gpp.ps2cs-srvcc-orig-pre-alerting` in the Contact.
   - **IMEI with spare digit 0**: `+sip.instance` as `urn:gsma:imei:TAC-SNR-0` (RFC 7254) instead of ending in the check digit.
 - **Outgoing calls fail with `491 Request Pending` followed by `500 Server Internal Error` (Q.850 cause 47)**: the engine sent the precondition `UPDATE` while the carrier was still processing the `PRACK` for its `183`. Enable **SIM Config → Send the call-setup UPDATE only after the PRACK is answered** for that line (needed on MTS RU for calls to other Russian operators). Off by default.
+- **Incoming calls connect but have no audio in either direction (outgoing calls are fine)**: the carrier's `INVITE` lists `precondition` in `Supported` (not `Require`) and reports its own side ready (`a=curr:qos local sendrecv`). The engine answers `183` with `curr:qos local none` and waits for the carrier's `UPDATE`, while the carrier waits for ours. Neither is sent, and the carrier never opens the media path. Enable **SIM Config → Incoming calls: skip QoS preconditions unless the carrier requires them** for that line (needed on Vodafone DE). Incoming calls then go without preconditions, like on carriers that don't offer them (O2 DE). Over VoWiFi there's no radio bearer to reserve, so nothing is lost. Off by default.
+- **Incoming calls never ring, or end the moment you answer, with `Media Negotiation Failed`** (Beeline RU; outgoing calls are fine): the carrier sends `CANCEL` (before ringing) or `BYE` (right after answering) with `Reason: Q.850;cause=31 … Media Negotiation Failed`. Find it with `grep 'Media Negotiation' /var/log/asterisk/full` in the engine. Beeline's Huawei core rejects three things other carriers accept, and needs all three settings:
+  1. QoS preconditions when its `INVITE` only *supports* them: enable **SIM Config → Incoming calls: skip QoS preconditions unless the carrier requires them**.
+  2. More than one speech codec in the answer: the engine now always answers with one.
+  3. An AMR-WB answer, though it offers AMR-WB (the calls tested came in from its circuit-switched side): set **SIM Config → Carrier codecs** to **AMR, then AMR-WB**.
 - **External client no audio**: confirm `VOWIFI_ADVERTISE_ADDR` is the correct LAN IP (not 127.x). Check that the firewall allows RTP from the client (`./install.sh firewall` opens UDP 10000+ for the LAN in firewalld).
 - **WebUI or SIP unreachable from the LAN, fine on the host itself**: the ports are plain host sockets of your user, so the host firewall filters them. `./install.sh firewall` (re)adds the rule allowing the `vowifi` firewalld service from your LAN subnet; set `VOWIFI_FW_SOURCE` / `VOWIFI_FW_ZONE` if it picked the wrong subnet or zone.
 - **Outbound works, inbound fails**: your router's NAT may mangle the SIP `Contact` header. Use the TLS transport (port 5061) if your client supports it, or set `settings.tls.domain` to a public FQDN + port-forward.

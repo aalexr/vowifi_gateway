@@ -1,6 +1,9 @@
 import type { InstanceConfig, SipConfig } from "../../api";
 import type { InstanceForm } from "./types";
 
+/** Carrier (IMS) leg codecs a phone offers; mirrors control config.rs ims_codecs_default(). */
+export const IMS_CODECS_DEFAULT = ["amrwb", "amr"];
+
 export const PANI_ACCESS_TYPES = [
   "IEEE-802.11",
   "IEEE-802.11a",
@@ -96,6 +99,8 @@ export const emptyInstance = (): InstanceForm => ({
   reg_imei_urn_spare_zero: false,
   dial_00_to_plus: false,
   update_after_prack: false,
+  mt_precondition_require_only: false,
+  ims_codecs: [...IMS_CODECS_DEFAULT],
   sip: {
     listen_addr: "0.0.0.0",
     transport: "udp",
@@ -192,7 +197,18 @@ export function imsAdvancedSet(saved?: InstanceConfig | null): boolean {
     saved.reg_srvcc_tags ||
     saved.reg_imei_urn_spare_zero ||
     saved.dial_00_to_plus ||
-    saved.update_after_prack
+    saved.update_after_prack ||
+    saved.mt_precondition_require_only
+  );
+}
+
+/** True when the saved line's carrier codec list differs from the phone-like default. */
+export function imsCodecsCustomised(saved?: InstanceConfig | null): boolean {
+  const c = saved?.ims_codecs;
+  return (
+    !!c?.length &&
+    (c.length !== IMS_CODECS_DEFAULT.length ||
+      c.some((x, i) => x !== IMS_CODECS_DEFAULT[i]))
   );
 }
 
