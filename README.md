@@ -39,11 +39,11 @@ The control-plane WebUI — dashboard, browser softphone, SMS messaging, and eSI
 The gateway has two planes:
 
 1. **`vowifi/engine`** (per-SIM, always a Podman container): a pure-Python SWu IKEv2/IPsec client (`swu_ike.py`, based on [fasferraz/SWu-IKEv2](https://github.com/fasferraz/SWu-IKEv2)) for the ePDG tunnel (IKEv2 + EAP-AKA, userspace ESP) + sysmocom Asterisk (IMS PJSIP) + USIM bridge scripts (PIN keeper, AMI ↔ PC/SC). One container per SIM, each with `NET_ADMIN` + `/dev/net/tun` + its own port block (5060+, 10000+ RTP). The tunnel client carries VoWiFi resilience: it verifies the SIM PIN (CHV1) in its own PC/SC connection on every EAP-AKA authentication, sends NAT-T keepalives to hold the tunnel open when idle, runs an initiator-side liveness/DPD check to detect a silently-dead ePDG, re-syncs the P-CSCF into PJSIP on reconnect, advertises IKEv2 fragmentation (RFC 7383) and reassembles fragmented ePDG responses (fragmenting its own oversized messages too), classifies reject Notifies per 3GPP TS 24.302 §7.2.2.2 (honouring an attached back-off timer instead of hammering the network), answers the ePDG's IKEv2 `DEVICE_IDENTITY`/DPD/P-CSCF-restoration requests, and records every received 3GPP Notify — so it rekeys/re-auths and self-heals after a full re-establishment (see [Troubleshooting](#troubleshooting)).
-2. **control plane** (singleton): FastAPI manager + React WebUI dashboard. Runs natively from the checkout as a **`systemd --user` service** (`vowifi-control`) from a Python venv, manages the engine containers via the Docker SDK pointed at your user's Podman API socket (`$XDG_RUNTIME_DIR/podman/podman.sock`), and reads the SIM via pyscard over the host pcscd socket. The WebUI is compiled with a throwaway `node:22-alpine` container, so the host needs no Node/JS toolchain.
+2. **control plane** (singleton): manager + React WebUI dashboard, a single Rust binary (`control/`, axum/tokio). Runs natively from the checkout as a **`systemd --user` service** (`vowifi-control`), manages the engine containers through your user's Podman API socket (`$XDG_RUNTIME_DIR/podman/podman.sock`, Docker-compatible API), and reads the SIM over PC/SC through the host pcscd socket. The installer builds it with a per-user [rustup](https://rustup.rs) toolchain (`~/.cargo`, no root). The WebUI is compiled with a throwaway `node:22-alpine` container, so the host needs no Node/JS toolchain.
 
 ### Rootless by design
 
-Everything runs under **your own account** — rootless Podman for the engines, a user service for the control plane — and `./data`, the venv and `webui/dist` all belong to you. Nothing in the engine needs host root: `NET_ADMIN`/`NET_RAW`, the `ipsec0` tun device, routes and `net.*` sysctls all act on the container's own network namespace, which your user namespace owns. Lingering is enabled so the control plane and engines start at boot without a login (the user `podman-restart.service` brings back the `restart=always` engines).
+Everything runs under **your own account** — rootless Podman for the engines, a user service for the control plane — and `./data`, the control build (`control/target`, `control/bin`) and `webui/dist` all belong to you. Nothing in the engine needs host root: `NET_ADMIN`/`NET_RAW`, the `ipsec0` tun device, routes and `net.*` sysctls all act on the container's own network namespace, which your user namespace owns. Lingering is enabled so the control plane and engines start at boot without a login (the user `podman-restart.service` brings back the `restart=always` engines).
 
 Engines use **pasta** networking, which keeps SIP clients' real source addresses. What that implies inside the engine:
 - **Forced NAT-T** (`SWU_FORCE_NATT=1`): pasta forwards only TCP/UDP/ICMP, so raw ESP (IP protocol 50) can never leave the host. `swu_ike` sends a deliberately non-matching `NAT_DETECTION_SOURCE_IP` (RFC 7296 §2.23, like strongSwan's `encap=yes`) so the ePDG moves the SA to ESP-in-UDP:4500 even when the host has a public IP. Ignored if the ePDG doesn't do NAT-T at all.
@@ -64,16 +64,16 @@ cd vowifi_gateway
 ./install.sh install
 ```
 
-Run it as your **normal user — not as root and not via `sudo`**. Root is only needed for one-time host setup, and the script asks sudo for exactly those steps: distro packages, the pinned pcscd (if your distro's version differs from `PCSC_VERSION`), `modprobe tun`, lingering, the pcscd polkit rule, the firewalld service, and the SELinux label on the venv. `reload`, `start`/`stop`/`restart`, `status`, `logs` and autostart never need root.
+Run it as your **normal user — not as root and not via `sudo`**. Root is only needed for one-time host setup, and the script asks sudo for exactly those steps: distro packages, the pinned pcscd (if your distro's version differs from `PCSC_VERSION`), `modprobe tun`, lingering, the pcscd polkit rule, the firewalld service, and the SELinux label on the control binary. `reload`, `start`/`stop`/`restart`, `status`, `logs` and autostart never need root.
 
 The installer:
 - Installs Podman + passt (distro packages, if missing), enables your user's `podman.socket` / `podman-restart.service` and lingering, and the host pcscd, **version-locked** to `PCSC_VERSION`
 - Opens the gateway's ports to your **LAN only** in firewalld, if it is active (a rich rule allowing the `vowifi` service from the LAN subnet, in the zone your LAN traffic lands in; see [Per-instance ports](#per-instance-ports))
 - Builds the engine image (compiles pcsc-lite + the Python SWu tunnel deps, bakes `engine/patches/*`; Asterisk is downloaded prebuilt from the fork's CI release for `ASTERISK_REF` when one exists, otherwise compiled from source, ~10–15 min on a Pi)
-- Compiles the WebUI in a throwaway Node container, creates a Python venv (`control/.venv`), and starts the `vowifi-control` user service
+- Compiles the WebUI in a throwaway Node container, installs the Rust toolchain for your user if needed (rustup into `~/.cargo`), builds the control plane (`cargo build --release` → `control/bin/vowifi-control`; the first build downloads and compiles its crates — a few minutes, ~15+ on a Raspberry Pi-class board), and starts the `vowifi-control` user service. The C toolchain, `pkg-config`, pcsc-lite headers and `curl` it needs to build are installed as distro packages
 - Autostart is enabled; prints `https://<host-lan-ip>:8443` — open it in your browser
 
-**Upgrading from an older, rootful install** (system unit, `sudo ./install.sh`, or the removed `--mode container`): just run `./install.sh install`. It removes the old system unit and root's vowifi containers and root's old engine image (it predates the rootless tunnel changes, so the engine image is rebuilt — ~10–15 min), and hands `./data` and the venv to you. Your SIM configs, SMS and call history are kept. Lines that were running before are started again through the manager once it is up (same PIN checks as the Start button; a line that needs a PIN is reported and left for you to start); lines you had stopped stay stopped.
+**Upgrading from an older, rootful install** (system unit, `sudo ./install.sh`, or the removed `--mode container`): just run `./install.sh install`. It removes the old system unit and root's vowifi containers and root's old engine image (it predates the rootless tunnel changes, so the engine image is rebuilt — ~10–15 min), and hands `./data` to you. Your SIM configs, SMS and call history are kept. Lines that were running before are started again through the manager once it is up (same PIN checks as the Start button; a line that needs a PIN is reported and left for you to start); lines you had stopped stay stopped.
 
 Accept the self-signed cert, then **provision your SIM** in the dashboard:
 1. Insert the SIM into the reader; the `/` tab shows detected cards
@@ -125,8 +125,10 @@ VOWIFI_PORT=9443 VOWIFI_ADVERTISE_ADDR=192.168.1.100 ./install.sh install
 # opens an interactive control menu (start/stop, autostart, status, logs, reload, uninstall).
 ./install.sh
 
-# Rebuild + restart the control plane (preserves data, no root): rebuilds the WebUI, refreshes
-# the venv and restarts the user service. The engine image is reused unless forced.
+# Rebuild + restart the control plane (preserves data, no root): rebuilds the WebUI and the
+# control binary and restarts the user service. The engine image is reused unless forced.
+# An install from before the Rust control plane needs one `./install.sh install` first (build
+# packages); it also removes the old Python venv (control/.venv).
 ./install.sh reload
 
 # Rebuild from scratch (no Podman build cache; also forces an engine-image rebuild)
@@ -157,10 +159,10 @@ git clone https://github.com/estkme-group/lpac.git ../lpac
 ./install.sh enable-autostart
 
 # Uninstall (removes the engines, the user service, the polkit rule and the firewalld service;
-# KEEPS the patched engine image, venv, Podman, pcscd, lingering and ./data so a reinstall is fast)
+# KEEPS the patched engine image, control build, Podman, pcscd, lingering and ./data so a reinstall is fast)
 ./install.sh uninstall
 
-# Uninstall + delete everything (engine image, venv, and ./data)
+# Uninstall + delete everything (engine image, control build, and ./data)
 ./install.sh uninstall --purge
 
 # OPT-IN: build + install a patched CCID driver (patches/ccid/*) on the host, replacing the
@@ -273,7 +275,7 @@ P-Access-Network-Info: IEEE-802.11;country=GB
 ```
 
 `country` is the ISO 3166-1 alpha-2 code derived from the SIM's MCC (E.212 → ISO table in
-`control/app/mcc_country.py`). Configure per line in **SIM Config → P-Access-Network-Info**:
+`control/src/mcc.rs`). Configure per line in **SIM Config → P-Access-Network-Info**:
 
 | Option | Default | Meaning |
 |--------|---------|---------|
@@ -392,7 +394,7 @@ Check its logs with `./install.sh logs` (`journalctl --user -u vowifi-control`).
 
 ## Development
 
-**The installed system already IS the dev-friendly path**: the control plane runs natively from `control/`, so editing `control/app/*.py` + `./install.sh restart` reloads it. To live-edit **engine** scripts without rebuilding the image, give the control plane `VOWIFI_DEV_MOUNTS=1` with a user drop-in (no root needed):
+**The installed system already IS the dev-friendly path**: the control plane runs natively from `control/`, so after editing `control/src/` a `./install.sh reload` rebuilds and restarts it (quicker, control only: `cd control && cargo build --release && install -m 0755 target/release/vowifi-control bin/ && ../install.sh restart`). To live-edit **engine** scripts without rebuilding the image, give the control plane `VOWIFI_DEV_MOUNTS=1` with a user drop-in (no root needed):
 
 ```bash
 mkdir -p ~/.config/systemd/user/vowifi-control.service.d
@@ -402,7 +404,7 @@ systemctl --user daemon-reload && ./install.sh restart
 
 The manager then bind-mounts the local `engine/*.py`, `entrypoint.sh` and templates into each engine container as read-only overlays, so an edit + restarting the line (or `podman restart vowifi-engine-<id>`) applies immediately. The mounted scripts must keep their executable bit (Asterisk runs `notify.py` directly).
 
-**Control-plane only, by hand** (outside the installer): create a venv, `pip install -r control/requirements.txt`, `export VOWIFI_DATA=./data`, `python control/run.py`. The TypeScript WebUI dev server (`cd webui && npm run dev`) proxies `/api` + `/ws` to the control plane — point it with `VOWIFI_DEV_API=https://<gateway-host>:8443` (defaults to `localhost:8443`). Run `npm run typecheck` from `webui/` to type-check without building; `npm run build` type-checks and bundles the app.
+**Control-plane only, by hand** (outside the installer): `cd control && VOWIFI_DATA=../data cargo run --release` (needs a C toolchain, `pkg-config` and the pcsc-lite headers; `RUST_LOG=debug` for verbose logs). `cargo test` runs the unit tests; `cargo clippy` lints. Read-only probes against a live install (Podman inspect/logs, AMI registration state, reader presence — no APDUs, no container changes): `VOWIFI_DATA=../data VOWIFI_LIVE_IID=1 cargo test live_ -- --ignored --nocapture`. The TypeScript WebUI dev server (`cd webui && npm run dev`) proxies `/api` + `/ws` to the control plane — point it with `VOWIFI_DEV_API=https://<gateway-host>:8443` (defaults to `localhost:8443`). Run `npm run typecheck` from `webui/` to type-check without building; `npm run build` type-checks and bundles the app.
 
 **Asterisk changes**: the engine builds Asterisk from the fork [aalexr/asterisk](https://github.com/aalexr/asterisk), branch `vowifi/20.7.0` — sysmocom's `sysmocom/20.7.0` plus the AMR cherry-pick and this project's IMS fixes as ordinary commits. To change Asterisk, commit to that branch, then set `ASTERISK_REF` in `engine/Containerfile` to the new commit SHA and rebuild the engine image. pjproject is sysmocom's `sysmocom/2.14`, pinned by `PJPROJECT_REF`. Both can be overridden for a test build with `--build-arg ASTERISK_REPO=… --build-arg ASTERISK_REF=…`.
 

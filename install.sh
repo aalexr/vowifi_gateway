@@ -2,10 +2,11 @@
 # install.sh — one-click installer / lifecycle manager for the VoWiFi→SIP gateway.
 #
 # Deploys the gateway on any systemd Linux with Podman and a PC/SC reader, ROOTLESS:
-#   - the control plane (FastAPI manager + WebUI) runs natively from this checkout as a
-#     `systemd --user` service (vowifi-control) of YOUR account, from a Python venv;
+#   - the control plane (manager + WebUI, a Rust binary built from control/ with a per-user
+#     rustup toolchain) runs natively from this checkout as a `systemd --user` service
+#     (vowifi-control) of YOUR account;
 #   - one engine container per SIM runs in YOUR rootless Podman on pasta networking
-#     (forced NAT-T, per-engine IKE source ports — see control/app/engine.py);
+#     (forced NAT-T, per-engine IKE source ports — see control/src/engine.rs);
 #   - lingering is enabled so both start at boot without a login; the user podman-restart.service
 #     brings the engines back.
 # The WebUI is compiled with a throwaway Node container, so the host needs no Node/JS toolchain.
@@ -23,12 +24,12 @@
 #   ./install.sh start | stop | restart | status | logs
 #   ./install.sh enable-autostart | disable-autostart
 #   ./install.sh firewall                # (re)open the gateway ports to the LAN in firewalld
-#   ./install.sh uninstall [--purge]     # --purge also deletes ./data (+ venv)
+#   ./install.sh uninstall [--purge]     # --purge also deletes ./data (+ the control build)
 #
 # PRIVILEGES: root is only needed for one-time host setup, and the script asks sudo for exactly
 # those steps: distro packages, the pinned pcscd / CCID driver, `modprobe tun`, lingering, the
 # polkit rule that lets this user reach pcscd, the firewalld service and the SELinux label on
-# the venv (install / uninstall / build-lpac / patch* / firewall). reload, start/stop/restart,
+# the control binary (install / uninstall / build-lpac / patch* / firewall). reload, start/stop/restart,
 # status, logs and autostart never need root.
 #
 # Installs made by older versions (rootful Podman, system unit or the privileged "container"
@@ -66,7 +67,18 @@ ENGINE_PREFIX="vowifi-engine-"
 # Base image for the throwaway WebUI build (fully qualified: podman doesn't assume docker.io).
 NODE_IMAGE="docker.io/library/node:22-alpine"
 
-VENV_DIR="$REPO_DIR/control/.venv"
+# The control plane: built with cargo, installed to control/bin (its own dir, so the SELinux
+# label below covers it and a rebuild never swaps the binary of the running service mid-flight).
+CONTROL_SRC="$REPO_DIR/control"
+CONTROL_BIN="$REPO_DIR/control/bin/vowifi-control"
+# Per-user Rust toolchain (rustup); never root. An existing ~/.cargo is reused.
+CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}"
+RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}"
+export CARGO_HOME RUSTUP_HOME
+# Oldest rustc that builds control/ (Cargo.toml rust-version).
+RUST_MIN=1.88
+# The Python control plane of earlier versions; removed by install/reload.
+LEGACY_VENV_DIR="$REPO_DIR/control/.venv"
 WEBUI_DIST="$REPO_DIR/webui/dist"
 # The control plane: a systemd USER unit of the installing account.
 USER_UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
@@ -336,7 +348,7 @@ migrate_legacy_rootful() {
     info "removing root's old engine image — the rootless one is rebuilt from the current sources"
     as_root podman rmi -f "$ENGINE_IMAGE" >/dev/null 2>&1 || true
   fi
-  for d in "$VOWIFI_DATA_DIR" "$VENV_DIR"; do
+  for d in "$VOWIFI_DATA_DIR" "$LEGACY_VENV_DIR" "$REPO_DIR/control/target" "$REPO_DIR/control/bin"; do
     if [ -d "$d" ] && [ -n "$(find "$d" ! -user "$ME" -print -quit 2>/dev/null)" ]; then
       info "handing $d to $ME"
       as_root chown -R "$(id -u):$(id -g)" "$d"
@@ -354,48 +366,37 @@ migrate_legacy_rootful() {
 # Start the lines that were running under the old rootful install, through the manager's normal
 # Start path (/api/instances/<id>/start: PIN preflight, card-identity check, reader rebind) — never
 # by recreating containers behind its back. A line the preflight refuses (PIN needed, card gone)
-# is reported and left for the user to start from the WebUI.
+# is reported and left for the user to start from the WebUI. The API sits behind the WebUI login:
+# `vowifi-control session-token` signs a 2-minute session with the key in the data dir (0600,
+# readable only by you), minted fresh for each request.
 restore_migrated_engines() {
   [ -s "$MIGRATE_RESTART_FILE" ] || return 0
   case "$VOWIFI_BIND" in 0.0.0.0|::|'') host=127.0.0.1 ;; *:*) host="[$VOWIFI_BIND]" ;; *) host=$VOWIFI_BIND ;; esac
+  base="https://$host:$VOWIFI_PORT"
   info "restarting the lines that were running before the migration…"
-  # The venv's python (no curl dependency); the manager's cert is self-signed.
-  if "$VENV_DIR/bin/python" - "https://$host:$VOWIFI_PORT" "$MIGRATE_RESTART_FILE" <<'PY'
-import json, ssl, sys, time, urllib.error, urllib.request
-base, path = sys.argv[1], sys.argv[2]
-ctx = ssl._create_unverified_context()
-ids = list(dict.fromkeys(l.strip() for l in open(path) if l.strip()))
-deadline = time.monotonic() + 90
-while True:
-    try:
-        resp = json.load(urllib.request.urlopen(f"{base}/api/instances", context=ctx, timeout=5))
-        break
-    except Exception as e:
-        if time.monotonic() > deadline:
-            print(f"!! manager not reachable at {base} ({e}) — start these lines from the WebUI: {' '.join(ids)}")
-            sys.exit(1)
-        time.sleep(2)
-known = {str(i.get("id")) for i in resp.get("instances", [])}
-for iid in ids:
-    if iid not in known:
-        print(f"   {iid}: no longer configured — skipped")
-        continue
-    req = urllib.request.Request(f"{base}/api/instances/{iid}/start", data=b"{}", method="POST",
-                                 headers={"Content-Type": "application/json"})
-    try:
-        urllib.request.urlopen(req, context=ctx, timeout=120)
-        print(f"   {iid}: started")
-    except urllib.error.HTTPError as e:
-        print(f"!! {iid}: not started ({e.code} {e.read().decode(errors='replace')[:200]}) — start it from the WebUI")
-    except Exception as e:
-        print(f"!! {iid}: not started ({e}) — start it from the WebUI")
-PY
-  then
-    # Every line was attempted (or reported) once — don't repeat it on later installs.
-    rm -f "$MIGRATE_RESTART_FILE"
-  else
-    warn "manager not reachable — kept $MIGRATE_RESTART_FILE; the next './install.sh install' retries"
-  fi
+  tok() { VOWIFI_DATA="$(data_dir_abs)" "$CONTROL_BIN" session-token 2>/dev/null; }
+  waited=0
+  until curl -skf -o /dev/null --max-time 5 -b "vowifi_session=$(tok)" "$base/api/instances"; do
+    waited=$((waited + 2))
+    if [ "$waited" -ge 90 ]; then
+      warn "manager not reachable at $base — kept $MIGRATE_RESTART_FILE; the next './install.sh install' retries"
+      return 0
+    fi
+    sleep 2
+  done
+  for iid in $(awk 'NF && !seen[$0]++' "$MIGRATE_RESTART_FILE"); do
+    out=$(curl -sk --max-time 120 -w '\n%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' \
+          -b "vowifi_session=$(tok)" "$base/api/instances/$iid/start" 2>&1) || true
+    code=$(printf '%s\n' "$out" | tail -n 1)
+    body=$(printf '%s\n' "$out" | sed '$d' | head -c 200)
+    case "$code" in
+      2??) printf '   %s: started\n' "$iid" ;;
+      404) printf '   %s: no longer configured — skipped\n' "$iid" ;;
+      *)   printf '!! %s: not started (%s %s) — start it from the WebUI\n' "$iid" "$code" "$body" ;;
+    esac
+  done
+  # Every line was attempted (or reported) once — don't repeat it on later installs.
+  rm -f "$MIGRATE_RESTART_FILE"
 }
 
 ensure_pcscd() {
@@ -578,61 +579,120 @@ build_webui() {
 }
 
 # ------------------------------------------------------------------ control plane (user service)
-# Install host packages the control plane needs: python venv + the toolchain to build
-# pyscard (SWIG binding) against the pinned pcsc-lite, plus headers for cryptography if wheels
-# are unavailable. pcsc-lite headers come from our source build (if we did one) or the distro
-# -dev package (version already matches the pin, since ensure_pcscd aligned it).
+# Host packages the control plane BUILD needs: a C toolchain (the Rust linker driver, plus the
+# bundled SQLite and ring's assembly), pkg-config + the pcsc-lite client headers the PC/SC crate
+# links against (from our source build if we did one, else the distro -dev package, whose
+# version already matches the pin since ensure_pcscd aligned it), and curl for rustup. Rust
+# itself comes from rustup, per user (ensure_rust): distro toolchains are often older than
+# RUST_MIN. At runtime the binary only needs libpcsclite + libpam (both already on the host).
 ensure_control_deps() {
-  info "installing control-plane dependencies (python venv + pyscard build toolchain)…"
+  info "installing control-plane build dependencies (C toolchain, pkg-config, pcsc-lite headers, curl)…"
   if   have apt-get; then
-    pkg_install python3 python3-venv python3-pip python3-dev swig gcc pkg-config libffi-dev libssl-dev
+    pkg_install gcc libc6-dev pkg-config curl ca-certificates
     if [ "$PCSC_SOURCE_BUILT" = 0 ] && [ ! -f /usr/include/PCSC/pcsclite.h ]; then pkg_install libpcsclite-dev; fi
   elif have dnf || have yum; then
-    pkg_install python3 python3-pip python3-devel swig gcc pkgconf-pkg-config libffi-devel openssl-devel
+    pkg_install gcc pkgconf-pkg-config curl
     if [ "$PCSC_SOURCE_BUILT" = 0 ] && [ ! -f /usr/include/PCSC/pcsclite.h ]; then pkg_install pcsc-lite-devel; fi
   elif have pacman;  then
-    pkg_install python python-pip swig gcc pkgconf libffi openssl
+    pkg_install gcc pkgconf curl
     if [ "$PCSC_SOURCE_BUILT" = 0 ] && [ ! -f /usr/include/PCSC/pcsclite.h ]; then pkg_install pcsclite; fi
   elif have zypper;  then
-    pkg_install python3 python3-pip python3-devel swig gcc pkg-config libffi-devel libopenssl-devel
+    pkg_install gcc pkg-config curl
     if [ "$PCSC_SOURCE_BUILT" = 0 ] && [ ! -f /usr/include/PCSC/pcsclite.h ]; then pkg_install pcsc-lite-devel; fi
   elif have apk;     then
-    pkg_install python3 python3-dev py3-pip swig gcc musl-dev pkgconfig libffi-dev openssl-dev
+    pkg_install gcc musl-dev pkgconfig curl
     if [ "$PCSC_SOURCE_BUILT" = 0 ] && [ ! -f /usr/include/PCSC/pcsclite.h ]; then pkg_install pcsc-lite-dev; fi
   fi
 }
 
-setup_venv() {
-  info "creating Python venv + installing control requirements ($VENV_DIR)…"
-  [ -d "$VENV_DIR" ] || python3 -m venv "$VENV_DIR"
-  "$VENV_DIR/bin/pip" install --quiet --upgrade pip wheel
-  "$VENV_DIR/bin/pip" install --quiet -r "$REPO_DIR/control/requirements.txt" \
-    || die "pip install failed — if a system package (e.g. a -devel header) is missing, run: $0 install"
-  info "venv ready"
+# reload stays root-free, so it can't add packages: an install from before the Rust control plane
+# must run `install` once to get the build dependencies.
+control_deps_present() {
+  { have cc || have gcc; } && have pkg-config && pkg-config --exists libpcsclite
 }
 
-# SELinux (Fedora/RHEL, enforcing): the venv lives in the repo, typically under /home, so its
-# files are labelled user_home_t — and the service manager may not execute those (status=203/EXEC,
-# AVC "denied { read } ... lnk_file" on .venv/bin/python). A persistent fcontext rule labels the
-# venv's bin/ as bin_t (survives relabels; files pip adds later inherit it from the directory).
-SELINUX_VENV_FCONTEXT="$VENV_DIR/bin(/.*)?"
-selinux_label_venv() {
+# SELinux: has install labelled control/bin bin_t yet? (reload can't run semanage.)
+selinux_control_ready() {
+  have selinuxenabled && selinuxenabled 2>/dev/null || return 0
+  [ -d "$REPO_DIR/control/bin" ] && ls -Zd "$REPO_DIR/control/bin" 2>/dev/null | grep -q ':bin_t:'
+}
+
+# Version compare: 0 if $1 >= $2 (dotted numbers; awk, so busybox hosts work too).
+version_ge() {
+  awk -v a="$1" -v b="$2" 'BEGIN { n = split(a, x, "."); m = split(b, y, ".");
+    for (i = 1; i <= (n > m ? n : m); i++) { if (x[i] + 0 > y[i] + 0) exit 0; if (x[i] + 0 < y[i] + 0) exit 1 }
+    exit 0 }'
+}
+
+# The user's rustup toolchain (installed on first use into ~/.cargo + ~/.rustup, no root, no
+# shell-profile edits). Updated when older than RUST_MIN.
+ensure_rust() {
+  PATH="$CARGO_HOME/bin:$PATH"; export PATH
+  if ! have rustup; then
+    have curl || die "curl is needed to install the Rust toolchain — run: $0 install"
+    info "installing the Rust toolchain for $ME (rustup, into $CARGO_HOME)…"
+    tmp=$(mktemp -d)
+    curl --proto '=https' --tlsv1.2 -fsSLo "$tmp/rustup-init.sh" https://sh.rustup.rs \
+      || die "could not download rustup"
+    sh "$tmp/rustup-init.sh" -y --no-modify-path --profile minimal --default-toolchain stable >/dev/null \
+      || die "rustup install failed"
+    rm -rf "$tmp"
+  fi
+  rustc_ver=$(rustc --version 2>/dev/null | awk '{print $2}')
+  if [ -z "$rustc_ver" ] || ! version_ge "$rustc_ver" "$RUST_MIN"; then
+    info "updating the Rust toolchain (have ${rustc_ver:-none}, need >= $RUST_MIN)…"
+    rustup toolchain install stable --profile minimal >/dev/null && rustup default stable >/dev/null \
+      || die "could not update the Rust toolchain"
+  fi
+}
+
+# Build the control plane (release) and install it to control/bin. `install` writes a new file,
+# so a running service keeps its old binary until run_control restarts it. The first build
+# downloads + compiles the crate dependencies (a few minutes; ~15+ on a Raspberry Pi-class board).
+build_control() {
+  info "building the control plane (cargo build --release; the first build takes a while)…"
+  ( cd "$CONTROL_SRC" && cargo build --release --locked ) || die "control plane build failed"
+  mkdir -p "$(dirname "$CONTROL_BIN")"
+  install -m 0755 "$CONTROL_SRC/target/release/vowifi-control" "$CONTROL_BIN"
+  info "control plane built: $CONTROL_BIN"
+}
+
+# SELinux (Fedora/RHEL, enforcing): the binary lives in the repo, typically under /home, so it is
+# labelled user_home_t — and the service manager may not execute that (status=203/EXEC). A
+# persistent fcontext rule labels control/bin as bin_t (survives relabels; the file `install`
+# writes there on later builds inherits the directory's label).
+SELINUX_CONTROL_FCONTEXT="$REPO_DIR/control/bin(/.*)?"
+# The rule earlier versions added for the Python venv.
+SELINUX_VENV_FCONTEXT="$LEGACY_VENV_DIR/bin(/.*)?"
+selinux_label_control() {
   have selinuxenabled && selinuxenabled 2>/dev/null || return 0
   if ! have semanage; then
     if have dnf || have yum; then pkg_install policycoreutils-python-utils; fi
   fi
   have semanage || { warn "SELinux is enabled but semanage is missing — vowifi-control may fail with 203/EXEC"; return 0; }
-  as_root semanage fcontext -a -t bin_t "$SELINUX_VENV_FCONTEXT" 2>/dev/null \
-    || as_root semanage fcontext -m -t bin_t "$SELINUX_VENV_FCONTEXT" 2>/dev/null \
-    || warn "could not add SELinux file context for $VENV_DIR/bin"
-  as_root restorecon -R "$VENV_DIR/bin" 2>/dev/null || true
-  info "SELinux: labelled $VENV_DIR/bin as bin_t"
+  as_root semanage fcontext -a -t bin_t "$SELINUX_CONTROL_FCONTEXT" 2>/dev/null \
+    || as_root semanage fcontext -m -t bin_t "$SELINUX_CONTROL_FCONTEXT" 2>/dev/null \
+    || warn "could not add SELinux file context for $REPO_DIR/control/bin"
+  as_root restorecon -R "$REPO_DIR/control/bin" 2>/dev/null || true
+  info "SELinux: labelled $REPO_DIR/control/bin as bin_t"
 }
 
-selinux_unlabel_venv() {
+selinux_unlabel_control() {
   have selinuxenabled && selinuxenabled 2>/dev/null && have semanage || return 0
+  as_root semanage fcontext -d "$SELINUX_CONTROL_FCONTEXT" 2>/dev/null || true
   as_root semanage fcontext -d "$SELINUX_VENV_FCONTEXT" 2>/dev/null || true
-  [ -d "$VENV_DIR/bin" ] && as_root restorecon -R "$VENV_DIR/bin" 2>/dev/null || true
+  [ -d "$REPO_DIR/control/bin" ] && as_root restorecon -R "$REPO_DIR/control/bin" 2>/dev/null || true
+}
+
+# The Python control plane of earlier versions: its venv goes once the new binary is in place
+# (the unit no longer points at it). With root (install) its SELinux rule goes too.
+remove_legacy_venv() {
+  if [ "${1:-}" = root ] && have selinuxenabled && selinuxenabled 2>/dev/null && have semanage; then
+    as_root semanage fcontext -d "$SELINUX_VENV_FCONTEXT" 2>/dev/null || true
+  fi
+  [ -d "$LEGACY_VENV_DIR" ] || return 0
+  info "removing the old Python control-plane venv ($LEGACY_VENV_DIR)"
+  rm -rf "$LEGACY_VENV_DIR" 2>/dev/null || warn "could not remove $LEGACY_VENV_DIR"
 }
 
 # Write + (re)start the control-plane user unit. It runs ON the host from this checkout, so the
@@ -666,8 +726,8 @@ Environment=VOWIFI_ENGINE_IMAGE=$ENGINE_IMAGE
 Environment=VOWIFI_MANAGER_URL=https://host.containers.internal:$VOWIFI_PORT
 Environment=DOCKER_HOST=unix://%t/podman/podman.sock
 Environment=VOWIFI_PCSCD_DIR=/run/pcscd
-Environment=PYTHONUNBUFFERED=1
-ExecStart=$VENV_DIR/bin/python run.py
+Environment=RUST_LOG=info
+ExecStart=$CONTROL_BIN
 Restart=on-failure
 RestartSec=3
 
@@ -708,9 +768,11 @@ cmd_install() {
   ensure_engine_image
   build_webui
   ensure_control_deps
-  setup_venv
-  selinux_label_venv
+  ensure_rust
+  build_control
+  selinux_label_control
   run_control
+  remove_legacy_venv root
   restore_migrated_engines
   DATA_ABS=$(data_dir_abs)
   LAN_IP="${VOWIFI_ADVERTISE_ADDR:-$(detect_lan_ip)}"
@@ -724,7 +786,7 @@ cmd_install() {
 }
 
 # Rebuild + restart from the checkout. No root: system packages, pcscd, polkit, firewall and the
-# SELinux file context were set up by install (new venv/bin files inherit their bin_t label).
+# SELinux file context were set up by install (a rebuilt control/bin file inherits its bin_t label).
 cmd_reload() {
   installed || die "not installed yet — run: $0 install"
   RECREATE_ENGINES=0
@@ -737,8 +799,12 @@ cmd_reload() {
     ensure_engine_image
   fi
   build_webui
-  setup_venv
+  { control_deps_present && selinux_control_ready; } \
+    || die "the control plane is now built from Rust: run '$0 install' once (it asks sudo for the build packages and the SELinux label); the running control plane was left untouched"
+  ensure_rust
+  build_control
   run_control
+  remove_legacy_venv
   if [ "$RECREATE_ENGINES" = 1 ]; then
     warn "engines will be re-created by the control plane on next start/provision (image updated)"
     for n in $(engine_names); do podman rm -f "$n" >/dev/null 2>&1 || true; done
@@ -778,22 +844,23 @@ cmd_uninstall() {
   for a in $ARGS; do [ "$a" = "--purge" ] && PURGE=1; done
   info "uninstalling…"
   remove_control
-  selinux_unlabel_venv
+  selinux_unlabel_control
   [ -f "$PCSC_POLKIT_RULE" ] && as_root rm -f "$PCSC_POLKIT_RULE"
   remove_firewall
   info "removing vowifi containers…"
   for n in $(engine_names); do podman rm -f "$n" >/dev/null 2>&1 || true; done
   if [ "$PURGE" = 1 ]; then
-    # Full teardown: also drop the (slow, patched) engine image and data+venv.
+    # Full teardown: also drop the (slow, patched) engine image, data and the control build.
     info "removing the engine image…"
     podman rmi -f "$ENGINE_IMAGE" >/dev/null 2>&1 || true
-    warn "purging data dir: $(data_dir_abs) and venv $VENV_DIR"
+    warn "purging data dir: $(data_dir_abs) and the control build (control/target, control/bin)"
     # Files an engine wrote as a non-root container user belong to a subordinate UID;
     # `podman unshare` deletes them inside the user namespace without root.
-    rm -rf "$VOWIFI_DATA_DIR" "$VENV_DIR" 2>/dev/null || podman unshare rm -rf "$VOWIFI_DATA_DIR" "$VENV_DIR"
+    rm -rf "$REPO_DIR/control/target" "$REPO_DIR/control/bin" "$LEGACY_VENV_DIR" 2>/dev/null || true
+    rm -rf "$VOWIFI_DATA_DIR" 2>/dev/null || podman unshare rm -rf "$VOWIFI_DATA_DIR"
   else
-    # Keep the ~15-20 min patched engine image so a reinstall reuses it. Data + venv are kept too.
-    info "data kept at $(data_dir_abs); engine image + venv preserved (use --purge to delete all). Podman, pcscd and lingering left as they are."
+    # Keep the ~15-20 min patched engine image so a reinstall reuses it. Data + build are kept too.
+    info "data kept at $(data_dir_abs); engine image + control build preserved (use --purge to delete all). Podman, pcscd and lingering left as they are."
   fi
   info "uninstall complete"
 }
@@ -808,7 +875,7 @@ cmd_uninstall() {
 # share a zone (often `public`, the default zone) a bare --add-service would open the gateway to
 # every source on every interface in it. Every run first strips the service / our rules from ALL
 # zones, so changing the zone or subnet leaves nothing open in the old one.
-# Port blocks follow control/app/config.py (PORT_BASE + index*PORT_STRIDE, RTP_SPAN 60) and the
+# Port blocks follow control/src/config.rs (PORT_BASE + index*PORT_STRIDE, RTP_SPAN 60) and the
 # protocols engine.py publishes, for up to VOWIFI_FW_INSTANCES SIMs. AMI (5038+) stays closed:
 # the manager reaches it over loopback.
 VOWIFI_FW_INSTANCES="${VOWIFI_FW_INSTANCES:-10}"
@@ -1171,8 +1238,8 @@ cmd_logs() {
 # Log every browser out of the WebUI (rotates the session key; the manager picks it up on its
 # next request). Runs as you, no root.
 cmd_logout_all() {
-  [ -x "$VENV_DIR/bin/python" ] || die "control venv missing ($VENV_DIR) — run './install.sh install' first"
-  ( cd "$REPO_DIR/control" && VOWIFI_DATA="$(data_dir_abs)" "$VENV_DIR/bin/python" -m app.auth logout-all )
+  [ -x "$CONTROL_BIN" ] || die "control plane not built ($CONTROL_BIN) — run './install.sh install' first"
+  VOWIFI_DATA="$(data_dir_abs)" "$CONTROL_BIN" logout-all
 }
 
 # Default action when invoked with no subcommand. Multi-functional:
@@ -1231,7 +1298,7 @@ ${B}VoWiFi→SIP gateway installer${N}  (run as your normal user, not root/sudo)
   $0 start | stop | restart          control-plane lifecycle (systemd --user)
   $0 enable-autostart     start on boot (lingering)
   $0 disable-autostart    do not start on boot
-  $0 uninstall [--purge]  remove the service + engines (--purge also deletes image, data and venv)
+  $0 uninstall [--purge]  remove the service + engines (--purge also deletes image, data and the control build)
   $0 status               show component status
   $0 logs                 follow control-plane logs
   $0 firewall             (re)open the gateway ports to the LAN in firewalld (also done by install)

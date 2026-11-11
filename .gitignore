@@ -32,3 +32,7 @@ id_ed25519*
 
 # debug captures
 *.pcap
+
+# Rust control-plane build output
+control/target/
+control/bin/

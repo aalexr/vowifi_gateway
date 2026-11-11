@@ -13,7 +13,7 @@ export const PANI_ACCESS_TYPES = [
   "3GPP-WLAN",
 ] as const;
 
-// Preview-only MCC→ISO hints (authoritative table lives in control/app/mcc_country.py).
+// Preview-only MCC→ISO hints (authoritative table lives in control/src/mcc.rs).
 export const PREVIEW_MCC_ISO: Readonly<Record<string, string>> = {
   "202": "GR",
   "204": "NL",

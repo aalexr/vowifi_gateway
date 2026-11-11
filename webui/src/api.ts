@@ -70,12 +70,12 @@ export interface PinStatus {
   ts: number;
 }
 
-/** Outbound registration state from ami.py `registration_state()`. */
+/** Outbound registration state from ami.rs `registration_state()`. */
 export type RegistrationState =
   "Registered" | "Rejected" | "Unregistered" | "unknown";
 
 /**
- * Raw signals behind a status (control/app/status.py `compute`). Keys are filled in as the
+ * Raw signals behind a status (control/src/status.rs `compute`). Keys are filled in as the
  * state machine progresses, so later ones are absent when an earlier stage failed; status
  * pushed over the WS on card removal carries an empty object.
  */
@@ -274,14 +274,14 @@ export type DeleteMessagesRequest =
 
 export type DeleteCallsRequest = { ids: unknown[] } | { all: true };
 
-/** Fields lpa.py `load_all_ses` adds to each lpac profile/notification entry. */
+/** Fields lpa.rs `load_all_ses` adds to each lpac profile/notification entry. */
 interface EsimSeTag {
   seId?: string;
   seLabel?: string;
   seEid?: string | null;
 }
 
-/** One entry of lpac `profile list` (passed through by control/app/lpa.py). */
+/** One entry of lpac `profile list` (passed through by control/src/lpa.rs). */
 export interface EsimProfile extends EsimSeTag {
   iccid: string;
   isdpAid?: string;
@@ -318,7 +318,7 @@ export interface EsimDownloadPreview {
   [key: string]: unknown;
 }
 
-/** Normalised lpac `chip info` (lpa.py `chip_info`). */
+/** Normalised lpac `chip info` (lpa.rs `chip_info`). */
 export interface EsimChipInfo {
   eid: string;
   defaultDpAddress?: string | null;
@@ -329,7 +329,7 @@ export interface EsimChipInfo {
   raw?: unknown;
 }
 
-/** A Secure Element on the card (lpa.py `load_all_ses`); dual-SE cards have two. */
+/** A Secure Element on the card (lpa.rs `load_all_ses`); dual-SE cards have two. */
 export interface EsimSecureElement {
   id: string;
   label?: string;
