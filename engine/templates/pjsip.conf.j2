@@ -63,15 +63,22 @@ allow={{ codec }}
 {% endfor %}
 ; SDP b=AS incl. RTP/UDP/IP headers, sized for the largest codec offered (render.py).
 bw_value={{ ims_bw }}
-; Incoming calls: answer with exactly ONE speech codec. TS 24.229 (terminating UE SDP handling)
-; requires a single codec per m= line in the SDP answer (telephone-event may be added).
-; O2/Vodafone/MTS tolerate a multi-codec answer; Beeline RU does not. The MT 183/200 SDP comes
-; from the pjmedia negotiator, which the fork (res_pjsip_session.c) puts into
-; answer-multiple-codecs mode unless preferred_codec_only is set, so codec_prefs alone does not
-; change it. The default list follows the carrier's offer order (prefer:pending); a custom
-; list chooses by OUR order, so its first codec actually gets used.
+; Incoming calls: the MT 183/200 SDP comes from the pjmedia negotiator, which the fork
+; (res_pjsip_session.c) puts into answer-multiple-codecs mode unless preferred_codec_only is
+; set, so codec_prefs alone does not change it. The default list follows the carrier's offer
+; order (prefer:pending); a custom list chooses by OUR order, so its first codec comes first.
 codec_prefs_incoming_offer=prefer:{{ 'configured' if ims_codecs_custom else 'pending' }},operation:intersect,keep:first,transcode:allow
+{% if mt_single_codec %}
+; Per line (control: mt_single_codec): answer with exactly ONE speech codec, as TS 24.229
+; asks of a terminating UE (telephone-event may be added). Beeline RU rejects a multi-codec
+; answer ("Media Negotiation Failed").
 preferred_codec_only=yes
+{% else %}
+; Multi-codec answer (default). MTS RU (Lucent P-CSCF) needs it: it re-offers the chosen codec
+; in the PRACK, and with a single-codec answer it skips that and never sends media (no audio
+; on incoming calls). O2/Vodafone DE worked with it too.
+preferred_codec_only=no
+{% endif %}
 outbound_auth=volte_ims
 aors=volte_ims
 ; rewrite_contact MUST be off towards the P-CSCF. With sec-agree (TS 33.203 §7) the P-CSCF

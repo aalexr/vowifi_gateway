@@ -166,6 +166,7 @@ export interface InstanceConfig {
   dial_00_to_plus?: boolean;
   update_after_prack?: boolean;
   mt_precondition_require_only?: boolean;
+  mt_single_codec?: boolean;
   /** Carrier (IMS) leg codecs in preference order; empty/missing = ["amrwb", "amr"]. */
   ims_codecs?: string[];
   debug?: Record<string, boolean>;

@@ -100,6 +100,7 @@ export const emptyInstance = (): InstanceForm => ({
   dial_00_to_plus: false,
   update_after_prack: false,
   mt_precondition_require_only: false,
+  mt_single_codec: false,
   ims_codecs: [...IMS_CODECS_DEFAULT],
   sip: {
     listen_addr: "0.0.0.0",
@@ -198,7 +199,8 @@ export function imsAdvancedSet(saved?: InstanceConfig | null): boolean {
     saved.reg_imei_urn_spare_zero ||
     saved.dial_00_to_plus ||
     saved.update_after_prack ||
-    saved.mt_precondition_require_only
+    saved.mt_precondition_require_only ||
+    saved.mt_single_codec
   );
 }
 

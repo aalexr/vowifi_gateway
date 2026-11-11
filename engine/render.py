@@ -316,6 +316,8 @@ def build_context(cfg):
         "ring_timeout": int(sip.get("ring_timeout", 35) or 35),
         "dial_00_to_plus": bool(cfg.get("dial_00_to_plus", False)),
         **_ims_codec_ctx(cfg.get("ims_codecs")),
+        # Incoming calls: single-codec SDP answer (pjsip preferred_codec_only), see pjsip.conf.j2.
+        "mt_single_codec": bool(cfg.get("mt_single_codec", False)),
         # The container's own RTP bind IP (docker-bridge private, e.g. 172.17.0.2). Used as the
         # LHS of rtp.conf [ice_host_candidates] to rewrite that unreachable host candidate to
         # the host LAN IP (advertise_addr) so a LAN WebRTC browser can reach our RTP.

@@ -506,6 +506,11 @@ pub struct Instance {
     /// fork PATCH_MT_PRECONDITION_REQUIRE_ONLY). Off by default.
     #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
     pub mt_precondition_require_only: Option<bool>,
+    /// Incoming calls: answer the carrier with exactly one speech codec (pjsip
+    /// `preferred_codec_only`). Off by default: MTS RU only sets up media after re-offering a
+    /// multi-codec answer; Beeline RU rejects anything but a single-codec answer.
+    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    pub mt_single_codec: Option<bool>,
     /// Carrier (IMS) leg codecs in preference order (`normalize_ims_codecs`); unset = the
     /// phone-like default. Kept as raw JSON so a hand-edited odd value can't fail the load.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1435,6 +1440,7 @@ pub fn render_instance_json(inst: &Instance, settings: &Settings) -> Value {
         "dial_00_to_plus": inst.dial_00_to_plus.unwrap_or(false),
         "update_after_prack": inst.update_after_prack.unwrap_or(false),
         "mt_precondition_require_only": inst.mt_precondition_require_only.unwrap_or(false),
+        "mt_single_codec": inst.mt_single_codec.unwrap_or(false),
         // Carrier (IMS) leg codecs, in preference order. A stored value that no longer
         // validates renders as the default instead of failing the start.
         "ims_codecs": normalize_ims_codecs(inst.ims_codecs.as_ref()).unwrap_or_else(|_| ims_codecs_default()),
