@@ -448,6 +448,8 @@ impl Hub {
                 tracing::warn!(instance = %iid, "auto-recover aborted — card mismatch instance={iid}");
                 return Ok(());
             }
+            // Rebind first: preflight must address the reader the SIM is in now (see launch).
+            let inst = self.rebind_reader(inst, "auto-recover").await?;
             match self.preflight_pin(&inst).await {
                 Preflight::Ok => {}
                 Preflight::Fail { code: "no_card", .. } => {
@@ -465,7 +467,6 @@ impl Hub {
                     return Ok(());
                 }
             }
-            let inst = self.rebind_reader(inst, "auto-recover").await?;
             self.forget_msisdn_tries(iid);
             // frozen_code stays until the start succeeds: a failed start leaves the freeze for
             // the next recover interval (and `recovering` blocks double-scheduling meanwhile).
@@ -625,17 +626,21 @@ impl Hub {
     }
 
     /// (reader label, ICCID) when the reader this line uses now holds a DIFFERENT identity —
-    /// the signature of an eSIM profile switch. Starting anyway would run EAP-AKA with the old
-    /// IMSI against the new profile's keys (rejected, and PIN tries at risk). Only a positive,
-    /// known conflict blocks; absent readers / unknown ICCIDs fail open.
+    /// an eSIM profile switch, or another line's SIM swapped into the same reader. Starting
+    /// anyway would run EAP-AKA with this line's IMSI against the wrong keys (rejected) and the
+    /// engine would VERIFY this line's PIN on someone else's card. Only a positive, known
+    /// conflict blocks; absent readers / unknown ICCIDs fail open.
     pub async fn card_identity_mismatch(&self, inst: &Instance) -> Option<(String, String)> {
         let want = inst.iccid()?.trim().to_string();
-        if self.reader_index_for_instance(inst).await.is_some() {
+        let cards = lock(&self.cards);
+        // This line's SIM is in some reader right now: no conflict (rebind_reader moves the
+        // binding there). Not `reader_index_for_instance`: that resolves the saved USB port
+        // whatever card sits in it, which is exactly the swapped-card case this guards.
+        if cards.values().any(|c| c.present && c.iccid.as_deref().map(str::trim) == Some(want.as_str())) {
             return None;
         }
         let port = inst.reader_port().unwrap_or("").trim().to_string();
         let idx = inst.reader_index.and_then(|i| usize::try_from(i).ok());
-        let cards = lock(&self.cards);
         for c in cards.values().filter(|c| c.present) {
             let same_reader = if !port.is_empty() { c.reader_port.as_deref() == Some(port.as_str()) }
                               else { c.index == idx };

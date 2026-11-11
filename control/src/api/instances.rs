@@ -83,14 +83,26 @@ pub async fn remove(State(hub): State<AppState>, Path(iid): Path<String>) -> Api
 
 fn card_mismatch_error(inst: &Instance, reader: &str, iccid: &str) -> ApiError {
     let line = inst.iccid.clone().unwrap_or_default();
+    // Name the line that card belongs to, when it is one of ours (SIMs swapped between lines).
+    let owner = config::instance_by_iccid(Some(iccid)).filter(|o| o.id != inst.id);
+    let message = match &owner {
+        Some(o) => {
+            let who = o.name.as_deref().filter(|n| !n.is_empty()).unwrap_or(&o.id);
+            format!("{reader} holds the SIM of line {who} (ICCID {iccid}), not this line's (ICCID {line}). \
+                     Insert this line's SIM — any reader will do — then start again.")
+        }
+        None => format!("The card in {reader} now has a different identity (ICCID {iccid}; this line \
+                         expects {line}): another SIM was inserted, or the eSIM profile was switched. Insert \
+                         this line's SIM, provision the active profile as its own line, or switch the eSIM \
+                         back to this profile, then start again."),
+    };
     ApiError::new(409, json!({
         "code": "card_mismatch",
         "reader": reader,
         "card_iccid": iccid,
         "line_iccid": line,
-        "message": format!("The card in {reader} now has a different identity (ICCID {iccid}; this line \
-                            expects {line}). This usually means the eSIM profile was switched. Provision the \
-                            active profile as its own line, or switch the eSIM back to this profile, then start again."),
+        "card_line": owner.as_ref().map(|o| o.id.clone()),
+        "message": message,
     }))
 }
 
@@ -103,6 +115,9 @@ async fn launch(hub: &AppState, mut inst: Instance) -> ApiResult {
     if let Some((reader, iccid)) = hub.card_identity_mismatch(&inst).await {
         return Err(card_mismatch_error(&inst, &reader, &iccid));
     }
+    // Follow the SIM to the reader it sits in NOW before the PIN preflight: preflight addresses
+    // the saved USB port first, which after a move may hold another line's card.
+    inst = hub.rebind_reader(inst, "start").await?;
     if let Preflight::Fail { code, clear, tries } = hub.preflight_pin(&inst).await {
         if clear {
             // Stale saved PIN: force re-entry next time.
@@ -110,7 +125,6 @@ async fn launch(hub: &AppState, mut inst: Instance) -> ApiResult {
         }
         return Err(ApiError::new(409, json!({"code": code, "tries": tries})));
     }
-    inst = hub.rebind_reader(inst, "start").await?;
     hub.forget_msisdn_tries(&iid);
     hub.reset_health(&iid);
     // engine::start recreates the container: the cached AMI client is stale.
