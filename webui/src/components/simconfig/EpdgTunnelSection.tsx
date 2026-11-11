@@ -17,14 +17,14 @@ export default function EpdgTunnelSection({ form, upd }: FormSectionProps) {
           <input
             className="mono"
             value={form.apn ?? "ims"}
-            onChange={(e) => upd({ apn: e.target.value })}
+            onChange={(e) => upd({ apn: e.currentTarget.value })}
             placeholder="ims"
           />
         </Field>
         <Field label="ePDG identity (IDr)">
           <select
             value={form.idr_mode ?? "apn"}
-            onChange={(e) => upd({ idr_mode: e.target.value })}
+            onChange={(e) => upd({ idr_mode: e.currentTarget.value })}
           >
             <option value="apn">Bare APN (default)</option>
             <option value="fqdn">APN-FQDN</option>
@@ -33,7 +33,7 @@ export default function EpdgTunnelSection({ form, upd }: FormSectionProps) {
         <Field label="IMS address family (CP)">
           <select
             value={form.cp_mode ?? "auto"}
-            onChange={(e) => upd({ cp_mode: e.target.value })}
+            onChange={(e) => upd({ cp_mode: e.currentTarget.value })}
           >
             <option value="auto">Auto-detect (recommended)</option>
             <option value="dual">Dual-stack (IPv4+IPv6)</option>

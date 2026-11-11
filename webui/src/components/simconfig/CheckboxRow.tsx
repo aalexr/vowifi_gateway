@@ -17,7 +17,7 @@ export default function CheckboxRow({
       <input
         type="checkbox"
         checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
+        onChange={(e) => onChange(e.currentTarget.checked)}
       />
       <span>{children}</span>
     </label>

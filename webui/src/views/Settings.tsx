@@ -85,7 +85,7 @@ export default function Settings() {
             <label>Bind address</label>
             <input
               value={s.bind || ""}
-              onChange={(e) => upd({ bind: e.target.value })}
+              onChange={(e) => upd({ bind: e.currentTarget.value })}
             />
           </div>
           <div>
@@ -93,7 +93,7 @@ export default function Settings() {
             <input
               type="number"
               value={s.http_port || 8443}
-              onChange={(e) => upd({ http_port: +e.target.value })}
+              onChange={(e) => upd({ http_port: +e.currentTarget.value })}
             />
           </div>
         </div>
@@ -103,7 +103,7 @@ export default function Settings() {
             type="checkbox"
             style={{ width: "auto", marginRight: 8 }}
             checked={!!tls.self_signed}
-            onChange={(e) => updTls({ self_signed: e.target.checked })}
+            onChange={(e) => updTls({ self_signed: e.currentTarget.checked })}
           />
           Use self-signed certificate
         </label>
@@ -120,7 +120,7 @@ export default function Settings() {
             <label>Domain</label>
             <input
               value={tls.domain || ""}
-              onChange={(e) => updTls({ domain: e.target.value })}
+              onChange={(e) => updTls({ domain: e.currentTarget.value })}
               placeholder="gw.example.com"
             />
           </div>
@@ -130,7 +130,7 @@ export default function Settings() {
             <input
               className="mono"
               value={tls.cert_path || ""}
-              onChange={(e) => updTls({ cert_path: e.target.value })}
+              onChange={(e) => updTls({ cert_path: e.currentTarget.value })}
               placeholder="/path/fullchain.pem"
             />
           </div>
@@ -139,7 +139,7 @@ export default function Settings() {
             <input
               className="mono"
               value={tls.key_path || ""}
-              onChange={(e) => updTls({ key_path: e.target.value })}
+              onChange={(e) => updTls({ key_path: e.currentTarget.value })}
               placeholder="/path/privkey.pem"
             />
           </div>
@@ -199,7 +199,9 @@ export default function Settings() {
               id="advertise_address"
               className="mono"
               value={s.advertise_address || ""}
-              onChange={(e) => upd({ advertise_address: e.target.value })}
+              onChange={(e) =>
+                upd({ advertise_address: e.currentTarget.value })
+              }
               placeholder={
                 s.advertise_address_detected
                   ? `auto → ${s.advertise_address_detected}`
@@ -247,7 +249,7 @@ export default function Settings() {
             type="checkbox"
             style={{ width: "auto", marginRight: 8 }}
             checked={!!s.debug?.asterisk}
-            onChange={(e) => updDebug({ asterisk: e.target.checked })}
+            onChange={(e) => updDebug({ asterisk: e.currentTarget.checked })}
           />
           Asterisk verbose/debug logging
         </label>
@@ -256,7 +258,7 @@ export default function Settings() {
             type="checkbox"
             style={{ width: "auto", marginRight: 8 }}
             checked={!!s.debug?.charon}
-            onChange={(e) => updDebug({ charon: e.target.checked })}
+            onChange={(e) => updDebug({ charon: e.currentTarget.checked })}
           />
           SWu tunnel (IKE) high logging
         </label>
@@ -265,7 +267,7 @@ export default function Settings() {
             type="checkbox"
             style={{ width: "auto", marginRight: 8 }}
             checked={!!s.debug?.pcap}
-            onChange={(e) => updDebug({ pcap: e.target.checked })}
+            onChange={(e) => updDebug({ pcap: e.currentTarget.checked })}
           />
           Capture ESP/SIP pcap
         </label>
@@ -274,7 +276,7 @@ export default function Settings() {
           <input
             className="mono"
             value={s.manager_url || ""}
-            onChange={(e) => upd({ manager_url: e.target.value })}
+            onChange={(e) => upd({ manager_url: e.currentTarget.value })}
             placeholder="auto (e.g. https://gateway-host:8443)"
           />
         </div>
@@ -301,7 +303,9 @@ export default function Settings() {
               min="1"
               value={s.retry?.max ?? 3}
               onChange={(e) =>
-                upd({ retry: { ...(s.retry || {}), max: +e.target.value } })
+                upd({
+                  retry: { ...(s.retry || {}), max: +e.currentTarget.value },
+                })
               }
             />
           </div>
@@ -313,7 +317,10 @@ export default function Settings() {
               value={s.retry?.interval ?? 40}
               onChange={(e) =>
                 upd({
-                  retry: { ...(s.retry || {}), interval: +e.target.value },
+                  retry: {
+                    ...(s.retry || {}),
+                    interval: +e.currentTarget.value,
+                  },
                 })
               }
             />
@@ -326,7 +333,10 @@ export default function Settings() {
             checked={s.retry?.auto_recover !== false}
             onChange={(e) =>
               upd({
-                retry: { ...(s.retry || {}), auto_recover: e.target.checked },
+                retry: {
+                  ...(s.retry || {}),
+                  auto_recover: e.currentTarget.checked,
+                },
               })
             }
           />
@@ -355,7 +365,7 @@ export default function Settings() {
               min="5"
               max="180"
               value={s.ring_timeout ?? 35}
-              onChange={(e) => upd({ ring_timeout: +e.target.value })}
+              onChange={(e) => upd({ ring_timeout: +e.currentTarget.value })}
             />
           </div>
         </div>
@@ -385,7 +395,12 @@ export default function Settings() {
               max="1440"
               value={s.rekey?.minutes ?? 30}
               onChange={(e) =>
-                upd({ rekey: { ...(s.rekey || {}), minutes: +e.target.value } })
+                upd({
+                  rekey: {
+                    ...(s.rekey || {}),
+                    minutes: +e.currentTarget.value,
+                  },
+                })
               }
             />
           </div>
@@ -419,7 +434,7 @@ export default function Settings() {
             type="checkbox"
             style={{ width: "auto", marginRight: 8 }}
             checked={!!wh.enabled}
-            onChange={(e) => updWh({ enabled: e.target.checked })}
+            onChange={(e) => updWh({ enabled: e.currentTarget.checked })}
           />
           Enable webhook push
         </label>
@@ -429,7 +444,7 @@ export default function Settings() {
             className="mono"
             value={wh.url || ""}
             disabled={!wh.enabled}
-            onChange={(e) => updWh({ url: e.target.value })}
+            onChange={(e) => updWh({ url: e.currentTarget.value })}
             placeholder="https://example.com/hook"
           />
           <div
@@ -444,7 +459,9 @@ export default function Settings() {
                 style={{ width: "auto", marginRight: 7 }}
                 disabled={!wh.enabled}
                 checked={wh.events?.incoming_call !== false}
-                onChange={(e) => updWhEv("incoming_call", e.target.checked)}
+                onChange={(e) =>
+                  updWhEv("incoming_call", e.currentTarget.checked)
+                }
               />
               Incoming call
             </label>
@@ -454,7 +471,9 @@ export default function Settings() {
                 style={{ width: "auto", marginRight: 7 }}
                 disabled={!wh.enabled}
                 checked={wh.events?.incoming_sms !== false}
-                onChange={(e) => updWhEv("incoming_sms", e.target.checked)}
+                onChange={(e) =>
+                  updWhEv("incoming_sms", e.currentTarget.checked)
+                }
               />
               Incoming SMS
             </label>
@@ -489,7 +508,7 @@ export default function Settings() {
             type="checkbox"
             style={{ width: "auto", marginRight: 8 }}
             checked={!!tg.enabled}
-            onChange={(e) => updTg({ enabled: e.target.checked })}
+            onChange={(e) => updTg({ enabled: e.currentTarget.checked })}
           />
           Enable Telegram push
         </label>
@@ -503,7 +522,7 @@ export default function Settings() {
                 className="mono"
                 value={tg.bot_token || ""}
                 disabled={!tg.enabled}
-                onChange={(e) => updTg({ bot_token: e.target.value })}
+                onChange={(e) => updTg({ bot_token: e.currentTarget.value })}
                 placeholder="123456:ABC-DEF..."
               />
             </div>
@@ -513,7 +532,7 @@ export default function Settings() {
                 className="mono"
                 value={tg.chat_id || ""}
                 disabled={!tg.enabled}
-                onChange={(e) => updTg({ chat_id: e.target.value })}
+                onChange={(e) => updTg({ chat_id: e.currentTarget.value })}
                 placeholder="-1001234567890 or 12345678"
               />
             </div>
@@ -530,7 +549,9 @@ export default function Settings() {
                 style={{ width: "auto", marginRight: 7 }}
                 disabled={!tg.enabled}
                 checked={tg.events?.incoming_call !== false}
-                onChange={(e) => updTgEv("incoming_call", e.target.checked)}
+                onChange={(e) =>
+                  updTgEv("incoming_call", e.currentTarget.checked)
+                }
               />
               Incoming call
             </label>
@@ -540,7 +561,9 @@ export default function Settings() {
                 style={{ width: "auto", marginRight: 7 }}
                 disabled={!tg.enabled}
                 checked={tg.events?.incoming_sms !== false}
-                onChange={(e) => updTgEv("incoming_sms", e.target.checked)}
+                onChange={(e) =>
+                  updTgEv("incoming_sms", e.currentTarget.checked)
+                }
               />
               Incoming SMS
             </label>

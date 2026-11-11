@@ -30,7 +30,7 @@ export default function PaniSection({ form, updSip, saved }: PaniSectionProps) {
       <Field label="Access type">
         <select
           value={sip.pani_access_type || "IEEE-802.11"}
-          onChange={(e) => updSip({ pani_access_type: e.target.value })}
+          onChange={(e) => updSip({ pani_access_type: e.currentTarget.value })}
         >
           {PANI_ACCESS_TYPES.map((t) => (
             <option key={t} value={t}>
@@ -53,7 +53,7 @@ export default function PaniSection({ form, updSip, saved }: PaniSectionProps) {
           value={sip.pani_country || ""}
           onChange={(e) =>
             updSip({
-              pani_country: e.target.value
+              pani_country: e.currentTarget.value
                 .toUpperCase()
                 .replace(/[^A-Z]/g, "")
                 .slice(0, 2),
@@ -73,7 +73,7 @@ export default function PaniSection({ form, updSip, saved }: PaniSectionProps) {
           className="mono"
           style={{ marginTop: 6 }}
           value={sip.pani_node_id || ""}
-          onChange={(e) => updSip({ pani_node_id: e.target.value })}
+          onChange={(e) => updSip({ pani_node_id: e.currentTarget.value })}
           placeholder="000cf1126028"
         />
       )}

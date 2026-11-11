@@ -138,7 +138,7 @@ export default function Messages({
     }
   };
 
-  const deleteThread = async (p: string, e?: React.MouseEvent) => {
+  const deleteThread = async (p: string, e?: React.MouseEvent<HTMLElement>) => {
     if (e) e.stopPropagation();
     if (!id) return;
     if (
@@ -371,7 +371,7 @@ export default function Messages({
               <input
                 placeholder="Recipient number e.g. +1..."
                 value={newTo}
-                onChange={(e) => setNewTo(e.target.value)}
+                onChange={(e) => setNewTo(e.currentTarget.value)}
                 style={{ maxWidth: "100%", flex: "1 1 160px", minWidth: 0 }}
               />
             )}
@@ -583,7 +583,7 @@ export default function Messages({
             <input
               placeholder="Type a message…"
               value={text}
-              onChange={(e) => setText(e.target.value)}
+              onChange={(e) => setText(e.currentTarget.value)}
               onKeyDown={(e) => e.key === "Enter" && send()}
               style={{ flex: 1, minWidth: 0 }}
             />

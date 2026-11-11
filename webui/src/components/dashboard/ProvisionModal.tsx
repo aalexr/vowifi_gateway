@@ -198,7 +198,7 @@ export default function ProvisionModal({
             <label>Name</label>
             <input
               value={f.name}
-              onChange={(e) => upd({ name: e.target.value })}
+              onChange={(e) => upd({ name: e.currentTarget.value })}
               placeholder="auto (MCC-MNC)"
             />
           </div>
@@ -215,7 +215,7 @@ export default function ProvisionModal({
                 value={f.pin}
                 maxLength={8}
                 onChange={(e) =>
-                  upd({ pin: e.target.value.replace(/[^0-9]/g, "") })
+                  upd({ pin: e.currentTarget.value.replace(/[^0-9]/g, "") })
                 }
                 placeholder="4–8 digits"
               />
@@ -226,7 +226,7 @@ export default function ProvisionModal({
             <input
               className="mono"
               value={f.imei}
-              onChange={(e) => upd({ imei: e.target.value })}
+              onChange={(e) => upd({ imei: e.currentTarget.value })}
               placeholder="35123456-789012-3"
             />
           </div>
@@ -236,7 +236,7 @@ export default function ProvisionModal({
               className="mono"
               value={f.imeisv}
               onChange={(e) =>
-                upd({ imeisv: e.target.value.replace(/[^0-9]/g, "") })
+                upd({ imeisv: e.currentTarget.value.replace(/[^0-9]/g, "") })
               }
               maxLength={16}
               placeholder="auto from IMEI + random SVN"
@@ -269,7 +269,7 @@ export default function ProvisionModal({
               <input
                 className="mono"
                 value={f.smscManual}
-                onChange={(e) => upd({ smscManual: e.target.value })}
+                onChange={(e) => upd({ smscManual: e.currentTarget.value })}
                 placeholder="+1..."
               />
             )}
@@ -282,7 +282,7 @@ export default function ProvisionModal({
             <input
               className="mono"
               value={f.user_agent}
-              onChange={(e) => upd({ user_agent: e.target.value })}
+              onChange={(e) => upd({ user_agent: e.currentTarget.value })}
               placeholder="iOS/26.6 iPhone"
             />
           </div>
@@ -295,7 +295,7 @@ export default function ProvisionModal({
               <input
                 className="mono"
                 value={f.apn}
-                onChange={(e) => upd({ apn: e.target.value })}
+                onChange={(e) => upd({ apn: e.currentTarget.value })}
                 placeholder="ims"
               />
               <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2 }}>
@@ -306,7 +306,7 @@ export default function ProvisionModal({
               <label>ePDG identity (IDr)</label>
               <select
                 value={f.idrMode}
-                onChange={(e) => upd({ idrMode: e.target.value })}
+                onChange={(e) => upd({ idrMode: e.currentTarget.value })}
               >
                 <option value="apn">Bare APN (default)</option>
                 <option value="fqdn">APN-FQDN</option>
@@ -320,7 +320,7 @@ export default function ProvisionModal({
               <label>IMS address family (CP)</label>
               <select
                 value={f.cpMode}
-                onChange={(e) => upd({ cpMode: e.target.value })}
+                onChange={(e) => upd({ cpMode: e.currentTarget.value })}
               >
                 <option value="auto">Auto-detect (recommended)</option>
                 <option value="dual">Dual-stack (IPv4+IPv6)</option>
@@ -402,7 +402,9 @@ export default function ProvisionModal({
                   min={portMin}
                   max={portMax}
                   onChange={(e) => {
-                    upd({ sipPort: e.target.value.replace(/[^0-9]/g, "") });
+                    upd({
+                      sipPort: e.currentTarget.value.replace(/[^0-9]/g, ""),
+                    });
                     setErr("");
                   }}
                   placeholder={String(autoPort?.auto_sip_udp || "5060")}
@@ -432,7 +434,7 @@ export default function ProvisionModal({
               <label>SIP listen</label>
               <select
                 value={f.listen_addr}
-                onChange={(e) => upd({ listen_addr: e.target.value })}
+                onChange={(e) => upd({ listen_addr: e.currentTarget.value })}
               >
                 <option value="0.0.0.0">0.0.0.0 (all)</option>
                 <option value="127.0.0.1">127.0.0.1</option>
@@ -442,7 +444,7 @@ export default function ProvisionModal({
               <label>SIP transport</label>
               <select
                 value={f.transport}
-                onChange={(e) => upd({ transport: e.target.value })}
+                onChange={(e) => upd({ transport: e.currentTarget.value })}
               >
                 <option value="udp">UDP</option>
                 <option value="tcp">TCP</option>
@@ -455,7 +457,7 @@ export default function ProvisionModal({
               type="checkbox"
               style={{ width: "auto", marginRight: 8 }}
               checked={f.webrtc}
-              onChange={(e) => upd({ webrtc: e.target.checked })}
+              onChange={(e) => upd({ webrtc: e.currentTarget.checked })}
             />
             Enable browser softphone (WebRTC)
           </label>

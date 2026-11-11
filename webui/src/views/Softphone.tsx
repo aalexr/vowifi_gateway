@@ -122,7 +122,10 @@ export default function Softphone({
       toast("Delete failed: " + asApiError(e).message);
     }
   };
-  const deleteOneCall = async (cid: number, e?: React.MouseEvent) => {
+  const deleteOneCall = async (
+    cid: number,
+    e?: React.MouseEvent<HTMLElement>,
+  ) => {
     if (e) e.stopPropagation();
     if (!id) return;
     const forId = id;
@@ -538,7 +541,7 @@ export default function Softphone({
     >
       {/* Persistent remote-audio sink: JsSIP writes the remote MediaStream here. autoPlay +
           a stable DOM element + unlockAudio() on the first click = reliable playback. */}
-      <audio ref={audioRef} autoPlay playsInline style={{ display: "none" }} />
+      <audio ref={audioRef} autoPlay style={{ display: "none" }} />
       <div style={{ flexShrink: 0 }}>
         <SimSelector
           instances={instances}
@@ -875,7 +878,7 @@ export default function Softphone({
             >
               <input
                 value={num}
-                onChange={(e) => setNum(e.target.value)}
+                onChange={(e) => setNum(e.currentTarget.value)}
                 placeholder="Enter a number"
                 className="mono softphone-num"
                 style={{

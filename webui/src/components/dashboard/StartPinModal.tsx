@@ -83,7 +83,7 @@ export default function StartPinModal({
           maxLength={8}
           autoFocus
           onChange={(e) => {
-            setPin(e.target.value.replace(/[^0-9]/g, ""));
+            setPin(e.currentTarget.value.replace(/[^0-9]/g, ""));
             setErr("");
           }}
           onKeyDown={(e) => {

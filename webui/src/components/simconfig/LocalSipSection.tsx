@@ -27,7 +27,7 @@ export default function LocalSipSection({
         <Field label="Listen address">
           <select
             value={sip.listen_addr}
-            onChange={(e) => updSip({ listen_addr: e.target.value })}
+            onChange={(e) => updSip({ listen_addr: e.currentTarget.value })}
           >
             <option value="0.0.0.0">0.0.0.0 (all)</option>
             <option value="127.0.0.1">127.0.0.1 (local)</option>
@@ -37,7 +37,7 @@ export default function LocalSipSection({
         <Field label="Transport">
           <select
             value={sip.transport}
-            onChange={(e) => updSip({ transport: e.target.value })}
+            onChange={(e) => updSip({ transport: e.currentTarget.value })}
           >
             <option value="udp">UDP</option>
             <option value="tcp">TCP</option>
@@ -51,7 +51,7 @@ export default function LocalSipSection({
           <input
             className="mono"
             value={sip.user_agent || ""}
-            onChange={(e) => updSip({ user_agent: e.target.value })}
+            onChange={(e) => updSip({ user_agent: e.currentTarget.value })}
             placeholder="iOS/26.6 iPhone"
           />
         </Field>

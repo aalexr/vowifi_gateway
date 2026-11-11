@@ -560,7 +560,7 @@ ensure_engine_image() {
   info "engine image built"
 }
 
-# Compile the React WebUI to webui/dist using a throwaway Node container — so the host needs no
+# Compile the Preact WebUI to webui/dist using a throwaway Node container — so the host needs no
 # Node/JS toolchain. Builds in an isolated dir inside the container (ignores any host
 # node_modules that might be built for another arch), then copies dist back to the host.
 build_webui() {

@@ -13,7 +13,7 @@ server, with SMS and eSIM (lpac) management. Two planes:
 | Plane | Where | What |
 |-------|-------|------|
 | **engine** (one container per SIM) | `engine/` | `swu_ike.py` (pure-Python SWu IKEv2 + EAP-AKA + userspace ESP on `ipsec0`), sysmocom Asterisk (IMS PJSIP), USIM bridges (`pin_keeper.py`, `ami_usim.py`), `notify.py` event hook |
-| **control** (singleton) | `control/` + `webui/` | Rust manager (axum/tokio; Docker-compatible API client against the user's Podman socket, PC/SC via the `pcsc` crate, SQLite via rusqlite, PAM via libpam at runtime) + React/Vite/Tailwind WebUI served by the manager |
+| **control** (singleton) | `control/` + `webui/` | Rust manager (axum/tokio; Docker-compatible API client against the user's Podman socket, PC/SC via the `pcsc` crate, SQLite via rusqlite, PAM via libpam at runtime) + Preact (via `preact/compat`)/Vite/Tailwind WebUI served by the manager |
 
 Everything runs **rootless** under the installing user: the control plane is a native binary (`control/bin/vowifi-control`, built by `install.sh` with a per-user rustup toolchain) +
 `vowifi-control` **`systemd --user`** service (lingering for boot), engines run in that user's
@@ -35,7 +35,7 @@ containerized control plane (both were removed; `install.sh install` migrates su
 - `engine/render.py` + `engine/templates/*.j2` — `/config/instance.json` → Asterisk configs + `engine.env`.
 - Asterisk changes live in the fork [aalexr/asterisk](https://github.com/aalexr/asterisk), branch `vowifi/20.7.0` (sysmocom/20.7.0 + our commits); `engine/Containerfile` builds it pinned by SHA (`ASTERISK_REF`). Commit there, then bump `ASTERISK_REF`.
 - `patches/ccid/*.patch` — opt-in host CCID driver patches (`install.sh patch|patch2|patchall`).
-- `webui/src/views/*.tsx` — one file per tab; `webui/src/components/<group>/` — one file per React component (plus `utils.ts`/`constants.ts` helpers) grouped by owning view (`dashboard`, `esim`, `settings`, `simconfig`, `softphone`) or `common` for shared ones; `api.ts` = fetch/WS helpers; `softphone.ts` = JsSIP wrapper. TypeScript (`npm run typecheck`).
+- `webui/src/views/*.tsx` — one file per tab; `webui/src/components/<group>/` — one file per component (plus `utils.ts`/`constants.ts` helpers) grouped by owning view (`dashboard`, `esim`, `settings`, `simconfig`, `softphone`) or `common` for shared ones; `api.ts` = fetch/WS helpers; `softphone.ts` = JsSIP wrapper. TypeScript (`npm run typecheck`).
 - `data/` — runtime state (configs, SQLite, logs, certs, saved PINs/secrets). **Gitignored; never commit its contents.**
 
 ## Build, run, verify
@@ -92,7 +92,7 @@ systemd, firewalld or the user's Podman containers unless the user asks — they
 - Python (engine scripts): module docstring at top describing purpose and contract (`"""name.py - ..."""`), `from __future__ import annotations`, stdlib `logging` with `vowifi.*` logger names. No formatter is enforced; match the surrounding file.
 - Engine scripts are standalone executables (`#!/usr/bin/env python3`), installed to `/usr/local/bin` in the image; keep their dependencies within what `engine/Containerfile` installs.
 - New control-plane deps go in `control/Cargo.toml` (commit `Cargo.lock`; `install.sh` builds with `--locked`); new WebUI deps in `webui/package.json` (commit `package-lock.json`).
-- WebUI: React 18 function components + hooks, Tailwind v4 utility classes, light and dark themes both supported — check both.
+- WebUI: function components + hooks written against the React API but run on **Preact** (`react`/`react-dom` are aliased to `preact/compat` in `vite.config.js` and `tsconfig.json`; don't add `react` deps or React-19-only APIs, and read input values via `e.currentTarget` — Preact types `e.target` as a bare `EventTarget`), Tailwind v4 utility classes, light and dark themes both supported — check both.
 
 ## Commits & PRs
 

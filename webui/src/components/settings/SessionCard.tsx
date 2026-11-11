@@ -27,9 +27,9 @@ export default function SessionCard() {
       <p className="auth-note">
         Logged in as <strong className="mono">{status.user}</strong>, the Linux
         account the gateway runs as. The WebUI password is that account's Linux
-        password: change it with <code>passwd</code> on the host. Sessions last 30
-        days; a password change doesn't end them, so use <em>Log out everywhere</em>{" "}
-        after changing it.
+        password: change it with <code>passwd</code> on the host. Sessions last
+        30 days; a password change doesn't end them, so use{" "}
+        <em>Log out everywhere</em> after changing it.
       </p>
       <div
         style={{

@@ -30,13 +30,13 @@ export default function ExternalAccounts({
           <input
             placeholder="username"
             value={a.username}
-            onChange={(e) => setField(i, "username", e.target.value)}
+            onChange={(e) => setField(i, "username", e.currentTarget.value)}
           />
           <input
             type="password"
             placeholder="password"
             value={a.password}
-            onChange={(e) => setField(i, "password", e.target.value)}
+            onChange={(e) => setField(i, "password", e.currentTarget.value)}
           />
         </div>
       ))}

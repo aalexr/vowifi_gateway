@@ -299,7 +299,7 @@ export default function Esim({
           Reader
           <select
             value={reader}
-            onChange={(e) => setReader(e.target.value)}
+            onChange={(e) => setReader(e.currentTarget.value)}
             style={{ minWidth: 220 }}
           >
             {present.map((c) => (
