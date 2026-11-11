@@ -41,9 +41,11 @@ exten => t,1,Hangup()
 ; CRITICAL: after priority 1 Asterisk auto-increments to h,2 which does NOT exist, so it would
 ; FALL THROUGH to the broad `_.` pattern (priorities 2-9: Set/Progress/call_in/Dial…) and fire
 ; a phantom SECOND `call_in` (+ a stray Dial) for every call — leaving a ghost 'ringing' row in
-; the call log. Return() ends the 'h' routine cleanly so no fall-through happens.
+; the call log. Hangup() at h,2 ends the 'h' extension so no fall-through happens. (Not Return():
+; 'h' runs as a plain extension, not via Gosub, so Return() logs "Return without Gosub: stack is
+; unallocated" as an ERROR on every call, although it stops execution just the same.)
 exten => h,1,TrySystem(/usr/local/bin/notify.py call_result in "${CALLPEER}" "${DIALSTATUS}" "${HANGUPCAUSE}" &)
-same => n,Return()
+same => n,Hangup()
 
 ; ===== Incoming SMS from the IMS/VoWiFi side =====
 [volte_ims_msg]
@@ -109,7 +111,7 @@ same => n,Hangup()
 exten => h,1,Set(ST=${IF($["${REALSTATUS}" != ""]?${REALSTATUS}:${DIALSTATUS})})
 same => n,Set(CS=${IF($["${REALCAUSE}" != ""]?${REALCAUSE}:${HANGUPCAUSE})})
 same => n,TrySystem(/usr/local/bin/notify.py call_result out "${CALLPEER}" "${ST}" "${CS}" &)
-same => n,Return()
+same => n,Hangup()
 
 ; ===== Outgoing SMS from a local endpoint =====
 [msg-from-local]
