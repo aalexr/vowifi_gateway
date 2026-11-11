@@ -60,7 +60,14 @@ allow=amr
 bw_value=41
 outbound_auth=volte_ims
 aors=volte_ims
-rewrite_contact=yes
+; rewrite_contact MUST be off towards the P-CSCF. With sec-agree (TS 33.203 §7) the P-CSCF
+; sends MT requests from its protected client port (port-c) but only accepts requests on its
+; protected server port (port-s), which is what its Contact carries. rewrite_contact=yes
+; replaces the dialog's remote target with the request's source (port-c), so our BYE /
+; re-INVITE / UPDATE on MT calls went to port-c and were silently dropped (MTS: hangup from
+; the gateway side never reached the network). MO calls were unaffected: their responses
+; arrive on our own connection to port-s.
+rewrite_contact=no
 from_domain={{ realm }}
 from_user={{ msisdn }}
 volte=yes
