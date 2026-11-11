@@ -49,7 +49,7 @@ cd control && cargo build --release && cargo test && cargo clippy
 # Engine scripts: Python syntax check
 python3 -m py_compile engine/*.py
 
-# WebUI build (catches JSX/import errors)
+# WebUI build (catches JSX/import errors; host Node >= 26 LTS, see NODE_MIN in install.sh)
 cd webui && npm ci && npm run build
 
 # Shell scripts
