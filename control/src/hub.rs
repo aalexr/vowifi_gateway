@@ -371,9 +371,9 @@ impl Hub {
             (elapsed, freeze.then(|| e.clone()))
         };
         if let Some(h) = freeze {
-            tracing::warn!("instance {iid}: giving up after {}s ({}) -> engine stopped", elapsed.as_secs(), st.code());
+            tracing::warn!(instance = %iid, "instance {iid}: giving up after {}s ({}) -> engine stopped", elapsed.as_secs(), st.code());
             if let Err(e) = engine::stop(iid).await {
-                tracing::warn!("instance {iid}: stop after freeze failed: {e:#}");
+                tracing::warn!(instance = %iid, "instance {iid}: stop after freeze failed: {e:#}");
             }
             self.drop_ami(iid).await;
             let retrying = NETWORK_RECOVERABLE.contains(&st.code()) && auto_recover;
@@ -408,13 +408,13 @@ impl Hub {
                     "The card in {reader} now has a different identity (ICCID {iccid}; this line expects {}). \
                      Provision the active profile as its own line, or switch back, then start.",
                     inst.iccid.as_deref().unwrap_or("")));
-                tracing::warn!("auto-recover aborted — card mismatch instance={iid}");
+                tracing::warn!(instance = %iid, "auto-recover aborted — card mismatch instance={iid}");
                 return Ok(());
             }
             match self.preflight_pin(&inst).await {
                 Preflight::Ok => {}
                 Preflight::Fail { code: "no_card", .. } => {
-                    tracing::info!("auto-recover deferred — no card instance={iid}");
+                    tracing::info!(instance = %iid, "auto-recover deferred — no card instance={iid}");
                     return Ok(());
                 }
                 Preflight::Fail { code, clear, .. } => {
@@ -424,7 +424,7 @@ impl Hub {
                     let reason = status::reason(code);
                     let reason = if reason.is_empty() { "SIM PIN required or invalid — enter PIN and start again." } else { reason };
                     self.set_frozen(iid, code, reason.into());
-                    tracing::warn!("auto-recover aborted — {code} instance={iid}");
+                    tracing::warn!(instance = %iid, "auto-recover aborted — {code} instance={iid}");
                     return Ok(());
                 }
             }
@@ -433,7 +433,7 @@ impl Hub {
             // frozen_code stays until the start succeeds: a failed start leaves the freeze for
             // the next recover interval (and `recovering` blocks double-scheduling meanwhile).
             self.drop_ami(iid).await;
-            tracing::info!("auto-recover re-provisioning instance={iid} (network restored)");
+            tracing::info!(instance = %iid, "auto-recover re-provisioning instance={iid} (network restored)");
             engine::start(&inst, &config::get_settings()).await?;
             self.reset_health(iid);
             let hub = self.clone();
@@ -442,7 +442,7 @@ impl Hub {
             Ok(())
         }.await;
         if let Err(e) = r {
-            tracing::warn!("auto-recover failed instance={iid}: {e:#}");
+            tracing::warn!(instance = %iid, "auto-recover failed instance={iid}: {e:#}");
         }
         lock(&self.health).entry(iid.to_string()).or_default().recovering = false;
     }
@@ -526,7 +526,7 @@ impl Hub {
                     if let Some(c) = self.ami.lock().await.get(iid) {
                         c.set_msisdn(&m);
                     }
-                    tracing::info!("learned MSISDN {m} for instance {iid}");
+                    tracing::info!(instance = %iid, "learned MSISDN {m} for instance {iid}");
                     self.broadcast(json!({"type": "engine", "instance": iid, "event": "msisdn", "args": [m]}));
                 }
                 Err(e) => tracing::debug!("learn_msisdn persist failed: {e}"),
@@ -648,13 +648,13 @@ impl Hub {
         let mut patch = Map::new();
         if let Some(port) = self.reader_port_for_instance(&inst)
             && inst.reader_port() != Some(port.as_str()) {
-                tracing::info!("{why} instance {}: reader port {:?} -> {port}", inst.id, inst.reader_port);
+                tracing::info!(instance = %inst.id, "{why} instance {}: reader port {:?} -> {port}", inst.id, inst.reader_port);
                 patch.insert("reader_port".into(), json!(port));
                 inst.reader_port = Some(port);
             }
         if let Some(idx) = self.reader_index_for_instance(&inst).await
             && inst.reader_index != Some(idx as i64) {
-                tracing::info!("{why} instance {}: reader index {:?} -> {idx}", inst.id, inst.reader_index);
+                tracing::info!(instance = %inst.id, "{why} instance {}: reader index {:?} -> {idx}", inst.id, inst.reader_index);
                 patch.insert("reader_index".into(), json!(idx));
             }
         if patch.is_empty() {

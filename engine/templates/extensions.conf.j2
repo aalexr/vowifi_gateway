@@ -16,10 +16,6 @@
 exten => _.,1,NoOp(Incoming call from ${CALLERID(num)})
 same => n,Set(CALLPEER=${CALLERID(num)})
 same => n,Progress()
-; calls.txt: one entry per line. "l" (line mode) appends the value as a line incl. newline;
-; the explicit "u" (Unix) format is required, else FILE() probes the file's line endings and
-; refuses to write to a missing file or one without any newline yet.
-same => n,Set(FILE(/logs/calls.txt,,,al,u)=IN call from ${CALLERID(num)} at ${STRFTIME(${EPOCH},,%Y-%m-%d %H:%M:%S)})
 same => n,TrySystem(/usr/local/bin/notify.py call_in "${CALLERID(num)}" &)
 same => n,WaitForPrecondition(10,2000)
 same => n,Ringing()
@@ -52,8 +48,6 @@ same => n,Return()
 ; ===== Incoming SMS from the IMS/VoWiFi side =====
 [volte_ims_msg]
 exten => _.,1,NoOp(Incoming SMS from ${MESSAGE(from)})
-same => n,Set(NL=${BASE64_DECODE(Cg==)})
-same => n,Set(FILE(/logs/messages.txt,,,a)=IN SMS from ${MESSAGE(from)} at ${STRFTIME(${EPOCH},,%Y-%m-%d %H:%M:%S)}:${NL}${MESSAGE(body)}${NL}=====${NL})
 ; SMS_CONCAT ("ref:total:seq", set by res_pjsip_messaging from the UDH) marks one part of a
 ; concatenated SMS; the manager joins the parts. Empty for a single-part SMS.
 same => n,TrySystem(/usr/local/bin/notify.py sms_in "${MESSAGE(from)}" "${BASE64_ENCODE(${MESSAGE(body)})}" "${MESSAGE_DATA(SMS_CONCAT)}" &)
@@ -73,7 +67,6 @@ same => n,Hangup()
 ; such as FRITZ!Box DECT handsets can't dial "+".
 same => n,Set(DEST=${IF($["${EXTEN:0:2}" = "00"]?+${EXTEN:2}:${EXTEN})})
 {% endif %}same => n,Set(CALLPEER={{ dest }})
-same => n,Set(FILE(/logs/calls.txt,,,al,u)=OUT call to {{ dest }} at ${STRFTIME(${EPOCH},,%Y-%m-%d %H:%M:%S)})
 same => n,TrySystem(/usr/local/bin/notify.py call_out "{{ dest }}" &)
 ; Ring timeout {{ ring_timeout }}s (configurable): if the callee never answers, Asterisk
 ; CANCELs the outbound INVITE at this deadline instead of leaving it open. The carrier keeps
@@ -110,8 +103,6 @@ same => n,Return()
 ; ===== Outgoing SMS from a local endpoint =====
 [msg-from-local]
 exten => _.,1,NoOp(Outgoing SMS to ${MESSAGE(to)})
-same => n,Set(NL=${BASE64_DECODE(Cg==)})
 same => n,Set(EXTEN=${CUT(CUT(MESSAGE(to),@,1),:,2)})
-same => n,Set(FILE(/logs/messages.txt,,,a)=OUT SMS to ${EXTEN} at ${STRFTIME(${EPOCH},,%Y-%m-%d %H:%M:%S)}:${NL}${MESSAGE(body)}${NL}=====${NL})
 same => n,TrySystem(/usr/local/bin/notify.py sms_out "${EXTEN}" "${BASE64_ENCODE(${MESSAGE(body)})}" &)
 same => n,MessageSend(pjsip:volte_ims/${EXTEN}@volte_ims,sip:{{ msisdn }}@{{ realm }},sip:${EXTEN}@volte_ims)

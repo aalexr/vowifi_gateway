@@ -130,7 +130,7 @@ pub async fn watch_sms_delivery(hub: AppState, iid: String, mid: i64, since: i64
         };
         let e = err.clone();
         if let Err(e) = blocking(move || store::set_message_status(mid, status, e.as_deref())).await {
-            tracing::warn!("sms {mid}: status update failed: {e:#}");
+            tracing::warn!(instance = %iid, "sms {mid}: status update failed: {e:#}");
         }
         hub.broadcast(json!({"type": "sms", "instance": iid,
                              "message": {"id": mid, "status": status, "direction": "out", "error": err}}));
@@ -196,7 +196,7 @@ pub async fn engine_event(State(hub): State<AppState>, body: Body) -> ApiResult 
             // data-download SMS (TP-DCS 0xF6 class 2) that decodes to "". A genuine text always
             // has a non-empty body, so nothing real is lost.
             if text.trim().is_empty() {
-                tracing::info!("dropping empty-body inbound SMS from {sender:?} (internal signalling / \
+                tracing::info!(instance = %iid, "dropping empty-body inbound SMS from {sender:?} (internal signalling / \
                                 binary/OTA SIM message — no displayable text)");
                 return ok(json!({"ok": true, "dropped": "empty_body"}));
             }
@@ -206,7 +206,7 @@ pub async fn engine_event(State(hub): State<AppState>, body: Body) -> ApiResult 
                 let (i, s, t) = (iid.clone(), sender.clone(), text.clone());
                 let part = blocking(move || store::add_message_part(&i, &s, r, total, seq, &t)).await?;
                 if !part.changed {
-                    tracing::info!("ignoring re-delivered SMS part {seq}/{total} (ref {r}) from {sender:?}");
+                    tracing::info!(instance = %iid, "ignoring re-delivered SMS part {seq}/{total} (ref {r}) from {sender:?}");
                     return ok(json!({"ok": true, "duplicate": true}));
                 }
                 hub.broadcast(json!({"type": "sms", "instance": iid, "message": part.message,
@@ -280,8 +280,8 @@ pub async fn engine_event(State(hub): State<AppState>, body: Body) -> ApiResult 
                         patch.insert("cp_mode".into(), json!(resolved));
                         patch.insert("cp_mode_source".into(), json!("auto"));
                         match blocking(move || config::upsert_instance(patch)).await {
-                            Ok(_) => tracing::info!("instance {iid}: CP auto-discovery resolved to {resolved} (repinned)"),
-                            Err(e) => tracing::warn!("cp_mode_resolved persist failed for {iid}: {e}"),
+                            Ok(_) => tracing::info!(instance = %iid, "instance {iid}: CP auto-discovery resolved to {resolved} (repinned)"),
+                            Err(e) => tracing::warn!(instance = %iid, "cp_mode_resolved persist failed for {iid}: {e}"),
                         }
                     }
             hub.broadcast(json!({"type": "engine", "instance": iid, "event": event, "args": args}));

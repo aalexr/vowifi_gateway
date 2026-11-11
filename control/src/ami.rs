@@ -104,14 +104,14 @@ impl AmiClient {
     /// Connect + Login (bounded). Failure leaves the client disconnected (logged).
     pub async fn connect(self: &Arc<Self>) {
         match tokio::time::timeout(CONNECT_TIMEOUT, self.connect_inner()).await {
-            Ok(Ok(())) => tracing::info!("AMI connected instance={} {}:{}", self.instance_id, self.host, self.port),
+            Ok(Ok(())) => tracing::info!(instance = %self.instance_id, "AMI connected instance={} {}:{}", self.instance_id, self.host, self.port),
             Ok(Err(e)) => {
                 self.close().await;
-                tracing::warn!("AMI connect failed instance={}: {e:#}", self.instance_id);
+                tracing::warn!(instance = %self.instance_id, "AMI connect failed instance={}: {e:#}", self.instance_id);
             }
             Err(_) => {
                 self.close().await;
-                tracing::warn!("AMI connect failed instance={}: timed out", self.instance_id);
+                tracing::warn!(instance = %self.instance_id, "AMI connect failed instance={}: timed out", self.instance_id);
             }
         }
     }
@@ -156,7 +156,7 @@ impl AmiClient {
                     return;
                 }
                 if c.raw_action(&[("Action", "Ping")], ACTION_TIMEOUT).await.is_err() {
-                    tracing::warn!("AMI ping failed instance={} -> marking disconnected", c.instance_id);
+                    tracing::warn!(instance = %c.instance_id, "AMI ping failed instance={} -> marking disconnected", c.instance_id);
                     c.alive.store(false, Ordering::SeqCst);
                     return;
                 }
@@ -204,7 +204,7 @@ impl AmiClient {
         let r = self.raw_action(fields, timeout).await;
         if let Err(e) = &r
             && e.to_string().contains("timed out") {
-                tracing::warn!("AMI action timed out instance={} action={} -> marking disconnected",
+                tracing::warn!(instance = %self.instance_id, "AMI action timed out instance={} action={} -> marking disconnected",
                                self.instance_id, fields.first().map(|f| f.1).unwrap_or("?"));
                 self.alive.store(false, Ordering::SeqCst);
             }
