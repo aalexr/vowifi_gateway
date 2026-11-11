@@ -46,6 +46,7 @@
 #   VOWIFI_FW_SOURCE       source subnet allowed through firewalld    (default: the LAN subnet)
 #   VOWIFI_FW_WEBUI_SOURCE6  IPv6 prefixes allowed to the WebUI port   (default: none; "any" = all)
 #   VOWIFI_FW_ZONE6        firewalld zone for those IPv6 rules        (default: the IPv6 uplink's zone)
+#   VOWIFI_LOG_RETENTION   drop journal entries older than this, host-wide (default: none; e.g. 30day)
 #   PCSC_VERSION           pinned pcsc-lite version                   (default 2.3.3)
 #   LPAC_SRC               optional path to lpac source (for build-lpac)
 #   CMAKE_FETCH_VER        Kitware cmake version if system is too old (default 3.31.12)
@@ -316,6 +317,47 @@ ensure_linger() {
   linger_on && return 0
   info "enabling lingering for $ME so the gateway starts at boot without a login…"
   as_root loginctl enable-linger "$ME" || warn "could not enable lingering — the gateway stops when you log out"
+}
+
+# Logs: the control plane (systemd --user) and every engine (Podman's journald log driver) log to
+# the user's journal, so that is the gateway's one log store. Make it survive reboots: with the
+# default Storage=auto, journald keeps logs only in RAM unless /var/log/journal exists (the
+# default on Fedora, not on e.g. Raspberry Pi OS). Retention is the host's journald policy (by
+# default capped at 10% of the filesystem); VOWIFI_LOG_RETENTION (a journald time span, e.g.
+# 30day) also drops entries older than that. It applies to the WHOLE host journal. The engine
+# logs hold SIP traces (phone numbers, IMSI), so a time limit is worth setting.
+VOWIFI_LOG_RETENTION="${VOWIFI_LOG_RETENTION:-}"
+JOURNALD_DROPIN=/etc/systemd/journald.conf.d/50-vowifi.conf
+ensure_journal() {
+  have journalctl || return 0
+  local restart=0 conf
+  if [ ! -d /var/log/journal ]; then
+    info "making the journal persistent (/var/log/journal) so gateway logs survive reboots"
+    if as_root mkdir -p /var/log/journal && as_root systemd-tmpfiles --create --prefix /var/log/journal; then
+      restart=1
+    else
+      warn "could not create /var/log/journal — logs are kept in RAM only"
+    fi
+  fi
+  if [ -n "$VOWIFI_LOG_RETENTION" ]; then
+    case "$VOWIFI_LOG_RETENTION" in
+      *[!0-9a-z]*) die "VOWIFI_LOG_RETENTION: '$VOWIFI_LOG_RETENTION' is not a journald time span (e.g. 30day, 2week)" ;;
+    esac
+    conf=$(printf '# Installed by vowifi_gateway install.sh (VOWIFI_LOG_RETENTION)\n[Journal]\nMaxRetentionSec=%s' "$VOWIFI_LOG_RETENTION")
+    if [ "$(cat "$JOURNALD_DROPIN" 2>/dev/null)" != "$conf" ]; then
+      info "journal retention: dropping entries older than $VOWIFI_LOG_RETENTION ($JOURNALD_DROPIN)"
+      as_root mkdir -p "${JOURNALD_DROPIN%/*}" && printf '%s\n' "$conf" | as_root tee "$JOURNALD_DROPIN" >/dev/null
+      restart=1
+    fi
+  elif [ -f "$JOURNALD_DROPIN" ]; then
+    info "VOWIFI_LOG_RETENTION unset: removing $JOURNALD_DROPIN (back to the host's journald policy)"
+    as_root rm -f "$JOURNALD_DROPIN"
+    restart=1
+  fi
+  if [ "$restart" = 1 ]; then
+    as_root systemctl restart systemd-journald || warn "could not restart systemd-journald"
+  fi
+  return 0
 }
 
 # Migrate an install made by an older, ROOTFUL version of this script: its system unit and root's
@@ -764,6 +806,7 @@ cmd_install() {
   migrate_legacy_rootful
   ensure_pcscd
   ensure_pcsc_polkit_rule "$ME"
+  ensure_journal
   ensure_firewall
   ensure_engine_image
   build_webui
@@ -846,6 +889,9 @@ cmd_uninstall() {
   remove_control
   selinux_unlabel_control
   [ -f "$PCSC_POLKIT_RULE" ] && as_root rm -f "$PCSC_POLKIT_RULE"
+  if [ -f "$JOURNALD_DROPIN" ]; then
+    as_root rm -f "$JOURNALD_DROPIN" && as_root systemctl restart systemd-journald || true
+  fi
   remove_firewall
   info "removing vowifi containers…"
   for n in $(engine_names); do podman rm -f "$n" >/dev/null 2>&1 || true; done
@@ -1232,7 +1278,15 @@ cmd_logs() {
   have systemctl || die "systemd not available"
   # `|| true` so that Ctrl-C'ing out of a follow (non-zero exit) doesn't abort the caller —
   # matters when invoked from the interactive control menu.
-  journalctl --user -fu vowifi-control || true
+  # `logs <id>` follows engine <id> instead: Podman's journald log driver tags it with
+  # CONTAINER_NAME. -a because Asterisk's ANSI colours otherwise show as "[blob data]".
+  local id
+  id=$(printf '%s' "$ARGS" | awk '{print $1}')
+  if [ -n "$id" ]; then
+    journalctl --user -a -f CONTAINER_NAME="${ENGINE_PREFIX}${id}" || true
+  else
+    journalctl --user -fu vowifi-control || true
+  fi
 }
 
 # Log every browser out of the WebUI (rotates the session key; the manager picks it up on its
@@ -1300,7 +1354,7 @@ ${B}VoWiFi→SIP gateway installer${N}  (run as your normal user, not root/sudo)
   $0 disable-autostart    do not start on boot
   $0 uninstall [--purge]  remove the service + engines (--purge also deletes image, data and the control build)
   $0 status               show component status
-  $0 logs                 follow control-plane logs
+  $0 logs [<id>]          follow control-plane logs (or engine <id>'s, from the journal)
   $0 firewall             (re)open the gateway ports to the LAN in firewalld (also done by install)
   $0 logout-all           log every browser out of the WebUI (login = your Linux user + password)
   $0 build-lpac [--lpac-src PATH] [--dest DIR]   compile lpac into data/lpac (local eSIM LPA)

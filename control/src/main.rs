@@ -45,15 +45,28 @@ use std::time::Duration;
 
 use anyhow::Context as _;
 
+/// Under systemd (JOURNAL_STREAM set: stderr already IS the journal) log natively to journald,
+/// so event fields become journal fields: `tracing::info!(instance = %iid, ...)` is filterable as
+/// `journalctl --user -u vowifi-control INSTANCE=1`, and levels map to journal priorities. No
+/// field prefix (the crate's default would make that F_INSTANCE). Anywhere else (a terminal,
+/// `cargo run`), or if the journal socket is unavailable, plain text on stderr.
 fn init_logging() {
     use std::io::IsTerminal;
+    use tracing_subscriber::prelude::*;
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
-    tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .with_ansi(std::io::stderr().is_terminal())
-        .with_writer(std::io::stderr)
-        .init();
+    let journald = std::env::var_os("JOURNAL_STREAM")
+        .and_then(|_| tracing_journald::layer().ok())
+        .map(|l| l.with_field_prefix(None).with_syslog_identifier("vowifi-control".into()));
+    let registry = tracing_subscriber::registry().with(filter);
+    match journald {
+        Some(layer) => registry.with(layer).init(),
+        None => registry
+            .with(tracing_subscriber::fmt::layer()
+                .with_ansi(std::io::stderr().is_terminal())
+                .with_writer(std::io::stderr))
+            .init(),
+    }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -161,6 +174,7 @@ mod live_tests {
         println!("connected: {}", c.connected());
         println!("registration: {}", c.registration_state().await);
         println!("reginfo: {:?}", c.reginfo_state().await);
+        println!("pau: {:?}", c.db_get("volte", "pau").await);
         let st = status::compute(&inst, Some(&c)).await;
         println!("status: {}", serde_json::to_string(&st).unwrap());
         c.close().await;

@@ -106,11 +106,28 @@ fi
 log "starting ami_usim bridge..."
 python3 -u /usr/local/bin/ami_usim.py /usr/local/etc/ami_usim.ini &
 
-# Enable the SIP message logger once Asterisk is ready (retry until it takes), so the
-# P-Associated-URI (registered MSISDN) and SIP traces are captured for the manager/Logs.
+# Enable the SIP message logger once Asterisk is ready (retry until it takes), so SIP traces
+# land in the engine log for troubleshooting. Nothing in the manager parses them.
 ( for _ in $(seq 1 40); do
     sleep 3
     asterisk -rx "pjsip set logger on" 2>/dev/null | grep -qi "enabled" && break
+  done ) &
+
+# Size caps for the in-container log files. The host journal (container stdout) is the durable,
+# rotated record; Asterisk's `full` file and the IKE log (run/charon.log, deliberately kept off
+# stdout) are working copies that otherwise grow for as long as the line stays up. Keep each to
+# at most two files of LOG_CAP_BYTES. `logger reload` makes Asterisk reopen `full` after the
+# move; charon.log is truncated in place, which is safe because swu_ike's fd is O_APPEND (>>).
+LOG_CAP_BYTES=$((50 * 1024 * 1024))
+( while sleep 300; do
+    f=/var/log/asterisk/full
+    if [ "$(stat -c %s "$f" 2>/dev/null || echo 0)" -gt "$LOG_CAP_BYTES" ]; then
+      mv -f "$f" "$f.1" && asterisk -rx "logger reload" >/dev/null 2>&1
+    fi
+    f="$VOWIFI_RUNDIR/charon.log"
+    if [ "$(stat -c %s "$f" 2>/dev/null || echo 0)" -gt "$LOG_CAP_BYTES" ]; then
+      cp -f "$f" "$f.1" && : > "$f"
+    fi
   done ) &
 
 log "starting Asterisk..."

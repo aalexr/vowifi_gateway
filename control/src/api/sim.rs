@@ -206,11 +206,11 @@ pub async fn provision(State(hub): State<AppState>, body: Body) -> ApiResult {
     inst.insert("apn".into(), json!(config::normalize_apn(&body.str("apn").unwrap_or_default())));
     inst.insert("idr_mode".into(), json!(config::normalize_idr_mode(&body.str("idr_mode").unwrap_or_default())));
     inst.insert("cp_mode".into(), json!(config::normalize_cp_mode(&body.str("cp_mode").unwrap_or_default())));
-    let debug = match body.get("debug") {
-        Some(d) if crate::lenient::truthy(Some(d)) => d.clone(),
-        _ => json!({"asterisk": true, "charon": false}),
-    };
-    inst.insert("debug".into(), debug);
+    // A per-line `debug` overrides Settings → debug defaults, so only store one the request
+    // carries; otherwise the line keeps what it has (upsert merges) or follows the defaults.
+    if let Some(d) = body.get("debug").filter(|d| crate::lenient::truthy(Some(d))) {
+        inst.insert("debug".into(), d.clone());
+    }
     // Port mapping: 'manual' pins the user's SIP UDP port (rest of the block derived from it);
     // 'auto' (default) allocates a conflict-free block now, re-allocating on re-provision so
     // switching a line back to Auto really moves it off a manual port.

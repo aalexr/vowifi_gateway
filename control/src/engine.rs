@@ -122,7 +122,7 @@ pub async fn start(inst: &Instance, settings: &Settings) -> anyhow::Result<Strin
             binds.push(format!("{}:/etc/asterisk/certificate.crt:ro", crt.display()));
             binds.push(format!("{}:/etc/asterisk/certificate.key:ro", key.display()));
         }
-        None => tracing::warn!("no TLS cert available for engine {iid} WSS/8089 — the browser softphone \
+        None => tracing::warn!(instance = %iid, "no TLS cert available for engine {iid} WSS/8089 — the browser softphone \
                                 will not connect until a cert exists"),
     }
     if dev_mounts_enabled() {
@@ -191,7 +191,7 @@ pub async fn start(inst: &Instance, settings: &Settings) -> anyhow::Result<Strin
         },
     });
     let id = pm.run(&container_name(&iid), &spec).await?;
-    tracing::info!("started engine container {} (network {network})", container_name(&iid));
+    tracing::info!(instance = %iid, "started engine container {} (network {network})", container_name(&iid));
     Ok(id)
 }
 
@@ -251,11 +251,6 @@ pub fn run_text_tail(iid: &str, name: &str, tail: usize) -> String {
     let text = String::from_utf8_lossy(&bytes);
     let lines: Vec<&str> = text.split_inclusive('\n').collect();
     lines[lines.len().saturating_sub(tail)..].concat()
-}
-
-/// Recent SWu tunnel (IKE) log lines. Named charon.log for WebUI compatibility.
-pub fn charon_log(iid: &str, tail: usize) -> String {
-    run_text_tail(iid, "charon.log", tail)
 }
 
 pub fn usim_status(iid: &str) -> Value {
