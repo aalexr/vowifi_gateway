@@ -104,6 +104,36 @@ def _default_gateway_ipv4():
     return ""
 
 
+# Carrier-leg codecs (control config.rs normalize_ims_codecs; re-checked here so a
+# hand-edited instance.json can't render an invalid allow= list).
+_IMS_CODECS_ALLOWED = ("amrwb", "amr", "g722", "alaw", "ulaw")
+_IMS_CODECS_DEFAULT = ["amrwb", "amr"]
+# SDP b=AS (kbit/s) per codec, INCLUDING RTP/UDP/IP headers as the fork's bw_value requires.
+# 41 = the value every line has always sent (AMR-WB 23.85 + headers, what iPhones send);
+# 88 = 64 kbit/s G.722/G.711 + 60-byte IPv6/UDP/RTP headers at 50 packets/s (24 kbit/s),
+# exactly what O2 DE sends when it offers G.722. The largest codec on the list wins:
+# too small a value can make the network reserve too little bandwidth for the call.
+_IMS_CODEC_BW = {"amrwb": 41, "amr": 41, "g722": 88, "alaw": 88, "ulaw": 88}
+
+
+def _ims_codec_ctx(value) -> dict:
+    items = value if isinstance(value, list) else []
+    codecs = []
+    for c in items:
+        c = str(c).strip().lower()
+        if c in _IMS_CODECS_ALLOWED and c not in codecs:
+            codecs.append(c)
+    if not any(c in ("amrwb", "amr") for c in codecs):
+        codecs = list(_IMS_CODECS_DEFAULT)
+    return {
+        "ims_codecs": codecs,
+        "ims_bw": max(_IMS_CODEC_BW[c] for c in codecs),
+        # Only a non-default list switches incoming calls to OUR order; the default keeps
+        # the carrier's offer order (pjsip.conf.j2 codec_prefs_incoming_offer).
+        "ims_codecs_custom": codecs != _IMS_CODECS_DEFAULT,
+    }
+
+
 def container_ipv4():
     """The container's own docker-bridge IPv4 (e.g. 172.17.0.3). MUST be the bridge address, never
     the VoWiFi tunnel inner IP: it is used as the IKE source (SWU_SOURCE) and as the local SIP
@@ -285,6 +315,7 @@ def build_context(cfg):
         # Outbound ring timeout (s) for Dial() — see extensions.conf.j2. Default 35.
         "ring_timeout": int(sip.get("ring_timeout", 35) or 35),
         "dial_00_to_plus": bool(cfg.get("dial_00_to_plus", False)),
+        **_ims_codec_ctx(cfg.get("ims_codecs")),
         # The container's own RTP bind IP (docker-bridge private, e.g. 172.17.0.2). Used as the
         # LHS of rtp.conf [ice_host_candidates] to rewrite that unreachable host candidate to
         # the host LAN IP (advertise_addr) so a LAN WebRTC browser can reach our RTP.
@@ -352,6 +383,10 @@ def main():
         f.write(f"VOWIFI_REG_GEO_COUNTRY={geo}\n")
         f.write(f"VOWIFI_REG_SRVCC_TAGS={'1' if cfg.get('reg_srvcc_tags') else ''}\n")
         f.write(f"VOWIFI_UPDATE_AFTER_PRACK={'1' if cfg.get('update_after_prack') else ''}\n")
+        # Asterisk fork, PATCH_MT_PRECONDITION_REQUIRE_ONLY: incoming calls use QoS preconditions
+        # only when the INVITE *requires* them (Vodafone DE only supports them, and the stock
+        # handling deadlocks: no audio on incoming calls). Per line, off by default.
+        f.write(f"VOWIFI_MT_PRECONDITION_REQUIRE_ONLY={'1' if cfg.get('mt_precondition_require_only') else ''}\n")
         f.write(f"SWU_IMEISV={cfg.get('imeisv') or imeisv_from_imei(cfg.get('imei',''))}\n")
         f.write(f"SWU_SOURCE={ctx['local_addr']}\n")
         f.write(f"SWU_EPDG={ctx['epdg']}\n")

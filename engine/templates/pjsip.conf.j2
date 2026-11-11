@@ -53,11 +53,25 @@ transport=volte_ims
 context=volte_ims
 message_context=volte_ims_msg
 disallow=all
-; AMR-WB (HD Voice, 16 kHz) first, AMR-NB as fallback: offering only amr pins every call to
-; narrowband even when the carrier and far end support wideband.
-allow=amrwb
-allow=amr
-bw_value=41
+; Per-line carrier codecs (control: ims_codecs). Default AMR-WB (HD Voice, 16 kHz) first,
+; AMR-NB as fallback, like a phone: offering only amr pins every call to narrowband even when
+; the carrier and far end support wideband. Carriers that accept G.722 (O2 DE) can put it
+; first so a G.722 local client (FRITZ!Box DECT HD) is bridged without transcoding; carriers
+; that fail AMR-WB answers (Beeline RU incoming calls) can put AMR first.
+{% for codec in ims_codecs %}
+allow={{ codec }}
+{% endfor %}
+; SDP b=AS incl. RTP/UDP/IP headers, sized for the largest codec offered (render.py).
+bw_value={{ ims_bw }}
+; Incoming calls: answer with exactly ONE speech codec. TS 24.229 (terminating UE SDP handling)
+; requires a single codec per m= line in the SDP answer (telephone-event may be added).
+; O2/Vodafone/MTS tolerate a multi-codec answer; Beeline RU does not. The MT 183/200 SDP comes
+; from the pjmedia negotiator, which the fork (res_pjsip_session.c) puts into
+; answer-multiple-codecs mode unless preferred_codec_only is set, so codec_prefs alone does not
+; change it. The default list follows the carrier's offer order (prefer:pending); a custom
+; list chooses by OUR order, so its first codec actually gets used.
+codec_prefs_incoming_offer=prefer:{{ 'configured' if ims_codecs_custom else 'pending' }},operation:intersect,keep:first,transcode:allow
+preferred_codec_only=yes
 outbound_auth=volte_ims
 aors=volte_ims
 ; rewrite_contact MUST be off towards the P-CSCF. With sec-agree (TS 33.203 §7) the P-CSCF

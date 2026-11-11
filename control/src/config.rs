@@ -502,6 +502,14 @@ pub struct Instance {
     pub dial_00_to_plus: Option<bool>,
     #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
     pub update_after_prack: Option<bool>,
+    /// Incoming calls use QoS preconditions only when the INVITE *requires* them (Asterisk
+    /// fork PATCH_MT_PRECONDITION_REQUIRE_ONLY). Off by default.
+    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    pub mt_precondition_require_only: Option<bool>,
+    /// Carrier (IMS) leg codecs in preference order (`normalize_ims_codecs`); unset = the
+    /// phone-like default. Kept as raw JSON so a hand-edited odd value can't fail the load.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ims_codecs: Option<Value>,
     #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
     pub rekey_minutes: Option<i64>,
     #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
@@ -1108,6 +1116,10 @@ pub fn upsert_instance(mut patch: Map<String, Value>) -> Result<Instance, CfgErr
         patch.remove("status");
         patch.remove("has_pin");
         patch.insert("id".into(), json!(iid));
+        if let Some(v) = patch.get("ims_codecs") {
+            let codecs = normalize_ims_codecs(Some(v))?;
+            patch.insert("ims_codecs".into(), json!(codecs));
+        }
         let existing_typed = data.instances.get(&iid).cloned();
         let existing = existing_typed.as_ref()
             .map(|e| match serde_json::to_value(e) { Ok(Value::Object(m)) => m, _ => Map::new() })
@@ -1263,6 +1275,50 @@ const PANI_ACCESS_TYPES: &[&str] = &[
     "IEEE-802.11ay", "IEEE-802.11bd", "3GPP-WLAN",
 ];
 
+/// Codecs a line may offer/accept on the carrier (IMS) leg. AMR-WB + AMR is what a phone
+/// offers; G.722 / G.711 are opt-in for carriers that accept them (O2 DE offers G.722 itself),
+/// so a G.722 local client (FRITZ!Box DECT HD) is bridged without transcoding. AMR before
+/// AMR-WB is for carriers that fail AMR-WB answers (Beeline RU incoming calls). No EVS: the
+/// fork's codec_vevs needs the proprietary libvocal.so, which the image lacks.
+pub const IMS_CODECS_ALLOWED: &[&str] = &["amrwb", "amr", "g722", "alaw", "ulaw"];
+
+pub fn ims_codecs_default() -> Vec<String> {
+    vec!["amrwb".into(), "amr".into()]
+}
+
+/// Ordered, de-duplicated carrier-leg codec list; None/null/empty -> the phone-like default.
+/// Accepts a list or a comma-separated string. Unknown codecs, or a list without AMR-WB/AMR,
+/// are rejected: every IMS core supports AMR, and a list without it fails calls the carrier
+/// routes without a transcoder.
+pub fn normalize_ims_codecs(value: Option<&Value>) -> Result<Vec<String>, CfgError> {
+    let items: Vec<String> = match value {
+        None | Some(Value::Null) => return Ok(ims_codecs_default()),
+        Some(Value::String(s)) => s.split(',').map(String::from).collect(),
+        Some(Value::Array(a)) => a.iter().map(|v| lenient::string(Some(v))).collect(),
+        Some(_) => return invalid("ims_codecs must be a list of codec names"),
+    };
+    let mut out: Vec<String> = Vec::new();
+    for c in items {
+        let c = c.trim().to_lowercase();
+        if c.is_empty() {
+            continue;
+        }
+        if !IMS_CODECS_ALLOWED.contains(&c.as_str()) {
+            return invalid(format!("unknown carrier codec '{c}' (allowed: {})", IMS_CODECS_ALLOWED.join(", ")));
+        }
+        if !out.contains(&c) {
+            out.push(c);
+        }
+    }
+    if out.is_empty() {
+        return Ok(ims_codecs_default());
+    }
+    if !out.iter().any(|c| c == "amrwb" || c == "amr") {
+        return invalid("ims_codecs must include amrwb or amr");
+    }
+    Ok(out)
+}
+
 pub fn normalize_pani_country(c: &str) -> String {
     let s: String = c.trim().to_uppercase().chars().filter(|ch| ch.is_alphabetic()).collect();
     if s.chars().count() == 2 { s } else { String::new() }
@@ -1378,6 +1434,10 @@ pub fn render_instance_json(inst: &Instance, settings: &Settings) -> Value {
         "reg_imei_urn_spare_zero": inst.reg_imei_urn_spare_zero.unwrap_or(false),
         "dial_00_to_plus": inst.dial_00_to_plus.unwrap_or(false),
         "update_after_prack": inst.update_after_prack.unwrap_or(false),
+        "mt_precondition_require_only": inst.mt_precondition_require_only.unwrap_or(false),
+        // Carrier (IMS) leg codecs, in preference order. A stored value that no longer
+        // validates renders as the default instead of failing the start.
+        "ims_codecs": normalize_ims_codecs(inst.ims_codecs.as_ref()).unwrap_or_else(|_| ims_codecs_default()),
         "imeisv": imeisv,
         "pin": inst.pin.clone().unwrap_or_default(),
         "reader": non_empty(&inst.reader).map(String::from).unwrap_or_else(|| format!("imsi:{}", inst.imsi)),
@@ -1446,6 +1506,19 @@ pub fn write_instance_json(inst: &Instance, settings: &Settings) -> anyhow::Resu
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ims_codecs() {
+        let n = |v: Value| normalize_ims_codecs(Some(&v)).map_err(|e| e.to_string());
+        assert_eq!(normalize_ims_codecs(None).unwrap(), vec!["amrwb", "amr"]);
+        assert_eq!(n(Value::Null).unwrap(), vec!["amrwb", "amr"]);
+        assert_eq!(n(json!([])).unwrap(), vec!["amrwb", "amr"]);
+        assert_eq!(n(json!(" AMR , amrwb,amr")).unwrap(), vec!["amr", "amrwb"]);
+        assert_eq!(n(json!(["g722", "amrwb", "amr"])).unwrap(), vec!["g722", "amrwb", "amr"]);
+        assert!(n(json!(["g722"])).unwrap_err().contains("amrwb or amr"));
+        assert!(n(json!(["evs", "amr"])).unwrap_err().contains("unknown carrier codec"));
+        assert!(n(json!(5)).is_err());
+    }
 
     #[test]
     fn imeisv() {
