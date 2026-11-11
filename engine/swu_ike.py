@@ -5579,8 +5579,9 @@ class swu():
         # CP-mode ladder. For an auto line, self.cp_mode_candidates is the ordered family list to try
         # (e.g. ['v6','dual','v4'], DB-preferred first). Advance to the next family ONLY when SIM auth
         # SUCCEEDED (EAP-Success) but the PDN was unusable — the final IKE_AUTH was rejected (e.g.
-        # Vodafone 16375) or the ePDG returned NO P-CSCF (Telus-on-dual). A failure before/at EAP is
-        # not a CP problem and does not cycle families. A pinned (non-auto) line has one candidate, so
+        # Vodafone 16375) or the ePDG returned NO P-CSCF (Telus-on-dual) — or when the ePDG answers
+        # the AKA challenge response with INTERNAL_ADDRESS_FAILURE instead of EAP-Success (Beeline RU).
+        # Any other failure before/at EAP is not a CP problem and does not cycle families. A pinned (non-auto) line has one candidate, so
         # behaviour is unchanged.
         candidates = getattr(self, "cp_mode_candidates", None) or [getattr(self, "cp_mode_current", "v6")]
         mode_idx = 0
@@ -5653,6 +5654,16 @@ class swu():
                         result,info = self.state_4()
                 else:
                     print(self.errors.get(result),':',info)
+                    # Some ePDGs (Beeline RU, Huawei) answer the EAP-AKA challenge response with
+                    # INTERNAL_ADDRESS_FAILURE in place of EAP-Success: the SIM authenticated, but
+                    # the PGW could not allocate an address of the requested family for the PDN
+                    # (TS 24.302 7.2.2.2: a CP/PDN-type problem, not a SIM/identity one). On an
+                    # auto line, try the next family rather than retrying the same one; IPv6 there
+                    # is refused this way, and dual gives an IPv4 PDN.
+                    if getattr(self, "cp_mode_auto", False) \
+                            and self.reject_reason_code == "INTERNAL_ADDRESS_FAILURE":
+                        advance = True
+                        break
                     self._reject_guard()
                     continue
 
@@ -5681,8 +5692,9 @@ class swu():
                     continue
 
             if advance and mode_idx < len(candidates) - 1:
-                swu_log("CP family %s reached EAP-Success but no usable PDN; falling back to %s"
-                        % (candidates[mode_idx], candidates[mode_idx + 1]))
+                swu_log("CP family %s authenticated but gave no usable PDN (%s); falling back to %s"
+                        % (candidates[mode_idx], self.reject_reason_code or "no P-CSCF / final IKE_AUTH reject",
+                           candidates[mode_idx + 1]))
                 mode_idx += 1
                 continue
             break
