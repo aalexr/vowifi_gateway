@@ -160,7 +160,7 @@ export default function Logs({
               <input
                 type="checkbox"
                 checked={auto}
-                onChange={(e) => setAuto(e.target.checked)}
+                onChange={(e) => setAuto(e.currentTarget.checked)}
               />{" "}
               auto
             </label>

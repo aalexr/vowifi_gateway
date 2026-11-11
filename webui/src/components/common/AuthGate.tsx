@@ -7,7 +7,12 @@ import React, {
   type ReactNode,
 } from "react";
 import { LockKeyhole } from "lucide-react";
-import { AUTH_REQUIRED_EVENT, api, asApiError, type AuthStatus } from "../../api";
+import {
+  AUTH_REQUIRED_EVENT,
+  api,
+  asApiError,
+  type AuthStatus,
+} from "../../api";
 
 interface AuthContextValue {
   status: AuthStatus;
@@ -53,7 +58,8 @@ export function AuthGate({ children }: { children: ReactNode }) {
     refresh();
     const onAuthRequired = () => refresh();
     window.addEventListener(AUTH_REQUIRED_EVENT, onAuthRequired);
-    return () => window.removeEventListener(AUTH_REQUIRED_EVENT, onAuthRequired);
+    return () =>
+      window.removeEventListener(AUTH_REQUIRED_EVENT, onAuthRequired);
   }, [refresh]);
 
   if (!status) {
@@ -130,11 +136,11 @@ function LoginForm({ onLoggedIn }: { onLoggedIn: () => Promise<void> }) {
         autoComplete="username"
         autoCapitalize="none"
         autoCorrect="off"
-        spellCheck={false}
+        spellcheck={false}
         autoFocus
         required
         value={user}
-        onChange={(e) => setUser(e.target.value)}
+        onChange={(e) => setUser(e.currentTarget.value)}
       />
       <label htmlFor="auth-pw">Password</label>
       <input
@@ -143,7 +149,7 @@ function LoginForm({ onLoggedIn }: { onLoggedIn: () => Promise<void> }) {
         autoComplete="current-password"
         required
         value={pw}
-        onChange={(e) => setPw(e.target.value)}
+        onChange={(e) => setPw(e.currentTarget.value)}
       />
       {error && (
         <p className="auth-error" role="alert">

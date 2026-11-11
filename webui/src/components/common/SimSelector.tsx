@@ -59,7 +59,7 @@ export default function SimSelector({
         id={selectId}
         className="sim-selector-select"
         value={id || ""}
-        onChange={(e) => setSelected(e.target.value)}
+        onChange={(e) => setSelected(e.currentTarget.value)}
       >
         {!id && <option value="">— select —</option>}
         {live.map((i) => {

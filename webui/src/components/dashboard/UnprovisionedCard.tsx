@@ -1,4 +1,4 @@
-import React, { BaseSyntheticEvent, useState } from "react";
+import React, { useState } from "react";
 import { api, DetectedCard } from "../../api";
 import { PIN_RE } from "./utils";
 
@@ -25,7 +25,7 @@ export default function UnprovisionedCard({
   const unlocked = !!card.imsi; // could read IMSI => PIN satisfied or disabled
   const pinOk = PIN_RE.test(pinInput);
 
-  const unlock = async (e: BaseSyntheticEvent) => {
+  const unlock = async (e: Event) => {
     e.stopPropagation();
     if (!pinOk) {
       setErr("PIN must be 4–8 digits.");
@@ -96,7 +96,7 @@ export default function UnprovisionedCard({
               value={pinInput}
               maxLength={8}
               onChange={(e) => {
-                setPinInput(e.target.value.replace(/[^0-9]/g, ""));
+                setPinInput(e.currentTarget.value.replace(/[^0-9]/g, ""));
                 setErr("");
               }}
               onKeyDown={(e) => {

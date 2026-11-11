@@ -26,28 +26,28 @@ export default function SubscriberSection({
           <input
             className="mono"
             value={form.imsi}
-            onChange={(e) => upd({ imsi: e.target.value })}
+            onChange={(e) => upd({ imsi: e.currentTarget.value })}
           />
         </Field>
         <Field label="MCC">
           <input
             className="mono"
             value={form.mcc}
-            onChange={(e) => upd({ mcc: e.target.value })}
+            onChange={(e) => upd({ mcc: e.currentTarget.value })}
           />
         </Field>
         <Field label="MNC">
           <input
             className="mono"
             value={form.mnc}
-            onChange={(e) => upd({ mnc: e.target.value })}
+            onChange={(e) => upd({ mnc: e.currentTarget.value })}
           />
         </Field>
         <Field label="IMEI" wide>
           <input
             className="mono"
             value={form.imei}
-            onChange={(e) => upd({ imei: e.target.value })}
+            onChange={(e) => upd({ imei: e.currentTarget.value })}
             placeholder="35123456-789012-3"
           />
         </Field>
@@ -56,7 +56,7 @@ export default function SubscriberSection({
             className="mono"
             value={form.imeisv || ""}
             onChange={(e) =>
-              upd({ imeisv: e.target.value.replace(/[^0-9]/g, "") })
+              upd({ imeisv: e.currentTarget.value.replace(/[^0-9]/g, "") })
             }
             maxLength={16}
             placeholder="auto from IMEI"

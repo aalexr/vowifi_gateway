@@ -1,4 +1,6 @@
 import {
+  Suspense,
+  useEffect,
   useState,
   useRef,
   type ComponentType,
@@ -17,6 +19,7 @@ import {
   Settings,
   Logs,
   Esim,
+  preloadViews,
 } from "./views";
 import {
   LayoutDashboard,
@@ -30,6 +33,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { AppShell } from "./AppShell";
+import { ViewErrorBoundary } from "./components/common/ViewErrorBoundary";
 import { AppBrand } from "./components/sidebar/AppBrand";
 import { useLiveUpdates } from "./useLiveUpdates";
 import type { CommonViewProps } from "./views/common-view-props";
@@ -100,6 +104,7 @@ const navigation: Nav[] = [
 
 export default function App() {
   const auth = useAuth();
+  const location = useLocation();
   const [toast, setToast] = useState<ReactNode | null>(null);
 
   const toastTimer = useRef<number | null>(null);
@@ -128,6 +133,17 @@ export default function App() {
     () => cardsKnown && cards.length === 0,
     [cardsKnown, cards],
   );
+
+  // Views are lazy chunks; fetch the rest once the first one has rendered and the
+  // browser is idle, so switching tabs later is instant.
+  useEffect(() => {
+    if ("requestIdleCallback" in window) {
+      const id = requestIdleCallback(preloadViews, { timeout: 3000 });
+      return () => cancelIdleCallback(id);
+    }
+    const t = setTimeout(preloadViews, 1000);
+    return () => clearTimeout(t);
+  }, []);
 
   const selectedConfig = useMemo(
     () => instances.find((i) => i.id === selected),
@@ -220,86 +236,97 @@ export default function App() {
             padding: "24px",
           }}
         >
-          <Routes>
-            <Route
-              path="/dashboard"
-              element={
-                <Dashboard
-                  instances={instances}
-                  cards={cards}
-                  noReaders={noReaders}
-                  cardsKnown={cardsKnown}
-                  setSelected={setSelected}
-                  refresh={refresh}
-                  subscribe={subscribe}
-                  showToast={showToast}
-                />
+          <ViewErrorBoundary resetKey={location.pathname}>
+            <Suspense
+              fallback={
+                <div style={{ color: "var(--text-mute)" }}>Loading…</div>
               }
-            />
-            <Route
-              path="/softphone"
-              element={
-                <Softphone
-                  selected={selectedConfig}
-                  instances={instances}
-                  cards={cards}
-                  noReaders={noReaders}
-                  cardsKnown={cardsKnown}
-                  setSelected={setSelected}
-                  refresh={refresh}
-                  subscribe={subscribe}
-                  showToast={showToast}
+            >
+              <Routes>
+                <Route
+                  path="/dashboard"
+                  element={
+                    <Dashboard
+                      instances={instances}
+                      cards={cards}
+                      noReaders={noReaders}
+                      cardsKnown={cardsKnown}
+                      setSelected={setSelected}
+                      refresh={refresh}
+                      subscribe={subscribe}
+                      showToast={showToast}
+                    />
+                  }
                 />
-              }
-            />
-            <Route
-              path="/messages"
-              element={
-                <Messages
-                  selected={selectedConfig}
-                  instances={instances}
-                  cards={cards}
-                  setSelected={setSelected}
-                  subscribe={subscribe}
-                  showToast={showToast}
-                  noReaders={noReaders}
-                  cardsKnown={cardsKnown}
-                  refresh={refresh}
+                <Route
+                  path="/softphone"
+                  element={
+                    <Softphone
+                      selected={selectedConfig}
+                      instances={instances}
+                      cards={cards}
+                      noReaders={noReaders}
+                      cardsKnown={cardsKnown}
+                      setSelected={setSelected}
+                      refresh={refresh}
+                      subscribe={subscribe}
+                      showToast={showToast}
+                    />
+                  }
                 />
-              }
-            />
-            <Route
-              path="/sims"
-              element={
-                <SimConfig
-                  selected={selectedConfig}
-                  instances={instances}
-                  cards={cards}
-                  setSelected={setSelected}
-                  refresh={refresh}
+                <Route
+                  path="/messages"
+                  element={
+                    <Messages
+                      selected={selectedConfig}
+                      instances={instances}
+                      cards={cards}
+                      setSelected={setSelected}
+                      subscribe={subscribe}
+                      showToast={showToast}
+                      noReaders={noReaders}
+                      cardsKnown={cardsKnown}
+                      refresh={refresh}
+                    />
+                  }
                 />
-              }
-            />
-            <Route
-              path="/esim"
-              element={
-                <Esim
-                  selected={selectedConfig}
-                  instances={instances}
-                  cards={cards}
-                  setSelected={setSelected}
-                  subscribe={subscribe}
-                  showToast={showToast}
-                  noReaders={noReaders}
-                  cardsKnown={cardsKnown}
-                  refresh={refresh}
+                <Route
+                  path="/sims"
+                  element={
+                    <SimConfig
+                      selected={selectedConfig}
+                      instances={instances}
+                      cards={cards}
+                      setSelected={setSelected}
+                      refresh={refresh}
+                    />
+                  }
                 />
-              }
-            />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="/logs" element={<Logs {...viewProps} />} />
-            <Route path="*" element={<Navigate to="/dashboard" replace />} />
-          </Routes>
+                <Route
+                  path="/esim"
+                  element={
+                    <Esim
+                      selected={selectedConfig}
+                      instances={instances}
+                      cards={cards}
+                      setSelected={setSelected}
+                      subscribe={subscribe}
+                      showToast={showToast}
+                      noReaders={noReaders}
+                      cardsKnown={cardsKnown}
+                      refresh={refresh}
+                    />
+                  }
+                />
+                <Route path="/settings" element={<Settings />} />
+                <Route path="/logs" element={<Logs {...viewProps} />} />
+                <Route
+                  path="*"
+                  element={<Navigate to="/dashboard" replace />}
+                />
+              </Routes>
+            </Suspense>
+          </ViewErrorBoundary>
         </div>
       </main>
 

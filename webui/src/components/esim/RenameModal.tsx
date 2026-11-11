@@ -51,7 +51,7 @@ export default function RenameModal({
           <input
             autoFocus
             value={nick}
-            onChange={(e) => setNick(e.target.value)}
+            onChange={(e) => setNick(e.currentTarget.value)}
             placeholder="Nickname"
             style={{ width: "100%" }}
             onKeyDown={(e) => {

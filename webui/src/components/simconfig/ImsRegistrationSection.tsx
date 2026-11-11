@@ -31,7 +31,7 @@ export default function ImsRegistrationSection({
           <input
             className="mono"
             value={form.ims_domain || ""}
-            onChange={(e) => upd({ ims_domain: e.target.value.trim() })}
+            onChange={(e) => upd({ ims_domain: e.currentTarget.value.trim() })}
             placeholder="auto (ims.mnc….mcc….3gppnetwork.org)"
           />
         </Field>
@@ -42,7 +42,7 @@ export default function ImsRegistrationSection({
             maxLength={2}
             onChange={(e) =>
               upd({
-                reg_geolocation_country: e.target.value
+                reg_geolocation_country: e.currentTarget.value
                   .replace(/[^a-zA-Z]/g, "")
                   .toUpperCase(),
               })

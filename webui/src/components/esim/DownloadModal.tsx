@@ -187,7 +187,7 @@ export default function DownloadModal({
             </div>
             <textarea
               value={activation}
-              onChange={(e) => setActivation(e.target.value)}
+              onChange={(e) => setActivation(e.currentTarget.value)}
               rows={3}
               placeholder="LPA:1$smdp.example.com$MATCHING-ID"
               style={{ width: "100%", resize: "vertical" }}
@@ -207,7 +207,7 @@ export default function DownloadModal({
               </div>
               <input
                 value={smdp}
-                onChange={(e) => setSmdp(e.target.value)}
+                onChange={(e) => setSmdp(e.currentTarget.value)}
                 placeholder="smdp.example.com"
                 style={{ width: "100%" }}
               />
@@ -224,7 +224,7 @@ export default function DownloadModal({
               </div>
               <input
                 value={matchingId}
-                onChange={(e) => setMatchingId(e.target.value)}
+                onChange={(e) => setMatchingId(e.currentTarget.value)}
                 style={{ width: "100%" }}
               />
             </label>
@@ -238,7 +238,7 @@ export default function DownloadModal({
           </div>
           <input
             value={confirmation}
-            onChange={(e) => setConfirmation(e.target.value)}
+            onChange={(e) => setConfirmation(e.currentTarget.value)}
             style={{ width: "100%" }}
           />
         </label>
@@ -250,7 +250,7 @@ export default function DownloadModal({
           </div>
           <input
             value={imei}
-            onChange={(e) => setImei(e.target.value)}
+            onChange={(e) => setImei(e.currentTarget.value)}
             placeholder="15-digit IMEI"
             style={{ width: "100%" }}
           />

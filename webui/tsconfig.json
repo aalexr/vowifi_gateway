@@ -11,6 +11,14 @@
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
+    "jsxImportSource": "preact",
+    // Type `react` imports (ours and react-router's / lucide-react's) as preact/compat.
+    "paths": {
+      "react": ["./node_modules/preact/compat"],
+      "react/jsx-runtime": ["./node_modules/preact/jsx-runtime"],
+      "react-dom": ["./node_modules/preact/compat"],
+      "react-dom/client": ["./node_modules/preact/compat/client"]
+    },
     // "strict": false,
     "noFallthroughCasesInSwitch": true
   },

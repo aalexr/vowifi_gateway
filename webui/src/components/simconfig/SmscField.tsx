@@ -43,7 +43,7 @@ export default function SmscField({
         className="mono"
         value={value}
         readOnly={auto}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => onChange(e.currentTarget.value)}
         placeholder={
           auto ? "detect card / verify PIN to read from SIM" : "+1..."
         }

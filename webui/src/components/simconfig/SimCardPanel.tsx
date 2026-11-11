@@ -42,8 +42,9 @@ export default function SimCardPanel({
           value={form.reader_index}
           onChange={(e) =>
             upd({
-              reader_index: +e.target.value,
-              reader_port: portForIdx(+e.target.value) || form.reader_port,
+              reader_index: +e.currentTarget.value,
+              reader_port:
+                portForIdx(+e.currentTarget.value) || form.reader_port,
             })
           }
         >
@@ -75,7 +76,7 @@ export default function SimCardPanel({
         <input
           type="password"
           value={pin}
-          onChange={(e) => setPin(e.target.value)}
+          onChange={(e) => setPin(e.currentTarget.value)}
           placeholder="e.g. 123456"
         />
       </Field>
