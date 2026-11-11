@@ -9,7 +9,7 @@
 #     (forced NAT-T, per-engine IKE source ports — see control/src/engine.rs);
 #   - lingering is enabled so both start at boot without a login; the user podman-restart.service
 #     brings the engines back.
-# The WebUI is compiled with a throwaway Node container, so the host needs no Node/JS toolchain.
+# The WebUI is compiled with the host's Node.js (>= NODE_MIN, the current LTS line), which you install.
 #
 # Shared with the host:
 #   - host pcscd owns the reader; containers are its clients over /run/pcscd. pcsc-lite is
@@ -65,8 +65,9 @@ VOWIFI_ADVERTISE_ADDR="${VOWIFI_ADVERTISE_ADDR:-}"
 # Fully qualified: podman stores locally built images under localhost/.
 ENGINE_IMAGE="localhost/vowifi/engine"
 ENGINE_PREFIX="vowifi-engine-"
-# Base image for the throwaway WebUI build (fully qualified: podman doesn't assume docker.io).
-NODE_IMAGE="docker.io/library/node:22-alpine"
+# Oldest Node.js major that builds the WebUI: the current LTS line (keep webui/package.json
+# "engines" and webui/.nvmrc in step). Node is a host prerequisite — install.sh doesn't install it.
+NODE_MIN=26
 
 # The control plane: built with cargo, installed to control/bin (its own dir, so the SELinux
 # label below covers it and a rebuild never swaps the binary of the running service mid-flight).
@@ -602,20 +603,21 @@ ensure_engine_image() {
   info "engine image built"
 }
 
-# Compile the Preact WebUI to webui/dist using a throwaway Node container — so the host needs no
-# Node/JS toolchain. Builds in an isolated dir inside the container (ignores any host
-# node_modules that might be built for another arch), then copies dist back to the host.
+# The host's Node.js + npm, >= NODE_MIN. Not installed for you: distro packages usually lag the
+# LTS line, so pick the source yourself (distro package if new enough, nodejs.org, nvm/fnm…).
+ensure_node() {
+  hint="install Node.js $NODE_MIN LTS or newer (distro package if it is new enough, https://nodejs.org, or nvm/fnm) and re-run"
+  have node && have npm || die "Node.js + npm are needed to build the WebUI — $hint"
+  node_ver=$(node --version 2>/dev/null | sed 's/^v//')
+  version_ge "${node_ver:-0}" "$NODE_MIN" || die "Node.js ${node_ver:-?} is too old to build the WebUI (need >= $NODE_MIN) — $hint"
+}
+
+# Compile the Preact WebUI to webui/dist with the host's Node. `npm ci` starts from a clean
+# node_modules, so a stale or other-arch one left in the checkout doesn't leak into the build.
 build_webui() {
-  info "building WebUI (webui/dist) via a throwaway node:22-alpine container (no host Node needed)…"
-  # label=disable: the repo checkout isn't labelled for container access on SELinux hosts.
-  # --userns=keep-id: the container user is you, so dist/ comes out owned by you.
-  podman run --rm --security-opt label=disable --userns=keep-id -e HOME=/tmp \
-      -v "$REPO_DIR/webui":/host-webui "$NODE_IMAGE" sh -euc '
-    cp -a /host-webui /tmp/build && cd /tmp/build && rm -rf node_modules dist
-    npm ci
-    npm run build
-    rm -rf /host-webui/dist && cp -a /tmp/build/dist /host-webui/dist
-  '
+  ensure_node
+  info "building WebUI (webui/dist) with Node.js $node_ver…"
+  ( cd "$REPO_DIR/webui" && npm ci --no-audit --no-fund && npm run build ) || die "WebUI build failed"
   [ -f "$WEBUI_DIST/index.html" ] || die "WebUI build produced no dist/index.html"
   info "WebUI built at $WEBUI_DIST"
 }
@@ -792,6 +794,7 @@ remove_control() {
 # ------------------------------------------------------------------ subcommands
 cmd_install() {
   need_sudo
+  ensure_node   # fail now, not after the long engine image build
   info "VoWiFi gateway install — repo: $REPO_DIR (rootless, user $ME)"
   # The engine image compiles pcsc-lite + the Python SWu tunnel deps (and Asterisk, unless the fork's
   # CI published a prebuilt tarball for ASTERISK_REF) from source. On low-power ARM boards
@@ -832,6 +835,7 @@ cmd_install() {
 # SELinux file context were set up by install (a rebuilt control/bin file inherits its bin_t label).
 cmd_reload() {
   installed || die "not installed yet — run: $0 install"
+  ensure_node
   RECREATE_ENGINES=0
   for a in $ARGS; do [ "$a" = "--engines" ] && RECREATE_ENGINES=1; done
   info "reload"
