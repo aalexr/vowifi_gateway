@@ -4864,10 +4864,14 @@ class swu():
         # A CREATE_CHILD_SA response carrying an error notify (e.g. NO_PROPOSAL_CHOSEN(14),
         # TEMPORARY_FAILURE(43)) means our rekey was refused. Do NOT install anything; let the
         # proactive-rekey caller fall back to a supervised re-establish (handled in _rekey_tick via
-        # the _rekey_outstanding flag) — the SA keeps running on the old keys until then.
+        # the _rekey_failed flag) — the SA keeps running on the old keys until then.
+        # _rekey_outstanding must stay set here: _rekey_tick only looks at _rekey_failed while a
+        # proactive rekey is outstanding. Clearing it (the old code) hid the failure, and since the
+        # CHILD SA clock was not reset the rekey was still due, so the next tick sent a new
+        # CREATE_CHILD_SA instead of the rekey_rejected re-establish (a rejected rekey re-sent on
+        # every tick). A manual 'c' rekey never sets _rekey_outstanding and stays a no-op here.
         if error_notify is not None:
             self.log_notify_error(error_notify, "CREATE_CHILD_SA (rekey) response")
-            self._rekey_outstanding = False
             self._rekey_failed = True
             return
 
