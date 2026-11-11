@@ -831,8 +831,15 @@ class swu():
         self.liveness_period = float(os.environ.get("SWU_LIVENESS_PERIOD", "20") or 20)
         self.liveness_retries = int(os.environ.get("SWU_LIVENESS_RETRIES", "4") or 4)
         self._last_rx = None                 # time.monotonic() of last protected IKE msg in-loop
-        self._liveness_outstanding = 0       # consecutive probes sent without a response
-        self._liveness_probe_mid = None      # message-id of the in-flight probe (for response match)
+        self._liveness_outstanding = 0       # consecutive probe sends without any sign of the peer
+        # The ONE initiator request in flight on the connected IKE SA (RFC 7296 2.3: we never
+        # negotiate SET_WINDOW_SIZE, so the window is 1 — request N+1 must not be sent before
+        # request N's response arrived). None, or a dict {kind, exch, mid, packet, first_sent,
+        # last_sent, sends}. Unanswered INFORMATIONAL requests (DPD probe, post-rekey DELETE) are
+        # RETRANSMITTED from here with the SAME bytes and message id (RFC 7296 2.1) by
+        # _liveness_tick; see _track_request / _match_response.
+        self._ike_req_inflight = None
+        self._rekey_blocked_since = None     # rekey came due while another request held the window
 
         # Proactive CHILD-SA rekey (TS 24.302 7.2.2C / RFC 7296). IKEv2 does NOT carry SA lifetime
         # on the wire, so rekey timing is local policy: we rekey the ESP (CHILD) SA every
@@ -3892,7 +3899,12 @@ class swu():
         INFORMATIONAL response bearing the same message-id and responder flags. Distinct from the
         RFC 3948 NAT-T keepalive (which is unacknowledged and proves nothing about SA liveness).
         The empty SK payload carries only encrypted padding, exactly like answer_INFORMATIONAL_empty
-        but with a request header."""
+        but with a request header.
+
+        Advances the request message-id, so call it only when NO request is in flight (the caller,
+        _liveness_tick, retransmits the cached bytes of an unanswered probe instead of calling this
+        again — a fresh probe with id N+1 while N is outstanding is outside the ePDG's window of 1
+        and every later request is then refused with INVALID_MESSAGE_ID)."""
         self.message_id_request += 1
         header = self.encode_header(self.ike_spi_initiator, self.ike_spi_responder, NONE, 2, 0, INFORMATIONAL, (0,0,1), self.message_id_request)
         packet = self.set_ike_packet_length(header)
@@ -4732,6 +4744,7 @@ class swu():
         packet = self.create_CREATE_CHILD_SA(lowest)
         #send request
         self.send_data(packet)
+        self._track_request("ike_rekey", CREATE_CHILD_SA, packet)
         print('sending CREATE_CHILD_SA (IKE)')
 
     def state_ue_create_sa_child(self,lowest = 0): #IPSEC REKEY
@@ -4744,6 +4757,7 @@ class swu():
         packet = self.create_CREATE_CHILD_SA_CHILD(lowest)
         #send request
         self.send_data(packet)
+        self._track_request("rekey", CREATE_CHILD_SA, packet)
         print('sending CREATE_CHILD_SA (IPSEC)')
 
     def state_ue_rekey_child(self):
@@ -4762,6 +4776,7 @@ class swu():
         self.message_id_request += 1
         packet = self.create_CREATE_CHILD_SA_CHILD_pfs(0)
         self.send_data(packet)
+        self._track_request("rekey", CREATE_CHILD_SA, packet)
         print('sending CREATE_CHILD_SA (IPSEC PFS)')
                 
     def state_epdg_create_sa_response(self):
@@ -4869,8 +4884,10 @@ class swu():
             self.ike_to_ipsec_encoder.send(self.encode_inter_process_protocol(inter_process_list_start_encoder))
             self.ike_to_ipsec_decoder.send(self.encode_inter_process_protocol(inter_process_list_start_decoder))            
             
-            #send request
+            #send request — tracked, so an unanswered DELETE is retransmitted with the same
+            # bytes/message id and no DPD probe is started while it holds the window of 1.
             self.send_data(packet)
+            self._track_request("delete", INFORMATIONAL, packet)
             print('sending INFORMATIONAL (DELETE IPSEC old)')
 
             # Proactive-rekey bookkeeping: the CHILD SA was just refreshed -> restart its rekey
@@ -4958,6 +4975,10 @@ class swu():
         # G4: seed the liveness clock; reset on every protected IKE message decoded below.
         self._last_rx = time.monotonic()
         self._liveness_outstanding = 0
+        # A fresh (re)connection starts with an empty request window: IKE_AUTH's response was the
+        # last exchange and _send_request_await_response already consumed it.
+        self._ike_req_inflight = None
+        self._rekey_blocked_since = None
         # P2-5: start each (re)connection with an EMPTY duplicate-request cache. After an in-process
         # reauth ('r' control command) the IKE SPIs and SK_* keys change and the ePDG restarts its
         # message-id sequence, so a response cached under the OLD SA must never be resent for a
@@ -4980,7 +5001,7 @@ class swu():
             # Wake select() for whichever timer fires first: G4 liveness OR proactive rekey. On a
             # busy tunnel a packet wakes us sooner; on idle this bounds the sleep so the timers run.
             _timeouts = [t for t in (
-                self.liveness_period if self.liveness_period > 0 else None,
+                self._liveness_select_timeout(),
                 self._rekey_select_timeout(),
             ) if t is not None]
             _timeout = min(_timeouts) if _timeouts else None
@@ -4996,27 +5017,8 @@ class swu():
 
                         self.decode_ike(packet)
                         if self.ike_decoded_ok == True:
-                            # G4: any validly-decoded protected message from the ePDG proves the SA
-                            # is alive — reset the liveness clock and clear any outstanding probe.
-                            self._note_liveness_rx()
+                            self._handle_connected_ike()
 
-                            if self.ike_decoded_header['exchange_type'] == INFORMATIONAL and self.decoded_payload[0][0] == SK and self.ike_decoded_header['flags'][0] == 1:
-                                # G4: an INFORMATIONAL *response* (flags[0]==1). This is the ack to
-                                # our own liveness probe (or a rekey/delete response we initiated).
-                                # _note_liveness_rx() above already cleared the pending state; just
-                                # consume it (no responder action).
-                                pass
-                            elif self.ike_decoded_header['exchange_type'] == INFORMATIONAL and self.decoded_payload[0][0] == SK and self.ike_decoded_header['flags'][0] == 0:
-                                self._dispatch_epdg_request(lambda: self.state_delete(False))
-
-                            elif self.ike_decoded_header['exchange_type'] == CREATE_CHILD_SA and self.decoded_payload[0][0] == SK and self.ike_decoded_header['flags'][0] == 0:
-                                self._dispatch_epdg_request(self.state_epdg_create_sa)
-
-                            elif self.ike_decoded_header['exchange_type'] == CREATE_CHILD_SA and self.decoded_payload[0][0] == SK and self.ike_decoded_header['flags'][0] == 1:
-                                self.state_epdg_create_sa_response()
-                            
-                            
-                        
                         if self.old_ike_message_received == True:
                             self.old_ike_message_received = False                                
                             
@@ -5037,21 +5039,9 @@ class swu():
                         self.decode_ike(packet[4:])
 
                         if self.ike_decoded_ok == True:
-                            # G4: protected message received via the ESP-decap pipe -> SA alive.
-                            self._note_liveness_rx()
+                            # Protected message received via the ESP-decap pipe (UDP 4500).
+                            self._handle_connected_ike()
 
-                            if self.ike_decoded_header['exchange_type'] == INFORMATIONAL and self.decoded_payload[0][0] == SK and self.ike_decoded_header['flags'][0] == 1:
-                                # G4: response to our liveness probe (or our rekey/delete). Consume.
-                                pass
-                            elif self.ike_decoded_header['exchange_type'] == INFORMATIONAL and self.decoded_payload[0][0] == SK and self.ike_decoded_header['flags'][0] == 0:
-                                self._dispatch_epdg_request(lambda: self.state_delete(False))
-
-                            elif self.ike_decoded_header['exchange_type'] == CREATE_CHILD_SA and self.decoded_payload[0][0] == SK and self.ike_decoded_header['flags'][0] == 0:
-                                self._dispatch_epdg_request(self.state_epdg_create_sa)
-
-                            elif self.ike_decoded_header['exchange_type'] == CREATE_CHILD_SA and self.decoded_payload[0][0] == SK and self.ike_decoded_header['flags'][0] == 1:
-                                self.state_epdg_create_sa_response()
-                        
                         if self.old_ike_message_received == True:
                             self.old_ike_message_received = False
 
@@ -5062,6 +5052,11 @@ class swu():
                     msg = msg.strip() + "\n"
                     if msg == "q\n":  #quit
                         self.state_delete(True)
+                    elif msg in ("i\n", "c\n") and self._ike_req_inflight is not None:
+                        # Window of 1 (RFC 7296 2.3): a manual rekey must wait for the in-flight
+                        # request's response, or it desyncs the message ids.
+                        swu_log("manual rekey ignored: %s request message_id=%d still in flight" %
+                                (self._ike_req_inflight['kind'], self._ike_req_inflight['mid']))
                     elif msg =="i\n": #rekey ike
                         self.state_ue_create_sa()
                     elif msg =="c\n": #rekey sa child
@@ -5089,13 +5084,116 @@ class swu():
     
 
     def _note_liveness_rx(self):
-        """G4: record that a cryptographically-protected IKE message arrived from the ePDG — the SA
-        is alive. Resets the idle clock and clears any outstanding DPD probe count."""
+        """G4: record that a cryptographically-protected IKE (or, via the decap worker, ESP)
+        message arrived from the ePDG — the peer is alive. Resets the idle clock and the
+        unanswered-send count. It deliberately does NOT clear the in-flight request
+        (_ike_req_inflight): proving the peer alive does not answer our request, and with a window
+        of 1 that request must still get its response (we keep retransmitting it) before any new
+        request may be sent. Clearing it here (the old behaviour, via the probe message id) let ESP
+        traffic or an unrelated ePDG request 'complete' an unanswered probe, so the next tick sent
+        message id N+1 while N was outstanding."""
         self._last_rx = time.monotonic()
         if self._liveness_outstanding:
             swu_log("liveness: peer responded, clearing %d outstanding probe(s)" % self._liveness_outstanding)
         self._liveness_outstanding = 0
-        self._liveness_probe_mid = None
+
+    def _track_request(self, kind, exch, packet):
+        """Record the initiator request just sent on the connected IKE SA (message id =
+        self.message_id_request) as the one in flight. kind: 'dpd' / 'delete' (INFORMATIONAL,
+        retransmitted by _liveness_tick) or 'rekey' / 'ike_rekey' (CREATE_CHILD_SA, timed out by
+        _rekey_tick as before)."""
+        if self._ike_req_inflight is not None:
+            # Should not happen (every sender checks the window first). Log loudly so a future
+            # code path that breaks the window-of-1 rule shows up in the IKE log.
+            prev = self._ike_req_inflight
+            swu_log("IKE window violation: %s message_id=%d sent while %s message_id=%d still in "
+                    "flight" % (kind, self.message_id_request, prev['kind'], prev['mid']))
+        now = time.monotonic()
+        self._ike_req_inflight = {
+            'kind': kind, 'exch': exch, 'mid': self.message_id_request, 'packet': packet,
+            'first_sent': now, 'last_sent': now, 'sends': 1,
+        }
+
+    def _match_response(self, exch):
+        """For a decoded response (flags R=1) on the CURRENT IKE SA: True and the window is freed
+        if it answers the in-flight request (same exchange type and message id); False for a
+        stale or duplicate response — e.g. the ePDG's answer to one of our retransmissions arriving
+        after the first answer — which must not be processed a second time (RFC 7296 2.1)."""
+        req = self._ike_req_inflight
+        mid = self.ike_decoded_header['message_id']
+        if (req is not None and not self.old_ike_message_received
+                and req['exch'] == exch and req['mid'] == mid):
+            self._ike_req_inflight = None
+            if req['sends'] > 1:
+                swu_log("IKE %s response for message_id=%d after %d sends" %
+                        (req['kind'], mid, req['sends']))
+            return True
+        return False
+
+    def _handle_connected_ike(self):
+        """Dispatch one validly decoded IKE message received while CONNECTED (from the UDP socket
+        or the ESP-decap pipe; both paths were identical copies before)."""
+        # G4: any validly-decoded protected message from the ePDG proves the SA is alive.
+        self._note_liveness_rx()
+        if self.decoded_payload[0][0] != SK:
+            return
+        exch = self.ike_decoded_header['exchange_type']
+        response = self.ike_decoded_header['flags'][0] == 1
+        if exch == INFORMATIONAL and response:
+            # The ack to our DPD probe or post-rekey DELETE. Check for INVALID_MESSAGE_ID first:
+            # some ePDGs put it in the response itself rather than in a separate request.
+            self._check_invalid_message_id()
+            if not self._match_response(INFORMATIONAL) and not self.old_ike_message_received:
+                swu_log("INFORMATIONAL response message_id=%d matches no request in flight; "
+                        "ignored (stale/duplicate)" % self.ike_decoded_header['message_id'])
+        elif exch == INFORMATIONAL:
+            self._dispatch_epdg_request(lambda: self.state_delete(False))
+            # After the ack went out (RFC 7296 3.10.1: INVALID_MESSAGE_ID is sent in an
+            # INFORMATIONAL *request* by the side that refused our message).
+            self._check_invalid_message_id()
+        elif exch == CREATE_CHILD_SA and not response:
+            self._dispatch_epdg_request(self.state_epdg_create_sa)
+        elif exch == CREATE_CHILD_SA:
+            if self._match_response(CREATE_CHILD_SA):
+                self.state_epdg_create_sa_response()
+            else:
+                # A duplicate answer must never install/rekey a second time.
+                swu_log("CREATE_CHILD_SA response message_id=%d matches no request in flight; "
+                        "ignored (stale/duplicate)" % self.ike_decoded_header['message_id'])
+
+    def _check_invalid_message_id(self):
+        """INVALID_MESSAGE_ID (RFC 7296 3.10.1, data = the refused 4-octet message id) from the
+        ePDG for OUR in-flight request.
+
+        Liveness: the Notify arrives inside SK{}, integrity-protected with the current SA keys, so
+        it is a fresh protected message and keeps counting as liveness (RFC 7296 2.4, TS 24.302
+        7.2.2A) — _handle_connected_ike has already called _note_liveness_rx().
+
+        But it also says the ePDG will never answer that request ('the invalid request MUST NOT
+        be acknowledged'), so retransmitting it is pointless, and with a window of 1 we can send no
+        other request on this IKE SA: no DPD, no rekey, no DELETE that the peer would accept.
+        IKEv2 has no message-id resync for this case (RFC 6311's IKEV2_MESSAGE_ID_SYNC is an HA
+        extension that must be negotiated in IKE_AUTH; we do not, and ePDGs do not offer it), so
+        the SA is unusable for initiator requests. Before this fix that state persisted silently
+        until the next proactive rekey failed; now we go straight to a supervised re-establish
+        (fresh IKE SA, message ids from 0). A Notify naming any other id (one already answered,
+        or not ours) is only logged."""
+        req = self._ike_req_inflight
+        for i in self.decoded_payload[0][1]:
+            if i[0] != N or i[1][1] != INVALID_MESSAGE_ID:
+                continue
+            ndata = i[1][3] or b''
+            bad = struct.unpack("!I", ndata[:4])[0] if len(ndata) >= 4 else None
+            if req is not None and bad == req['mid']:
+                swu_log("ePDG refused our %s request message_id=%d with INVALID_MESSAGE_ID: IKE "
+                        "message ids desynced (no resync in IKEv2) -> supervised re-establish" %
+                        (req['kind'], bad))
+                self._ike_req_inflight = None
+                self._rekey_teardown("ike_msgid_desync")   # exits
+                return
+            swu_log("INVALID_MESSAGE_ID from ePDG for message_id=%s (in flight: %s); ignored" %
+                    (bad, "%s/%d" % (req['kind'], req['mid']) if req else "none"))
+            return
 
     def _note_esp_activity(self, pipe_ike):
         """P2-3: called in the ESP-decap worker after a protected IPsec packet is written to the
@@ -5113,40 +5211,91 @@ class swu():
         except Exception:
             pass
 
+    def _liveness_select_timeout(self):
+        """Seconds until _liveness_tick next has something to do (probe due, or retransmit of the
+        in-flight INFORMATIONAL due), so select() wakes on time rather than up to one period late.
+        None when liveness is disabled."""
+        if self.liveness_period <= 0:
+            return None
+        now = time.monotonic()
+        req = self._ike_req_inflight
+        if req is not None:
+            if req['kind'] in ("dpd", "delete"):
+                return max(0.0, self.liveness_period - (now - req['last_sent']))
+            return self.liveness_period   # a CREATE_CHILD_SA holds the window: _rekey_tick's job
+        last = self._last_rx if self._last_rx is not None else now
+        return max(0.0, self.liveness_period - (now - last))
+
+    def _liveness_dead(self, idle):
+        swu_log("liveness: %d consecutive DPD probes unanswered (~%ds of silence) -> ePDG "
+                "declared dead, tearing down for supervised re-establish" %
+                (self._liveness_outstanding, int(idle)))
+        try:
+            # best-effort DELETE in case the peer is actually still there; kill=False so we
+            # exit ourselves (fresh sockets on restart) rather than lingering. (Its message id is
+            # past the unanswered request, so a strict peer may refuse it; it is best-effort only.)
+            self.state_delete(True, kill=False)
+        except Exception:
+            pass
+        try:
+            swu_write_status("DOWN", reason_code="liveness_timeout", reason_policy="transient")
+            swu_notify("tunnel_down")
+        except Exception:
+            pass
+        exit(1)
+
     def _liveness_tick(self):
         """G4 (TS 24.302 7.2.2A): if no protected message has arrived for `liveness_period`, send an
         empty INFORMATIONAL request (an acknowledged Dead-Peer-Detection probe). After
-        `liveness_retries` consecutive unanswered probes, declare the ePDG dead and tear the tunnel
-        down so the entrypoint supervisor re-establishes it. Disabled when liveness_period<=0.
-        Separate from — and complementary to — the RFC 3948 NAT-T keepalive (unacknowledged)."""
+        `liveness_retries` consecutive unanswered sends with the peer silent, declare the ePDG dead
+        and tear the tunnel down so the entrypoint supervisor re-establishes it. Disabled when
+        liveness_period<=0. Separate from — and complementary to — the RFC 3948 NAT-T keepalive
+        (unacknowledged).
+
+        Message ids (RFC 7296 2.1 / 2.3): the IKE window is 1, so an unanswered probe is
+        RETRANSMITTED — same bytes, same message id — every liveness_period until its response
+        arrives; a new probe (id N+1) is only built once N was answered. The same applies to our
+        post-rekey DELETE, which shares the slot. Retransmission continues even while ESP or ePDG
+        requests prove the peer alive (they reset the idle clock and the unanswered count, not the
+        request), since only the response frees the window. Live trace (MTS RU, 2026-11-11): the
+        old code sent id 38 after 37 went unanswered and the ePDG answered every later probe with
+        INVALID_MESSAGE_ID — counted as liveness, so DPD never fired while the SA was unusable."""
         if self.liveness_period <= 0:
             return
-        idle = time.monotonic() - (self._last_rx if self._last_rx is not None else time.monotonic())
+        now = time.monotonic()
+        idle = now - (self._last_rx if self._last_rx is not None else now)
+        req = self._ike_req_inflight
+
+        if req is not None:
+            if req['kind'] not in ("dpd", "delete"):
+                return   # CREATE_CHILD_SA in flight: _rekey_tick owns its timeout
+            if (now - req['last_sent']) < self.liveness_period:
+                return
+            if idle >= self.liveness_period and self._liveness_outstanding >= self.liveness_retries:
+                self._liveness_dead(idle)
+            try:
+                self.send_data(req['packet'])
+                req['last_sent'] = now
+                req['sends'] += 1
+                self._liveness_outstanding += 1
+                swu_log("liveness: retransmitting %s request (message_id=%d, send #%d, same bytes, "
+                        "idle=%ds)" % ("DPD probe" if req['kind'] == "dpd" else "DELETE",
+                                       req['mid'], req['sends'], int(idle)))
+            except Exception as e:
+                swu_log("liveness: retransmit failed: %r" % e)
+            return
+
         if idle < self.liveness_period:
             return
         if self._liveness_outstanding >= self.liveness_retries:
-            swu_log("liveness: %d consecutive DPD probes unanswered (~%ds of silence) -> ePDG "
-                    "declared dead, tearing down for supervised re-establish" %
-                    (self._liveness_outstanding, int(idle)))
-            try:
-                # best-effort DELETE in case the peer is actually still there; kill=False so we
-                # exit ourselves (fresh sockets on restart) rather than lingering.
-                self.state_delete(True, kill=False)
-            except Exception:
-                pass
-            try:
-                swu_write_status("DOWN", reason_code="liveness_timeout", reason_policy="transient")
-                swu_notify("tunnel_down")
-            except Exception:
-                pass
-            exit(1)
+            self._liveness_dead(idle)
         try:
             packet = self.create_INFORMATIONAL_liveness()
             self.send_data(packet)
+            self._track_request("dpd", INFORMATIONAL, packet)
             self._liveness_outstanding += 1
-            self._liveness_probe_mid = self.message_id_request
             swu_log("liveness: sent DPD probe #%d (message_id=%d, idle=%ds, period=%ds)" %
-                    (self._liveness_outstanding, self._liveness_probe_mid, int(idle), int(self.liveness_period)))
+                    (self._liveness_outstanding, self.message_id_request, int(idle), int(self.liveness_period)))
         except Exception as e:
             swu_log("liveness: probe send failed: %r" % e)
 
@@ -5158,6 +5307,10 @@ class swu():
         now = time.monotonic()
         if self._rekey_outstanding and self._rekey_sent_at is not None:
             return max(0.0, self.rekey_response_timeout - (now - self._rekey_sent_at))
+        if self._rekey_blocked_since is not None:
+            # Due but waiting for the window (see _rekey_tick): poll gently instead of spinning
+            # select() with a 0 timeout; the in-flight response or a retransmit wakes us anyway.
+            return 1.0
         return max(0.0, self.child_rekey_period - (now - self._child_sa_time))
 
     def _rekey_tick(self):
@@ -5189,6 +5342,26 @@ class swu():
         # Not yet due?
         if (now - self._child_sa_time) < self.child_rekey_period:
             return
+
+        # Due, but another request (DPD probe / DELETE) holds the window of 1 (RFC 7296 2.3):
+        # sending CREATE_CHILD_SA now would use message id N+1 while N is outstanding, which the
+        # ePDG refuses. Wait for that response (_liveness_tick keeps retransmitting it). If the
+        # window stays blocked for a whole DPD cycle while the peer is otherwise alive (ESP), the
+        # IKE SA cannot rekey any more -> same supervised re-establish as a failed rekey.
+        req = self._ike_req_inflight
+        if req is not None:
+            if self._rekey_blocked_since is None:
+                self._rekey_blocked_since = now
+                swu_log("CHILD_SA rekey due; waiting for in-flight %s request message_id=%d" %
+                        (req['kind'], req['mid']))
+            blocked_limit = max(self.liveness_period, 1.0) * (max(self.liveness_retries, 1) + 1)
+            if (now - self._rekey_blocked_since) >= blocked_limit:
+                swu_log("CHILD_SA rekey blocked %ds by unanswered %s request message_id=%d -> "
+                        "supervised re-establish" % (int(now - self._rekey_blocked_since),
+                                                     req['kind'], req['mid']))
+                self._rekey_teardown("rekey_blocked")
+            return
+        self._rekey_blocked_since = None
 
         # Due: fire a PFS CHILD_SA rekey. On any send error, tear down for supervised re-establish.
         age = int(now - self._child_sa_time)
