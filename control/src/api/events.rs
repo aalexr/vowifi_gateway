@@ -256,8 +256,11 @@ pub async fn engine_event(State(hub): State<AppState>, body: Body) -> ApiResult 
                 .map(|b| store::CallMedia::parse(&String::from_utf8_lossy(&b)))
                 .unwrap_or_default();
             if !media.is_empty() {
-                tracing::info!(instance = %iid, "call {direction} {}: carrier SDP [{}] b=[{}], ours [{}], client [{}]",
+                // On an outgoing call our SDP is read after the answer, when pjmedia has
+                // narrowed the offer to the negotiated codecs: call it that, not "ours".
+                tracing::info!(instance = %iid, "call {direction} {}: carrier SDP [{}] b=[{}], {} [{}], client [{}]",
                                if to.is_empty() { "(anonymous)" } else { to.as_str() },
+                               if direction == "in" { "our answer" } else { "negotiated" },
                                media.carrier_sdp, media.carrier_bw, media.our_sdp, media.client_sdp);
             }
             let disp = call_disposition(&dialstatus, cause, &direction);

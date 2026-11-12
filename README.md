@@ -332,7 +332,7 @@ The codec setting is rendered into the engine's `pjsip.conf`. Changing it needs 
 Every call records the codecs from its SDP. The engine reads them through the Asterisk fork's `CHANNEL(pjsip,remote_sdp_codecs|remote_sdp_bw|local_sdp_codecs)`, and they're stored with the call in the call log:
 - **Softphone → Recent calls** shows the codec of each call, carrier leg ↔ local client (for example `AMR-WB ↔ G.722`). Hover over it for the full SDP lists and the carrier's `b=` lines.
 - **SIM Config → Carrier codecs → Seen from this carrier** sums the logged calls up per line. An incoming call's offer lists every speech codec the network accepts. On an outgoing call the carrier picks one from our offer, and the pick depends on the far end, so that row only shows what was answered. Codecs on the line's own list are highlighted.
-- The control log has one line per call (`call in|out <peer>: carrier SDP [...] b=[...], ours [...], client [...]`).
+- The control log has one line per call (`call in|out <peer>: carrier SDP [...] b=[...], our answer|negotiated [...], client [...]`). On an outgoing call our own SDP is only read after the answer, when it has been narrowed to the negotiated codecs, so the full offer isn't in the log.
 
 To find out what a new carrier supports, make one incoming call on the line. Calls from before this feature, and calls through an engine image built before it, have no codecs recorded.
 
