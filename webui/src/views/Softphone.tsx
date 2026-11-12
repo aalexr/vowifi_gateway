@@ -19,6 +19,7 @@ import {
 import { GREEN, KEYS, fmtDur, RED } from "../components/softphone/constants";
 import Avatar from "../components/softphone/Avatar";
 import RoundBtn from "../components/softphone/RoundBtn";
+import { codecLabel, sdpListLabel } from "../components/common/codecs";
 import { CommonViewProps } from "./common-view-props";
 
 interface Call {
@@ -1089,6 +1090,26 @@ export default function Softphone({
               const when = c.start_ts
                 ? new Date(Number(c.start_ts) * 1000).toLocaleString()
                 : "";
+              // Carrier leg codec ↔ local client codec, with the SDPs as a tooltip.
+              const codecs = [c.carrier_codec, c.client_codec]
+                .map((x) => (x ? codecLabel(x) : ""))
+                .filter(Boolean);
+              const codecText = c.carrier_codec
+                ? c.client_codec && codecs[0] !== codecs[1]
+                  ? `${codecs[0]} ↔ ${codecs[1]}`
+                  : codecs[0]
+                : "";
+              const codecTip = [
+                c.carrier_sdp &&
+                  `Carrier ${c.direction === "in" ? "offer" : "answer"}: ${sdpListLabel(c.carrier_sdp)}${
+                    c.carrier_bw ? ` (b=${c.carrier_bw})` : ""
+                  }`,
+                c.our_sdp &&
+                  `Our ${c.direction === "in" ? "answer" : "offer"}: ${sdpListLabel(c.our_sdp)}`,
+                c.client_sdp && `Local client: ${sdpListLabel(c.client_sdp)}`,
+              ]
+                .filter(Boolean)
+                .join("\n");
               return (
                 <div
                   key={c.id}
@@ -1137,6 +1158,11 @@ export default function Softphone({
                       />
                       {dlabel}
                       {when ? ` · ${when}` : ""}
+                      {codecText && (
+                        <span title={codecTip} style={{ cursor: "help" }}>
+                          {` · ${codecText}`}
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div

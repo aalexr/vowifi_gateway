@@ -6,7 +6,11 @@ Usage (from the Asterisk dialplan or swu_ike tunnel hooks):
   notify.py <event> [arg1] [arg2] ...
 
 Events: call_in <from>, call_out <to>, sms_in <from> <body_b64> [<ref:total:seq>],
-        sms_out <to> <body_b64>, tunnel_up, tunnel_down, registered, unregistered,
+        sms_out <to> <body_b64>,
+        call_result <in|out> <peer> <dialstatus> <cause> [<media_b64>]
+          (media: "rs=..&bw=..&ls=..&cl=..", the carrier leg's remote/local SDP codecs and
+           b= lines and the local client's codecs, from CHANNEL(pjsip,*_sdp_*); empty if
+           the call never got SDP), tunnel_up, tunnel_down, registered, unregistered,
         sms_report <ack|error|sip> <rp_ref> <rp_cause> <sip_status> <reason_b64>
           (MO SMS outcome: the SMSC's RP-ACK/RP-ERROR, or a SIP failure of the MO MESSAGE;
            empty fields = not applicable; sip_status 0 = no response / not registered)

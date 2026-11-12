@@ -241,6 +241,30 @@ export interface CallRecord {
   status: string;
   start_ts: number;
   end_ts?: number | null;
+  // SDP codecs as the engine logged them ("EVS/16000,AMR-WB/16000,..."; "" = unknown).
+  // carrier_sdp: the carrier's offer (incoming) / answer (outgoing); our_sdp: ours to it.
+  carrier_sdp?: string;
+  carrier_bw?: string;
+  our_sdp?: string;
+  client_sdp?: string;
+  /** Speech codec used on the carrier / local client leg. */
+  carrier_codec?: string | null;
+  client_codec?: string | null;
+}
+
+export interface SeenCodec {
+  name: string;
+  calls: number;
+  last_ts: number;
+}
+
+/** What a line's carrier has shown in the logged calls' SDP. */
+export interface CarrierCodecsSeen {
+  offered: SeenCodec[];
+  answered: SeenCodec[];
+  bandwidth: SeenCodec[];
+  incoming_calls: number;
+  outgoing_calls: number;
 }
 
 export interface ReaderSelection {
@@ -614,6 +638,8 @@ export const api = {
 
   calls: (id: InstanceId) =>
     j<{ calls: CallRecord[] }>("GET", `/api/instances/${id}/calls`),
+  carrierCodecs: (id: InstanceId) =>
+    j<CarrierCodecsSeen>("GET", `/api/instances/${id}/carrier-codecs`),
   // delete call-log entries: { ids:[...] } | { all:true }
   deleteCalls: (id: InstanceId, sel: DeleteCallsRequest) =>
     j<{ ok: boolean; deleted: number }>(

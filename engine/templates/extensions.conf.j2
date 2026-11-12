@@ -15,12 +15,17 @@
 ; logged (that was the original reason _. had been narrowed).
 exten => _.,1,NoOp(Incoming call from ${CALLERID(num)})
 same => n,Set(CALLPEER=${CALLERID(num)})
+; Codec log (call log + SIM Config "seen from the carrier"): the carrier's offer as it came in
+; the INVITE, every codec the network accepts. Read now, before a re-offer in the PRACK/UPDATE
+; (MTS re-offers just the chosen codec) replaces it. Values are sanitised by chan_pjsip.
+same => n,Set(CARRIER_SDP=${CHANNEL(pjsip,remote_sdp_codecs)})
+same => n,Set(CARRIER_BW=${CHANNEL(pjsip,remote_sdp_bw)})
 same => n,Progress()
 same => n,TrySystem(/usr/local/bin/notify.py call_in "${CALLERID(num)}" &)
 same => n,WaitForPrecondition(10,2000)
 same => n,Ringing()
 {% if dialstr %}
-same => n,Dial({{ dialstr }},60)
+same => n,Dial({{ dialstr }},60,U(codec_mt_answered^s^1))
 same => n,GotoIf($["${DIALSTATUS}" = "ANSWER"]?done)
 ; Not answered: give the carrier the final response a phone would. Declined on a local client
 ; (603 -> Q.850 21) or busy -> cause 17 = 486 Busy Here; unanswered / no client reachable ->
@@ -44,8 +49,24 @@ exten => t,1,Hangup()
 ; the call log. Hangup() at h,2 ends the 'h' extension so no fall-through happens. (Not Return():
 ; 'h' runs as a plain extension, not via Gosub, so Return() logs "Return without Gosub: stack is
 ; unallocated" as an ERROR on every call, although it stops execution just the same.)
-exten => h,1,TrySystem(/usr/local/bin/notify.py call_result in "${CALLPEER}" "${DIALSTATUS}" "${HANGUPCAUSE}" &)
+; MEDIA (base64, see [codec_mt_answered]): our final answer to the carrier, read here so it
+; includes a PRACK/UPDATE re-negotiation.
+exten => h,1,Set(MEDIA=rs=${CARRIER_SDP}&bw=${CARRIER_BW}&ls=${CHANNEL(pjsip,local_sdp_codecs)}&cl=${CLIENT_SDP})
+same => n,TrySystem(/usr/local/bin/notify.py call_result in "${CALLPEER}" "${DIALSTATUS}" "${HANGUPCAUSE}" "${BASE64_ENCODE(${MEDIA})}" &)
 same => n,Hangup()
+
+; Dial U() subroutines: run on the answered callee channel, record its negotiated SDP on the
+; calling channel (MASTER_CHANNEL) for the 'h' handler's call_result. rs/ls = the carrier
+; leg's remote/local SDP codecs, bw = its b= lines, cl = the local client's answer.
+[codec_mt_answered]
+exten => s,1,Set(MASTER_CHANNEL(CLIENT_SDP)=${CHANNEL(pjsip,remote_sdp_codecs)})
+same => n,Return()
+
+[codec_mo_answered]
+exten => s,1,Set(MASTER_CHANNEL(CARRIER_SDP)=${CHANNEL(pjsip,remote_sdp_codecs)})
+same => n,Set(MASTER_CHANNEL(CARRIER_BW)=${CHANNEL(pjsip,remote_sdp_bw)})
+same => n,Set(MASTER_CHANNEL(OUR_SDP)=${CHANNEL(pjsip,local_sdp_codecs)})
+same => n,Return()
 
 ; ===== Incoming SMS from the IMS/VoWiFi side =====
 [volte_ims_msg]
@@ -88,7 +109,7 @@ same => n,TrySystem(/usr/local/bin/notify.py call_out "{{ dest }}" &)
 ; we give up. Most carriers roll to voicemail by ~30s; 35 is the default. (The repeated
 ; ringing itself is carrier-side MMTel behaviour and can't be removed here.) A caller who
 ; hangs up earlier still CANCELs immediately.
-same => n,Dial(PJSIP/{{ dest }}@volte_ims,{{ ring_timeout }})
+same => n,Dial(PJSIP/{{ dest }}@volte_ims,{{ ring_timeout }},U(codec_mo_answered^s^1))
 ; Dial only returns here when the call was NEVER answered (reject/busy/no-answer/congestion);
 ; answered calls are bridged and tear down via BYE, never reaching this line.
 ; Save the REAL disposition for the call log BEFORE overriding the response (PJSIPHangup does
@@ -110,7 +131,8 @@ same => n,Hangup()
 ; vars when REAL* are unset (caller hung up mid-ring → jumped straight to 'h' before Set).
 exten => h,1,Set(ST=${IF($["${REALSTATUS}" != ""]?${REALSTATUS}:${DIALSTATUS})})
 same => n,Set(CS=${IF($["${REALCAUSE}" != ""]?${REALCAUSE}:${HANGUPCAUSE})})
-same => n,TrySystem(/usr/local/bin/notify.py call_result out "${CALLPEER}" "${ST}" "${CS}" &)
+same => n,Set(MEDIA=rs=${CARRIER_SDP}&bw=${CARRIER_BW}&ls=${OUR_SDP}&cl=${CHANNEL(pjsip,local_sdp_codecs)})
+same => n,TrySystem(/usr/local/bin/notify.py call_result out "${CALLPEER}" "${ST}" "${CS}" "${BASE64_ENCODE(${MEDIA})}" &)
 same => n,Hangup()
 
 ; ===== Outgoing SMS from a local endpoint =====
