@@ -9,6 +9,29 @@
 # Reproducibility: all build inputs are pinned so a from-scratch build on any machine/arch
 # (amd64/arm64) is functionally identical — the base image tag below, and Asterisk + pjproject
 # by commit SHA (ASTERISK_REF / PJPROJECT_REF), never by a moving branch.
+
+# Optional EVS codec (OFF by default): EVS_CODEC=1 downloads the 3GPP EVS floating-point
+# reference code (TS 26.443) from 3gpp.org on the building machine and compiles it with our
+# shim (evs/libvocal_evs.c) into libvocal.so, which Asterisk's codec_vevs loads at runtime.
+# The 3GPP code is patent-encumbered (EVS is licensed via a patent pool) and published for
+# standardisation/evaluation: it is never committed here nor part of the prebuilt Asterisk
+# tarball, and an image built with EVS_CODEC=1 is for your own use; don't publish it.
+# With EVS_CODEC=0 this stage stays empty and the engine has no EVS transcoding.
+FROM registry.fedoraproject.org/fedora:40 AS evs
+ARG EVS_CODEC=0
+ARG EVS_REF_URL=https://www.3gpp.org/ftp/Specs/archive/26_series/26.443/26443-j00.zip
+ARG EVS_REF_SHA256=0186e1c977927c5c67449b72abeba985eed80772102f7eaa48128119d9a17d27
+COPY evs/ /evs/
+RUN mkdir -p /out && \
+    if [ "$EVS_CODEC" = 1 ]; then \
+        dnf -y install gcc unzip curl findutils && \
+        EVS_REF_URL="$EVS_REF_URL" EVS_REF_SHA256="$EVS_REF_SHA256" EVS_TEST=1 \
+            bash /evs/build-libvocal.sh /out /tmp/evs-build && \
+        rm -rf /tmp/evs-build; \
+    else \
+        echo "EVS codec: not built (EVS_CODEC=0)"; \
+    fi
+
 # Pin the base tag rather than :latest for determinism.
 FROM registry.fedoraproject.org/fedora:40
 
@@ -51,7 +74,7 @@ RUN cd /tmp && \
 # (MT-SMS RP-ACK routing, reg-event SUBSCRIBE, REGISTER extras, UPDATE after PRACK). Change
 # Asterisk there, then bump ASTERISK_REF to the new commit. pjproject: sysmocom/2.14, unpatched.
 ARG ASTERISK_REPO=https://github.com/aalexr/asterisk.git
-ARG ASTERISK_REF=eee37c3d0afacae24eee57306a1fd4ba2acffbbf
+ARG ASTERISK_REF=c72680a178d60bcaaa5ab57382bb82cf574287e5
 ARG PJPROJECT_REPO=https://gitea.sysmocom.de/sysmocom/pjproject.git
 ARG PJPROJECT_REF=20537ab1e6beb2baf9ec15599e0217a601cf7ce5
 # Prebuilt Asterisk: the fork's VowifiBuild workflow builds every pushed commit on this same
@@ -99,6 +122,10 @@ RUN if [ -f /usr/share/doc/asterisk-vowifi/BUILDINFO ]; then exit 0; fi && \
     make install
 
 RUN pip install panoramisk
+
+# EVS (only with EVS_CODEC=1, see the evs stage): libvocal.so for codec_vevs' dlopen().
+COPY --from=evs /out/ /usr/lib/
+RUN ldconfig
 
 # SWu (python IKEv2/IPsec) tunnel dependencies. swu_ike.py is the ePDG tunnel: it needs
 # pycryptodome/cryptography (IKE + ESP crypto), pyserial (imported by the upstream emulator), and

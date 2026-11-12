@@ -34,6 +34,7 @@ containerized control plane (both were removed; `install.sh install` migrates su
 - `engine/entrypoint.sh` — render → PIN keeper → SWu tunnel supervisor → P-CSCF discovery → Asterisk.
 - `engine/render.py` + `engine/templates/*.j2` — `/config/instance.json` → Asterisk configs + `engine.env`.
 - Asterisk changes live in the fork [aalexr/asterisk](https://github.com/aalexr/asterisk), branch `vowifi/20.7.0` (sysmocom/20.7.0 + our commits); `engine/Containerfile` builds it pinned by SHA (`ASTERISK_REF`). Commit there, then bump `ASTERISK_REF`.
+- `engine/evs/` — opt-in EVS codec: `libvocal_evs.c` shim (API in `vocal.h`) over the 3GPP TS 26.443 reference, `build-libvocal.sh` (downloads the 3GPP code at build time; image build arg `EVS_CODEC=1`), `test_libvocal.c` offline round trip. **Never commit or vendor 3GPP EVS source** (patent-pool licensed; README Codecs → EVS).
 - `patches/ccid/*.patch` — opt-in host CCID driver patches (`install.sh patch|patch2|patchall`).
 - `webui/src/views/*.tsx` — one file per tab; `webui/src/components/<group>/` — one file per component (plus `utils.ts`/`constants.ts` helpers) grouped by owning view (`dashboard`, `esim`, `settings`, `simconfig`, `softphone`) or `common` for shared ones; `api.ts` = fetch/WS helpers; `softphone.ts` = JsSIP wrapper. TypeScript (`npm run typecheck`).
 - `data/` — runtime state (configs, SQLite, logs, certs, saved PINs/secrets). **Gitignored; never commit its contents.**
