@@ -18,7 +18,7 @@ export const RANK: Partial<Record<StatusState, number>> = {
   OK: 4,
 };
 
-export default function Pipeline({ st }: { st?: InstanceStatus | null }) {
+export const Pipeline = ({ st }: { st?: InstanceStatus | null }) => {
   const rank = (st && RANK[st.state]) ?? -1;
   return (
     <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
@@ -45,4 +45,4 @@ export default function Pipeline({ st }: { st?: InstanceStatus | null }) {
       })}
     </div>
   );
-}
+};

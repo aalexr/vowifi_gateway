@@ -17,13 +17,13 @@ interface StartPinModalProps {
   onDone?: () => void | Promise<void>;
 }
 
-export default function StartPinModal({
+export const StartPinModal = ({
   inst,
   tries,
   error,
   onClose,
   onDone,
-}: StartPinModalProps) {
+}: StartPinModalProps) => {
   const [pin, setPin] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(error || "");
@@ -126,4 +126,4 @@ export default function StartPinModal({
       </div>
     </div>
   );
-}
+};

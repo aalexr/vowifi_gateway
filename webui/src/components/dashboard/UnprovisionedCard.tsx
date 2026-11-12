@@ -12,11 +12,11 @@ interface UnprovisionedCardProps {
 //  - LOCKED (PIN required, IMSI not yet readable): show basic info + a PIN field, no Provision.
 //    Entering a correct PIN unlocks IMSI+SMSC on the backend and the card refreshes.
 //  - READY (PIN disabled, or unlocked): show identity + SMSC, offer Provision.
-export default function UnprovisionedCard({
+export const UnprovisionedCard = ({
   card,
   refresh,
   onProvision,
-}: UnprovisionedCardProps) {
+}: UnprovisionedCardProps) => {
   const [pinInput, setPinInput] = useState("");
   const [pin, setPin] = useState(""); // remembered correct PIN, forwarded to provisioning
   const [busy, setBusy] = useState(false);
@@ -177,4 +177,4 @@ export default function UnprovisionedCard({
       </button>
     </div>
   );
-}
+};
