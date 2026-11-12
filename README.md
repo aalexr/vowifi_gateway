@@ -304,7 +304,9 @@ Presets besides the default:
 
 Only use G.722 where you've tested an answered call in both directions: a carrier listing G.722 in its offer doesn't prove it carries it. Check the carrier's `b=AS` in its offer, too: G.722 needs about 88 kbit/s with IPv6/UDP/RTP headers.
 - **O2 Germany:** offers `b=AS:88` with G.722. Works.
-- **Vodafone Germany:** offers G.722 with only `b=AS:50`, and polices the call to that. Both directions lost a steady ~44 % of packets (RTCP), heard as clipped voice. Keep Vodafone DE on the default; AMR-WB at 23.85 kbit/s fits.
+- **Vodafone Germany:** offers G.722 with only `b=AS:50`, and polices the call to that. Both directions lost a steady ~44 % of packets (RTCP), heard as clipped voice. Leave G.722 out there: EVS (`evs, amrwb, amr`, 49 kbit/s with headers) or the default AMR-WB fits.
+
+Per-carrier results are in **Tested carriers → Codecs per carrier**.
 
 **EVS** is off by default and opt-in per installation. The Asterisk fork's EVS codec (`codec_vevs`) loads a codec library, `libvocal.so`, at runtime. The gateway can build one from the 3GPP EVS reference code (TS 26.443, floating point) with a small shim (`engine/evs/`), but it doesn't ship that code:
 - EVS is covered by patents licensed through a patent pool, and 3GPP publishes the reference code for standardisation and evaluation. Whether you may use it for calls is for you to check.
@@ -552,7 +554,10 @@ Released under the [MIT License](LICENSE). The build pulls in third-party compon
 | 302-220 | Telus (CA) | ✓ works | ePDG auto-derived from IMSI, full two-way voice + SMS; IPv6 IMS PDN |
 | 234 (EE) | CTExcel (UK, on EE) | ✓ works | China Telecom MVNO on EE's UK network; IPv6 IMS PDN |
 | 234-15 | Vodafone (UK) | ✓ works | IPv4 IMS PDN (needs the IPv4/dual CFG family — auto-detected) |
-| 262-02 | Vodafone (DE) | ✓ works | |
+| 262-02 | Vodafone (DE) | ✓ works | needs the incoming-call precondition option; EVS both ways (codecs below) |
+| 262-03 | O2 (DE) | ✓ works | EVS both ways, G.722 carried (codecs below) |
+| 250-01 | MTS (RU) | ✓ works | needs Geolocation country; keep the single-codec answer off (no audio otherwise); AMR-WB |
+| 250-99 | Beeline (RU) | ✓ works | needs the incoming-call precondition option and `amr` first in its carrier codecs (AMR-NB only) |
 | 208-15 | Free (FR) | ✓ works | |
 | 310-260 | T-Mobile (US) | untested | should work; ePDG auto-derived from IMSI |
 
@@ -560,6 +565,26 @@ Any VoWiFi-capable SIM should work without configuration: the ePDG/realm are der
 the SMSC from the SIM, and the IMS address family is **auto-detected** (a per-carrier hint DB seeds
 the probe order, then the client falls back through the remaining families until one attaches). Reports
 of additional working carriers welcome.
+
+### Codecs per carrier
+
+From answered calls in both directions on each line (2026-11), read from the per-call codec log
+(**Codecs → Which codecs a carrier supports**). "Offers" is the carrier's offer on incoming calls,
+i.e. every codec it accepts; "Picks" is what it answered on outgoing calls, where we offered EVS or
+all six codecs first. The far end matters on outgoing calls, so the pick can differ by callee.
+
+| Carrier | Offers (incoming) | `b=` | Picks (outgoing) | Works best with | Carrier codecs setting |
+|---------|-------------------|------|------------------|-----------------|------------------------|
+| O2 (DE) | EVS, AMR-WB, AMR, G.722, PCMA, PCMU | `AS:88` | EVS | EVS both ways; G.722 also works | `evs, g722, amrwb, amr` |
+| Vodafone (DE) | EVS (up to `bw=swb`), AMR-WB, G.722, AMR, PCMA | `AS:50` | EVS | EVS both ways. G.722 is offered but policed to 50 kbit/s: ~44 % loss | `evs, amrwb, amr` |
+| MTS (RU) | AMR-WB (`mode-set=0,1,2`, max 12.65 kbit/s), AMR, PCMA | `AS:88` | AMR-NB (to a Beeline phone) | AMR-WB. No EVS, no G.722 | default (`amrwb, amr`) |
+| Beeline (RU) | EVS (`bw=swb` and `bw=wb`), AMR-WB, AMR | `RR:0`, `RS:0` | AMR-NB, whatever we offer | AMR-NB only. Answers with EVS or AMR-WB as the used codec end in `Media Negotiation Failed`; a multi-codec answer with AMR first is fine | `amr` first, e.g. `amr, evs, amrwb, g722, alaw, ulaw` |
+
+EVS needs an engine image built with `EVS_CODEC=1` (**Codecs → EVS**); without it, use AMR-WB on
+O2 and Vodafone. With a FRITZ!Box DECT HD handset (G.722) an EVS or AMR-WB carrier call is converted
+once and stays wideband; on O2 the handset's calls ran EVS ↔ G.722 without loss. Calls that cross
+into another operator's network can still arrive narrowband in a wideband codec (one Beeline → MTS
+call did): that is the interconnect, not the line.
 
 ---
 
