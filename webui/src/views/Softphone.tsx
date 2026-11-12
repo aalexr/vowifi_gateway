@@ -1105,7 +1105,7 @@ export default function Softphone({
                     c.carrier_bw ? ` (b=${c.carrier_bw})` : ""
                   }`,
                 c.our_sdp &&
-                  `Our ${c.direction === "in" ? "answer" : "offer"}: ${sdpListLabel(c.our_sdp)}`,
+                  `${c.direction === "in" ? "Our answer" : "Negotiated"}: ${sdpListLabel(c.our_sdp)}`,
                 c.client_sdp && `Local client: ${sdpListLabel(c.client_sdp)}`,
               ]
                 .filter(Boolean)

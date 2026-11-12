@@ -57,7 +57,9 @@ same => n,Hangup()
 
 ; Dial U() subroutines: run on the answered callee channel, record its negotiated SDP on the
 ; calling channel (MASTER_CHANNEL) for the 'h' handler's call_result. rs/ls = the carrier
-; leg's remote/local SDP codecs, bw = its b= lines, cl = the local client's answer.
+; leg's remote/local SDP codecs (after an answer pjmedia has narrowed the local one to the
+; negotiated codecs, so an outgoing call's ls is not the full offer), bw = its b= lines,
+; cl = the local client's answer.
 [codec_mt_answered]
 exten => s,1,Set(MASTER_CHANNEL(CLIENT_SDP)=${CHANNEL(pjsip,remote_sdp_codecs)})
 same => n,Return()

@@ -131,7 +131,8 @@ pub struct CallMedia {
     pub carrier_sdp: String,
     /// The carrier SDP's b= lines ("AS:88,RS:0").
     pub carrier_bw: String,
-    /// Our SDP to the carrier: the answer on an incoming call, the offer on an outgoing one.
+    /// Our SDP to the carrier: the answer on an incoming call. On an outgoing call it is read
+    /// after the answer, when pjmedia has already narrowed our offer to the negotiated codecs.
     pub our_sdp: String,
     /// The answer on the local client leg (the client's on incoming calls, ours on outgoing).
     pub client_sdp: String,

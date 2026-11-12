@@ -242,7 +242,8 @@ export interface CallRecord {
   start_ts: number;
   end_ts?: number | null;
   // SDP codecs as the engine logged them ("EVS/16000,AMR-WB/16000,..."; "" = unknown).
-  // carrier_sdp: the carrier's offer (incoming) / answer (outgoing); our_sdp: ours to it.
+  // carrier_sdp: the carrier's offer (incoming) / answer (outgoing); our_sdp: our answer
+  // (incoming) / our offer narrowed to the negotiated codecs (outgoing).
   carrier_sdp?: string;
   carrier_bw?: string;
   our_sdp?: string;
