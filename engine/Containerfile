@@ -74,7 +74,7 @@ RUN cd /tmp && \
 # (MT-SMS RP-ACK routing, reg-event SUBSCRIBE, REGISTER extras, UPDATE after PRACK). Change
 # Asterisk there, then bump ASTERISK_REF to the new commit. pjproject: sysmocom/2.14, unpatched.
 ARG ASTERISK_REPO=https://github.com/aalexr/asterisk.git
-ARG ASTERISK_REF=e88a0956e7b0f02e23b4c22c2d733945407d837c
+ARG ASTERISK_REF=abd8fe4ed99eb7d431bc9cfe7e62b5f663bac233
 ARG PJPROJECT_REPO=https://gitea.sysmocom.de/sysmocom/pjproject.git
 ARG PJPROJECT_REF=20537ab1e6beb2baf9ec15599e0217a601cf7ce5
 # Prebuilt Asterisk: the fork's VowifiBuild workflow builds every pushed commit on this same
