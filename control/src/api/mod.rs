@@ -266,6 +266,7 @@ pub fn router(hub: AppState) -> Router {
         .route("/api/instances/{iid}/sms/send", post(instances::sms_send))
         .route("/api/instances/{iid}/calls", get(instances::calls))
         .route("/api/instances/{iid}/calls/delete", post(instances::calls_delete))
+        .route("/api/instances/{iid}/carrier-codecs", get(instances::carrier_codecs))
         .route("/api/instances/{iid}/call", post(instances::call))
         .route("/api/instances/{iid}/hangup", post(instances::hangup))
         .route("/api/instances/{iid}/softphone", get(instances::softphone))

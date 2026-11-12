@@ -284,6 +284,11 @@ pub async fn calls(Path(iid): Path<String>) -> ApiResult {
     ok(json!({"calls": blocking(move || store::list_calls(&iid, 100)).await?}))
 }
 
+/// The codecs this line's carrier has shown in the logged calls (store::carrier_codecs_seen).
+pub async fn carrier_codecs(Path(iid): Path<String>) -> ApiResult {
+    ok(json!(blocking(move || store::carrier_codecs_seen(&iid)).await?))
+}
+
 /// {ids:[...]} for specific calls or {all:true} for the whole log.
 pub async fn calls_delete(State(hub): State<AppState>, Path(iid): Path<String>, body: Body) -> ApiResult {
     let id = iid.clone();

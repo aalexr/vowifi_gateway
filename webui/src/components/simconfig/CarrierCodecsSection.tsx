@@ -3,6 +3,7 @@ import type { InstanceConfig } from "../../api";
 import Field from "./Field";
 import Hint from "./Hint";
 import Section from "./Section";
+import CarrierCodecsSeen from "./CarrierCodecsSeen";
 import type { FormSectionProps } from "./types";
 import { IMS_CODECS_DEFAULT, imsCodecsCustomised } from "./utils";
 
@@ -99,6 +100,7 @@ export default function CarrierCodecsSection({
           </Field>
         )}
       </div>
+      <CarrierCodecsSeen id={form.id} configured={codecs} />
       <Hint>
         The default offers what a phone offers. Put <b>G.722</b> first only for
         carriers that really carry it (O2 Germany does; Vodafone Germany offers it
@@ -106,8 +108,9 @@ export default function CarrierCodecsSection({
         as a FRITZ!Box DECT HD handset then pass through without transcoding
         here, and the carrier converts to AMR-WB where needed. Put <b>AMR</b> first
         for carriers that end incoming calls answered with AMR-WB ("Media
-        Negotiation Failed", Beeline RU). Incoming calls always answer with the
-        single first codec the carrier also offers. The list must keep
+        Negotiation Failed", Beeline RU). An incoming call answers with the
+        codecs of this list the carrier offered (only the first one with{" "}
+        <b>Incoming calls: answer with a single speech codec</b>). The list must keep
         AMR-WB or AMR. <b>EVS</b> only works on an engine image built with{" "}
         <code>EVS_CODEC=1</code> (see the README); on other images it is
         ignored. For Beeline RU try <code>evs, amr</code>. Restart the line

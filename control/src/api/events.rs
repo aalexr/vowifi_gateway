@@ -246,20 +246,29 @@ pub async fn engine_event(State(hub): State<AppState>, body: Body) -> ApiResult 
             // New form: call_result <direction> <peer> <dialstatus> <cause> (both directions,
             // from the 'h' handler). Legacy: call_result <peer> <dialstatus> <cause> (outgoing).
             let first = arg(&args, 0);
+            // An optional 5th arg (base64) carries the call's SDP codecs (store::CallMedia).
             let (direction, to, dialstatus, cause) = if first == "in" || first == "out" {
                 (first, arg(&args, 1), arg(&args, 2).to_uppercase(), int_arg(&args, 3))
             } else {
                 ("out".to_string(), first, arg(&args, 1).to_uppercase(), int_arg(&args, 2))
             };
+            let media = base64::engine::general_purpose::STANDARD.decode(arg(&args, 4).trim())
+                .map(|b| store::CallMedia::parse(&String::from_utf8_lossy(&b)))
+                .unwrap_or_default();
+            if !media.is_empty() {
+                tracing::info!(instance = %iid, "call {direction} {}: carrier SDP [{}] b=[{}], ours [{}], client [{}]",
+                               if to.is_empty() { "(anonymous)" } else { to.as_str() },
+                               media.carrier_sdp, media.carrier_bw, media.our_sdp, media.client_sdp);
+            }
             let disp = call_disposition(&dialstatus, cause, &direction);
-            let (i, d, t, s) = (iid.clone(), direction.clone(), to.clone(), disp.clone());
-            let mut rec = blocking(move || store::update_last_call(&i, &d, Some(&t), &s)).await?;
+            let (i, d, t, s, m) = (iid.clone(), direction.clone(), to.clone(), disp.clone(), media.clone());
+            let mut rec = blocking(move || store::update_last_call(&i, &d, Some(&t), &s, &m)).await?;
             if rec.is_none() && !to.is_empty() {
                 // The exact peer matched no open record ('h' lost the number to a masquerade,
                 // or call_out stored another form): finalize the latest open call of this
                 // direction so it never stays stuck on dialing/ringing.
                 let (i, d, s) = (iid.clone(), direction.clone(), disp.clone());
-                rec = blocking(move || store::update_last_call(&i, &d, None, &s)).await?;
+                rec = blocking(move || store::update_last_call(&i, &d, None, &s, &media)).await?;
             }
             if let Some(rec) = rec {
                 hub.broadcast(json!({"type": "call", "instance": iid, "call": rec}));
