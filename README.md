@@ -299,13 +299,31 @@ Presets besides the default:
   - G.722 calls with a FRITZ!Box pass through the gateway without any conversion; the carrier converts to AMR-WB where the far end needs it.
   - The SDP bandwidth (`b=AS`) is raised from 41 to 88 kbit/s, the 64 kbit/s G.722 stream plus IPv6/UDP/RTP headers.
 - **AMR, then AMR-WB**, for carriers that end incoming calls answered with AMR-WB (see **Troubleshooting**, Beeline RU). Calls are then narrowband (8 kHz) end to end.
-- **Custom**: any order of `amrwb`, `amr`, `g722`, `alaw`, `ulaw`. The list must keep AMR-WB or AMR, so calls the carrier can't convert still work.
+- **EVS first, then AMR-WB, AMR**: needs an EVS engine image, see **EVS** below.
+- **Custom**: any order of `evs`, `amrwb`, `amr`, `g722`, `alaw`, `ulaw`. The list must keep AMR-WB or AMR, so calls the carrier can't convert still work.
 
 Only use G.722 where you've tested an answered call in both directions: a carrier listing G.722 in its offer doesn't prove it carries it. Check the carrier's `b=AS` in its offer, too: G.722 needs about 88 kbit/s with IPv6/UDP/RTP headers.
 - **O2 Germany:** offers `b=AS:88` with G.722. Works.
 - **Vodafone Germany:** offers G.722 with only `b=AS:50`, and polices the call to that. Both directions lost a steady ~44 % of packets (RTCP), heard as clipped voice. Keep Vodafone DE on the default; AMR-WB at 23.85 kbit/s fits.
 
-**EVS** isn't available. The Asterisk fork's EVS codec (`codec_vevs`) loads a proprietary Vocal Technologies library (`libvocal.so`) at runtime, and the engine image doesn't include it.
+**EVS** is off by default and opt-in per installation. The Asterisk fork's EVS codec (`codec_vevs`) loads a codec library, `libvocal.so`, at runtime. The gateway can build one from the 3GPP EVS reference code (TS 26.443, floating point) with a small shim (`engine/evs/`), but it doesn't ship that code:
+- EVS is covered by patents licensed through a patent pool, and 3GPP publishes the reference code for standardisation and evaluation. Whether you may use it for calls is for you to check.
+- So the code is never committed here, isn't part of the prebuilt Asterisk tarball, and the default image has no EVS. With `EVS_CODEC=1` the engine build downloads it from 3gpp.org on your machine (checksum-pinned), compiles `libvocal.so`, runs an offline encode/decode test, and installs the library to `/usr/lib` in the image. Keep that image to yourself; don't push it to a registry.
+
+To use EVS:
+1. Build the engine image with it, for example by adding `EVS_CODEC=1` to `.env` and running `./install.sh reload --engines`. Plain `podman build --build-arg EVS_CODEC=1 …` works too. This restarts the lines.
+2. Put `evs` in the line's carrier codecs: the **EVS first** preset, or a custom list such as `evs, amr` (Beeline RU).
+3. Restart the line.
+
+On an image without EVS, `evs` in a list is ignored at engine start (logged as `[render] ims_codecs: evs needs an engine image built with EVS_CODEC=1`), so a line never negotiates EVS it can't convert.
+
+What the gateway offers and answers:
+- EVS Primary, wideband (16 kHz, the gateway's internal audio rate), with DTX unless the carrier sets `dtx=0`.
+- Its offer carries `br=5.9-24.4;bw=nb-wb`. An answer narrows `br` to one rate: 13.2 kbit/s if the carrier allows it, otherwise the allowed rate closest to it. The answer then carries `bw` as the overlap with the carrier's, or the carrier's band when there's no overlap (an offer with `bw=swb` only is answered `bw=swb` and gets wideband audio). `b=AS` is 49 kbit/s.
+- Incoming EVS frames are decoded at any rate, compact or header-full, including the AMR-WB IO mode. Lost frames are concealed.
+- Not supported: channel-aware mode, reacting to CMR rate requests, and multiple frames per RTP packet (only the first is decoded).
+
+EVS on the carrier leg is still converted for the local clients (EVS ↔ G.722/Opus/AMR-WB …), like any other carrier codec.
 
 The codec setting is rendered into the engine's `pjsip.conf`. Changing it needs the engine image rebuilt once after upgrading (`./install.sh reload --engines`) and the line restarted.
 
@@ -489,6 +507,8 @@ The manager then bind-mounts the local `engine/*.py`, `entrypoint.sh` and templa
 ```bash
 podman build -t localhost/vowifi/engine engine/
 ```
+
+**EVS shim** (`engine/evs/`, see **Codecs → EVS**): `libvocal_evs.c` implements the `libvocal.so` API that `codec_vevs` loads (documented in `vocal.h`) on top of the 3GPP reference code; `build-libvocal.sh` downloads that code and builds the library. Without the engine image, `EVS_TEST=1 engine/evs/build-libvocal.sh /tmp/evs-out /tmp/evs-work` builds it on the host (gcc, curl, unzip) and runs the offline round-trip test (`test_libvocal.c`): 16 kHz audio through EVS at 5.9, 9.6, 13.2 and 24.4 kbit/s with DTX, a lost frame, and several instances interleaved and on parallel threads.
 
 ---
 

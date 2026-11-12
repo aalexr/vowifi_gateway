@@ -22,6 +22,11 @@ const PRESETS: { key: string; label: string; codecs: string[] }[] = [
     label: "AMR, then AMR-WB — narrowband first",
     codecs: ["amr", "amrwb"],
   },
+  {
+    key: "evs",
+    label: "EVS first, then AMR-WB, AMR — needs an EVS engine image",
+    codecs: ["evs", "amrwb", "amr"],
+  },
 ];
 
 const sameList = (a: string[], b: string[]) =>
@@ -75,7 +80,7 @@ export default function CarrierCodecsSection({
           </select>
         </Field>
         {preset === "custom" && (
-          <Field label="Codecs, in order (amrwb, amr, g722, alaw, ulaw)" wide>
+          <Field label="Codecs, in order (evs, amrwb, amr, g722, alaw, ulaw)" wide>
             <input
               className="mono"
               value={text}
@@ -103,8 +108,9 @@ export default function CarrierCodecsSection({
         for carriers that end incoming calls answered with AMR-WB ("Media
         Negotiation Failed", Beeline RU). Incoming calls always answer with the
         single first codec the carrier also offers. The list must keep
-        AMR-WB or AMR. EVS isn't available: Asterisk's EVS codec needs a
-        proprietary library the engine image doesn't include. Restart the line
+        AMR-WB or AMR. <b>EVS</b> only works on an engine image built with{" "}
+        <code>EVS_CODEC=1</code> (see the README); on other images it is
+        ignored. For Beeline RU try <code>evs, amr</code>. Restart the line
         after changing this.
       </Hint>
     </Section>

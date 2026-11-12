@@ -1283,9 +1283,11 @@ const PANI_ACCESS_TYPES: &[&str] = &[
 /// Codecs a line may offer/accept on the carrier (IMS) leg. AMR-WB + AMR is what a phone
 /// offers; G.722 / G.711 are opt-in for carriers that accept them (O2 DE offers G.722 itself),
 /// so a G.722 local client (FRITZ!Box DECT HD) is bridged without transcoding. AMR before
-/// AMR-WB is for carriers that fail AMR-WB answers (Beeline RU incoming calls). No EVS: the
-/// fork's codec_vevs needs the proprietary libvocal.so, which the image lacks.
-pub const IMS_CODECS_ALLOWED: &[&str] = &["amrwb", "amr", "g722", "alaw", "ulaw"];
+/// AMR-WB is for carriers that fail AMR-WB answers (Beeline RU incoming calls). EVS needs an
+/// engine image built with `EVS_CODEC=1` (libvocal.so compiled locally from the 3GPP
+/// reference code); on an image without it render.py drops `evs` from the list, so a line
+/// never negotiates a codec it cannot transcode.
+pub const IMS_CODECS_ALLOWED: &[&str] = &["evs", "amrwb", "amr", "g722", "alaw", "ulaw"];
 
 pub fn ims_codecs_default() -> Vec<String> {
     vec!["amrwb".into(), "amr".into()]
@@ -1522,7 +1524,9 @@ mod tests {
         assert_eq!(n(json!(" AMR , amrwb,amr")).unwrap(), vec!["amr", "amrwb"]);
         assert_eq!(n(json!(["g722", "amrwb", "amr"])).unwrap(), vec!["g722", "amrwb", "amr"]);
         assert!(n(json!(["g722"])).unwrap_err().contains("amrwb or amr"));
-        assert!(n(json!(["evs", "amr"])).unwrap_err().contains("unknown carrier codec"));
+        assert_eq!(n(json!(["EVS", "amr"])).unwrap(), vec!["evs", "amr"]);
+        assert!(n(json!(["evs"])).unwrap_err().contains("amrwb or amr"));
+        assert!(n(json!(["opus", "amr"])).unwrap_err().contains("unknown carrier codec"));
         assert!(n(json!(5)).is_err());
     }
 

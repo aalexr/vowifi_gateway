@@ -1,0 +1,9 @@
+# Never commit the 3GPP EVS reference code or anything built from it (README Codecs → EVS).
+*.zip
+*.so
+*.o
+c-code/
+spec/
+src/
+obj/
+test_libvocal

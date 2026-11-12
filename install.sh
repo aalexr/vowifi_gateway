@@ -48,6 +48,8 @@
 #   VOWIFI_FW_ZONE6        firewalld zone for those IPv6 rules        (default: the IPv6 uplink's zone)
 #   VOWIFI_LOG_RETENTION   drop journal entries older than this, host-wide (default: none; e.g. 30day)
 #   PCSC_VERSION           pinned pcsc-lite version                   (default 2.3.3)
+#   EVS_CODEC              1 = build the engine with the EVS codec, downloading the 3GPP
+#                          reference code at build time (default 0; README "Codecs")
 #   LPAC_SRC               optional path to lpac source (for build-lpac)
 #   CMAKE_FETCH_VER        Kitware cmake version if system is too old (default 3.31.12)
 set -eu
@@ -98,6 +100,9 @@ MIGRATE_RESTART_FILE="$VOWIFI_DATA_DIR/.migrate-restart"
 # pcsc-lite version pinned across the host + the engine image so the PC/SC client/server
 # protocol always matches (distro defaults differ -> "Failed to establish context").
 PCSC_VERSION="${PCSC_VERSION:-2.3.3}"
+# Opt-in EVS codec in the engine image (engine/Containerfile stage "evs"): 1 downloads the 3GPP
+# EVS reference code from 3gpp.org and builds libvocal.so on this machine. Off by default.
+EVS_CODEC="${EVS_CODEC:-0}"
 # Set by ensure_pcscd: 1 if we source-built pcsc-lite on the host (headers already in /usr),
 # 0 if the distro package already matched the pin (need the distro -dev pkg for pyscard headers).
 PCSC_SOURCE_BUILT=0
@@ -599,7 +604,11 @@ ensure_engine_image() {
   # never reused; migrate_legacy_rootful deletes it and this builds from the current sources.
   info "building engine image ($ENGINE_IMAGE) from source — long; compiles Asterisk+pcsc-lite+Python SWu tunnel deps and bakes engine/patches/*…"
   # shellcheck disable=SC2086
-  podman build $NOCACHE_FLAG --build-arg "PCSC_VERSION=$PCSC_VERSION" -t "$ENGINE_IMAGE" "$REPO_DIR/engine"
+  if [ "$EVS_CODEC" = 1 ]; then
+    info "EVS_CODEC=1: downloading the 3GPP EVS reference code and building libvocal.so into the image (for your own use only)"
+  fi
+  podman build $NOCACHE_FLAG --build-arg "PCSC_VERSION=$PCSC_VERSION" --build-arg "EVS_CODEC=$EVS_CODEC" \
+    -t "$ENGINE_IMAGE" "$REPO_DIR/engine"
   info "engine image built"
 }
 
