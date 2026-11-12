@@ -113,7 +113,7 @@ export default function CarrierCodecsSection({
         <b>Incoming calls: answer with a single speech codec</b>). The list must keep
         AMR-WB or AMR. <b>EVS</b> only works on an engine image built with{" "}
         <code>EVS_CODEC=1</code> (see the README); on other images it is
-        ignored. For Beeline RU try <code>evs, amr</code>. Restart the line
+        ignored. Beeline RU ends calls answered with EVS or AMR-WB: keep <code>amr</code> first there. Restart the line
         after changing this.
       </Hint>
     </Section>

@@ -292,13 +292,13 @@ Each call has two legs, and Asterisk converts between them when their codecs dif
 
 With the default, a FRITZ!Box DECT HD handset (G.722) on an AMR-WB carrier call is converted once, AMR-WB ↔ G.722, and stays wideband (16 kHz).
 
-On incoming calls, the gateway answers the carrier with every codec from this list that the carrier offered. With the default list they're in the carrier's offer order; with any other list, in **this list's** order. **SIM Config → Incoming calls: answer with a single speech codec** makes the answer carry only the first of them (plus `telephone-event` for DTMF), as 3GPP TS 24.229 asks of a terminating phone. Off by default: Beeline RU needs it, but MTS RU then never sends audio (see **Troubleshooting**).
+On incoming calls, the gateway answers the carrier with every codec from this list that the carrier offered. With the default list they're in the carrier's offer order; with any other list, in **this list's** order. **SIM Config → Incoming calls: answer with a single speech codec** makes the answer carry only the first of them (plus `telephone-event` for DTMF), as 3GPP TS 24.229 asks of a terminating phone. Off by default: MTS RU then never sends audio (see **Troubleshooting**), and none of the tested carriers needs it.
 
 Presets besides the default:
 - **G.722 first, then AMR-WB, AMR**, for carriers that accept G.722 themselves (O2 Germany offers it on incoming calls):
   - G.722 calls with a FRITZ!Box pass through the gateway without any conversion; the carrier converts to AMR-WB where the far end needs it.
   - The SDP bandwidth (`b=AS`) is raised from 41 to 88 kbit/s, the 64 kbit/s G.722 stream plus IPv6/UDP/RTP headers.
-- **AMR, then AMR-WB**, for carriers that end incoming calls answered with AMR-WB (see **Troubleshooting**, Beeline RU). Calls are then narrowband (8 kHz) end to end.
+- **AMR, then AMR-WB**, for carriers that end incoming calls answered with AMR-WB or EVS (see **Troubleshooting**, Beeline RU). Calls are then narrowband (8 kHz) end to end. A custom list may name more codecs after `amr`, e.g. `amr, evs, amrwb, g722, alaw, ulaw`: AMR stays the one incoming calls use, the rest are offered too.
 - **EVS first, then AMR-WB, AMR**: needs an EVS engine image, see **EVS** below.
 - **Custom**: any order of `evs`, `amrwb`, `amr`, `g722`, `alaw`, `ulaw`. The list must keep AMR-WB or AMR, so calls the carrier can't convert still work.
 
@@ -312,7 +312,7 @@ Only use G.722 where you've tested an answered call in both directions: a carrie
 
 To use EVS:
 1. Build the engine image with it, for example by adding `EVS_CODEC=1` to `.env` and running `./install.sh reload --engines`. Plain `podman build --build-arg EVS_CODEC=1 …` works too. This restarts the lines.
-2. Put `evs` in the line's carrier codecs: the **EVS first** preset, or a custom list such as `evs, amr` (Beeline RU).
+2. Put `evs` in the line's carrier codecs: the **EVS first** preset, or a custom list. EVS worked on O2 DE and Vodafone DE (outgoing calls are answered EVS-only there); Beeline RU offers it but ends calls answered with it.
 3. Restart the line.
 
 On an image without EVS, `evs` in a list is ignored at engine start (logged as `[render] ims_codecs: evs needs an engine image built with EVS_CODEC=1`), so a line never negotiates EVS it can't convert.
@@ -476,10 +476,9 @@ in practice); MOBIKE / `UPDATE_SA_ADDRESSES` (the host has a stable wired IP); m
   - **IMEI with spare digit 0**: `+sip.instance` as `urn:gsma:imei:TAC-SNR-0` (RFC 7254) instead of ending in the check digit.
 - **Outgoing calls fail with `491 Request Pending` followed by `500 Server Internal Error` (Q.850 cause 47)**: the engine sent the precondition `UPDATE` while the carrier was still processing the `PRACK` for its `183`. Enable **SIM Config → Send the call-setup UPDATE only after the PRACK is answered** for that line (needed on MTS RU for calls to other Russian operators). Off by default.
 - **Incoming calls connect but have no audio in either direction (outgoing calls are fine)**: the carrier's `INVITE` lists `precondition` in `Supported` (not `Require`) and reports its own side ready (`a=curr:qos local sendrecv`). The engine answers `183` with `curr:qos local none` and waits for the carrier's `UPDATE`, while the carrier waits for ours. Neither is sent, and the carrier never opens the media path. Enable **SIM Config → Incoming calls: skip QoS preconditions unless the carrier requires them** for that line (needed on Vodafone DE). Incoming calls then go without preconditions, like on carriers that don't offer them (O2 DE). Over VoWiFi there's no radio bearer to reserve, so nothing is lost. Off by default.
-- **Incoming calls never ring, or end the moment you answer, with `Media Negotiation Failed`** (Beeline RU; outgoing calls are fine): the carrier sends `CANCEL` (before ringing) or `BYE` (right after answering) with `Reason: Q.850;cause=31 … Media Negotiation Failed`. Find it with `grep 'Media Negotiation' /var/log/asterisk/full` in the engine. Beeline's Huawei core rejects three things other carriers accept, and needs all three settings:
+- **Incoming calls never ring, or end the moment you answer, with `Media Negotiation Failed`** (Beeline RU; outgoing calls are fine): the carrier sends `CANCEL` (before ringing) or `BYE` (right after answering) with `Reason: Q.850;cause=31 … Media Negotiation Failed`. Find it with `grep 'Media Negotiation' /var/log/asterisk/full` in the engine. Beeline's Huawei core rejects two things other carriers accept, and needs both settings:
   1. QoS preconditions when its `INVITE` only *supports* them: enable **SIM Config → Incoming calls: skip QoS preconditions unless the carrier requires them**.
-  2. More than one speech codec in the answer: enable **SIM Config → Incoming calls: answer with a single speech codec**.
-  3. An AMR-WB answer, though it offers AMR-WB (the calls tested came in from its circuit-switched side): set **SIM Config → Carrier codecs** to **AMR, then AMR-WB**.
+  2. Any codec but AMR-NB as the one used (the first in the answer), though it offers EVS and AMR-WB; it also answers our outgoing calls with AMR-NB whatever we offer: put `amr` first in **SIM Config → Carrier codecs** (**AMR, then AMR-WB**, or a custom list such as `amr, evs, amrwb, g722, alaw, ulaw`). Answers with several codecs are fine as long as AMR comes first; the single-codec option isn't needed.
 - **Incoming calls connect but have no audio, the carrier's `PRACK` has no SDP** (MTS RU; outgoing calls are fine): the line has **SIM Config → Incoming calls: answer with a single speech codec** enabled. MTS's P-CSCF sets up media only after it re-offers the chosen codec in the `PRACK` for our `183`, and it skips that re-offer when the answer already has one codec. The local client's `X-RTP-Stat` in the `BYE` then shows `PR=0`. Turn the option off for that line.
 - **External client no audio**: confirm `VOWIFI_ADVERTISE_ADDR` is the correct LAN IP (not 127.x). Check that the firewall allows RTP from the client (`./install.sh firewall` opens UDP 10000+ for the LAN in firewalld).
 - **WebUI or SIP unreachable from the LAN, fine on the host itself**: the ports are plain host sockets of your user, so the host firewall filters them. `./install.sh firewall` (re)adds the rule allowing the `vowifi` firewalld service from your LAN subnet; set `VOWIFI_FW_SOURCE` / `VOWIFI_FW_ZONE` if it picked the wrong subnet or zone.
