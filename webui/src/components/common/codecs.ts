@@ -34,12 +34,14 @@ export function codecSetting(sdp: string): string | undefined {
   return SETTING[encName(sdp)];
 }
 
-/** "EVS/16000,AMR-WB/16000,telephone-event/16000" -> "EVS, AMR-WB, DTMF". */
+/** "EVS/16000,AMR-WB/16000,telephone-event/16000" -> "EVS, AMR-WB, DTMF". A codec listed
+ *  more than once (several payload types / clock rates, e.g. DTMF at 8 and 48 kHz, MTS's
+ *  three AMR variants) is shown once. */
 export function sdpListLabel(list?: string | null): string {
-  return (list || "")
+  const labels = (list || "")
     .split(",")
     .map((c) => c.trim())
     .filter(Boolean)
-    .map((c) => (encName(c) === "telephone-event" ? "DTMF" : codecLabel(c)))
-    .join(", ");
+    .map((c) => (encName(c) === "telephone-event" ? "DTMF" : codecLabel(c)));
+  return [...new Set(labels)].join(", ");
 }

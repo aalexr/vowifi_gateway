@@ -91,8 +91,8 @@ export default function ImsRegistrationSection({
         checked={!!form.mt_single_codec}
         onChange={(mt_single_codec) => upd({ mt_single_codec })}
       >
-        Incoming calls: answer with a single speech codec (needed on Beeline
-        RU; breaks audio on MTS RU)
+        Incoming calls: answer with a single speech codec (breaks audio on MTS
+        RU; none of the tested carriers needs it)
       </CheckboxRow>
       <Hint>
         These change only this line. Some IMS cores accept the REGISTER and then
@@ -100,8 +100,8 @@ export default function ImsRegistrationSection({
         registration but then removed it again") unless it looks like a native
         phone. <b>MTS RU</b> needs only the Geolocation country (the country you
         are in, e.g. <code>DE</code>); <b>Vodafone DE</b> and <b>Beeline RU</b> need
-        the incoming-call precondition option, <b>Beeline RU</b> also the
-        single-codec option; the other options are there for carriers
+        the incoming-call precondition option, <b>Beeline RU</b> also AMR
+        first in its carrier codecs; the other options are there for carriers
         that turn out to need them (an iPhone sends all of them). Restart the
         line after changing them.
       </Hint>
