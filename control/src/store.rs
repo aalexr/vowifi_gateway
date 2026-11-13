@@ -19,7 +19,10 @@ use serde::Serialize;
 use crate::config;
 
 fn now() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
 }
 
 static DB: OnceLock<Mutex<Connection>> = OnceLock::new();
@@ -37,7 +40,9 @@ fn open() -> anyhow::Result<Connection> {
 }
 
 fn with<T>(f: impl FnOnce(&mut Connection) -> rusqlite::Result<T>) -> anyhow::Result<T> {
-    let m = DB.get().ok_or_else(|| anyhow::anyhow!("store not initialised"))?;
+    let m = DB
+        .get()
+        .ok_or_else(|| anyhow::anyhow!("store not initialised"))?;
     let mut c = m.lock().unwrap_or_else(|e| e.into_inner());
     Ok(f(&mut c)?)
 }
@@ -78,14 +83,16 @@ pub fn init() -> anyhow::Result<()> {
         CREATE INDEX IF NOT EXISTS idx_parts_group ON sms_parts(instance, peer, ref, total, ts);",
     )?;
     // Migration: per-message failure detail (added later). Fails harmlessly once present.
-    let has_error: bool = c.prepare("SELECT 1 FROM pragma_table_info('messages') WHERE name='error'")?
+    let has_error: bool = c
+        .prepare("SELECT 1 FROM pragma_table_info('messages') WHERE name='error'")?
         .exists([])?;
     if !has_error {
         c.execute("ALTER TABLE messages ADD COLUMN error TEXT", [])?;
     }
     // Migration: per-call SDP codecs (CallMedia, added later).
     for col in ["carrier_sdp", "carrier_bw", "our_sdp", "client_sdp"] {
-        let has: bool = c.prepare("SELECT 1 FROM pragma_table_info('calls') WHERE name=?")?
+        let has: bool = c
+            .prepare("SELECT 1 FROM pragma_table_info('calls') WHERE name=?")?
             .exists([col])?;
         if !has {
             c.execute(&format!("ALTER TABLE calls ADD COLUMN {col} TEXT"), [])?;
@@ -144,8 +151,11 @@ impl CallMedia {
     pub fn parse(s: &str) -> Self {
         let mut m = CallMedia::default();
         for pair in s.trim().split('&') {
-            let Some((k, v)) = pair.split_once('=') else { continue };
-            let v: String = v.chars()
+            let Some((k, v)) = pair.split_once('=') else {
+                continue;
+            };
+            let v: String = v
+                .chars()
                 .filter(|c| c.is_ascii_alphanumeric() || "/._+:-,".contains(*c))
                 .take(512)
                 .collect();
@@ -172,7 +182,8 @@ pub fn speech_codecs(sdp: &str) -> Vec<&str> {
         .map(str::trim)
         .filter(|c| {
             let name = c.split('/').next().unwrap_or("").to_ascii_lowercase();
-            !name.is_empty() && !name.starts_with("pt")
+            !name.is_empty()
+                && !name.starts_with("pt")
                 && !["telephone-event", "cn", "red"].contains(&name.as_str())
         })
         .collect()
@@ -207,7 +218,11 @@ impl Call {
             client_sdp: text("client_sdp")?,
         };
         let direction: String = r.get("direction")?;
-        let answer = if direction == "in" { &media.our_sdp } else { &media.carrier_sdp };
+        let answer = if direction == "in" {
+            &media.our_sdp
+        } else {
+            &media.carrier_sdp
+        };
         let first = |sdp: &str| speech_codecs(sdp).first().map(|c| c.to_string());
         Ok(Call {
             id: r.get("id")?,
@@ -233,19 +248,40 @@ pub struct Thread {
 }
 
 pub fn set_message_status(mid: i64, status: &str, error: Option<&str>) -> anyhow::Result<()> {
-    with(|c| c.execute("UPDATE messages SET status=?, error=? WHERE id=?", params![status, error, mid]))?;
+    with(|c| {
+        c.execute(
+            "UPDATE messages SET status=?, error=? WHERE id=?",
+            params![status, error, mid],
+        )
+    })?;
     Ok(())
 }
 
-pub fn add_message(instance: &str, direction: &str, peer: &str, body: &str, status: &str) -> anyhow::Result<Message> {
+pub fn add_message(
+    instance: &str,
+    direction: &str,
+    peer: &str,
+    body: &str,
+    status: &str,
+) -> anyhow::Result<Message> {
     let ts = now();
     let id = with(|c| {
-        c.execute("INSERT INTO messages(instance,direction,peer,body,status,ts) VALUES(?,?,?,?,?,?)",
-                  params![instance, direction, peer, body, status, ts])?;
+        c.execute(
+            "INSERT INTO messages(instance,direction,peer,body,status,ts) VALUES(?,?,?,?,?,?)",
+            params![instance, direction, peer, body, status, ts],
+        )?;
         Ok(c.last_insert_rowid())
     })?;
-    Ok(Message { id, instance: instance.into(), direction: direction.into(), peer: peer.into(),
-                 body: body.into(), status: Some(status.into()), ts, error: None })
+    Ok(Message {
+        id,
+        instance: instance.into(),
+        direction: direction.into(),
+        peer: peer.into(),
+        body: body.into(),
+        status: Some(status.into()),
+        ts,
+        error: None,
+    })
 }
 
 /// A concat reference is only 8/16 bits and senders reuse it: parts only join a group that
@@ -266,40 +302,75 @@ pub struct PartResult {
 /// Store one part of an inbound concatenated SMS and (re)build its message row: the body is
 /// the parts joined in order with PART_GAP for parts not received yet, so nothing is hidden
 /// while the rest is in flight.
-pub fn add_message_part(instance: &str, peer: &str, r#ref: i64, total: i64, seq: i64, body: &str)
-    -> anyhow::Result<PartResult>
-{
+pub fn add_message_part(
+    instance: &str,
+    peer: &str,
+    r#ref: i64,
+    total: i64,
+    seq: i64,
+    body: &str,
+) -> anyhow::Result<PartResult> {
     let now = now();
     with(|c| {
         let tx = c.transaction()?;
-        tx.execute("DELETE FROM sms_parts WHERE ts < ?", params![now - PART_KEEP_S])?;
-        let mut msg_id: Option<i64> = tx.query_row(
-            "SELECT msg_id FROM sms_parts WHERE instance=? AND peer=? AND ref=? AND total=? \
+        tx.execute(
+            "DELETE FROM sms_parts WHERE ts < ?",
+            params![now - PART_KEEP_S],
+        )?;
+        let mut msg_id: Option<i64> = tx
+            .query_row(
+                "SELECT msg_id FROM sms_parts WHERE instance=? AND peer=? AND ref=? AND total=? \
              AND ts >= ? ORDER BY ts DESC LIMIT 1",
-            params![instance, peer, r#ref, total, now - PART_GROUP_WINDOW_S], |r| r.get(0)).optional()?;
+                params![instance, peer, r#ref, total, now - PART_GROUP_WINDOW_S],
+                |r| r.get(0),
+            )
+            .optional()?;
         if let Some(mid) = msg_id {
-            let same: Option<String> = tx.query_row(
-                "SELECT body FROM sms_parts WHERE msg_id=? AND seq=?", params![mid, seq], |r| r.get(0))
+            let same: Option<String> = tx
+                .query_row(
+                    "SELECT body FROM sms_parts WHERE msg_id=? AND seq=?",
+                    params![mid, seq],
+                    |r| r.get(0),
+                )
                 .optional()?;
             if let Some(same) = same {
                 if same != body {
                     msg_id = None; // reference reused by a new message
                 } else {
-                    let m = tx.query_row("SELECT * FROM messages WHERE id=?", params![mid], Message::from_row)
+                    let m = tx
+                        .query_row(
+                            "SELECT * FROM messages WHERE id=?",
+                            params![mid],
+                            Message::from_row,
+                        )
                         .optional()?;
                     if let Some(m) = m {
                         let have: i64 = tx.query_row(
-                            "SELECT COUNT(DISTINCT seq) FROM sms_parts WHERE msg_id=?", params![mid], |r| r.get(0))?;
+                            "SELECT COUNT(DISTINCT seq) FROM sms_parts WHERE msg_id=?",
+                            params![mid],
+                            |r| r.get(0),
+                        )?;
                         tx.commit()?;
-                        return Ok(PartResult { message: m, created: false, changed: false, complete: have >= total });
+                        return Ok(PartResult {
+                            message: m,
+                            created: false,
+                            changed: false,
+                            complete: have >= total,
+                        });
                     }
                     msg_id = None; // the message was deleted meanwhile
                 }
             }
         }
         if let Some(mid) = msg_id {
-            let exists = tx.query_row("SELECT 1 FROM messages WHERE id=?", params![mid], |_| Ok(()))
-                .optional()?.is_some();
+            let exists = tx
+                .query_row(
+                    "SELECT 1 FROM messages WHERE id=?",
+                    params![mid],
+                    |_| Ok(()),
+                )
+                .optional()?
+                .is_some();
             if !exists {
                 msg_id = None;
             }
@@ -318,17 +389,30 @@ pub fn add_message_part(instance: &str, peer: &str, r#ref: i64, total: i64, seq:
         let mut parts = std::collections::HashMap::new();
         {
             let mut st = tx.prepare("SELECT seq, body FROM sms_parts WHERE msg_id=?")?;
-            let rows = st.query_map(params![mid], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
+            let rows = st.query_map(params![mid], |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))
+            })?;
             for row in rows {
                 let (s, b) = row?;
                 parts.insert(s, b);
             }
         }
-        let full: String = (1..=total).map(|s| parts.get(&s).map(String::as_str).unwrap_or(PART_GAP)).collect();
+        let full: String = (1..=total)
+            .map(|s| parts.get(&s).map(String::as_str).unwrap_or(PART_GAP))
+            .collect();
         tx.execute("UPDATE messages SET body=? WHERE id=?", params![full, mid])?;
-        let m = tx.query_row("SELECT * FROM messages WHERE id=?", params![mid], Message::from_row)?;
+        let m = tx.query_row(
+            "SELECT * FROM messages WHERE id=?",
+            params![mid],
+            Message::from_row,
+        )?;
         tx.commit()?;
-        Ok(PartResult { message: m, created, changed: true, complete: parts.len() as i64 >= total })
+        Ok(PartResult {
+            message: m,
+            created,
+            changed: true,
+            complete: parts.len() as i64 >= total,
+        })
     })
 }
 
@@ -339,17 +423,25 @@ pub fn list_threads(instance: &str) -> anyhow::Result<Vec<Thread>> {
                     (SELECT body FROM messages m2 WHERE m2.instance=m.instance AND m2.peer=m.peer
                      ORDER BY ts DESC LIMIT 1) AS last_body,
                     COUNT(*) AS n
-             FROM messages m WHERE instance=? GROUP BY peer ORDER BY last_ts DESC")?;
-        let rows = st.query_map(params![instance], |r| Ok(Thread {
-            peer: r.get(0)?, last_ts: r.get(1)?, last_body: r.get(2)?, n: r.get(3)?,
-        }))?;
+             FROM messages m WHERE instance=? GROUP BY peer ORDER BY last_ts DESC",
+        )?;
+        let rows = st.query_map(params![instance], |r| {
+            Ok(Thread {
+                peer: r.get(0)?,
+                last_ts: r.get(1)?,
+                last_body: r.get(2)?,
+                n: r.get(3)?,
+            })
+        })?;
         rows.collect()
     })
 }
 
 pub fn list_messages(instance: &str, peer: &str, limit: i64) -> anyhow::Result<Vec<Message>> {
     with(|c| {
-        let mut st = c.prepare("SELECT * FROM messages WHERE instance=? AND peer=? ORDER BY ts ASC LIMIT ?")?;
+        let mut st = c.prepare(
+            "SELECT * FROM messages WHERE instance=? AND peer=? ORDER BY ts ASC LIMIT ?",
+        )?;
         let rows = st.query_map(params![instance, peer, limit], Message::from_row)?;
         rows.collect()
     })
@@ -363,7 +455,10 @@ fn delete_ids(table: &str, instance: &str, ids: &[i64]) -> anyhow::Result<usize>
     if ids.is_empty() {
         return Ok(0);
     }
-    let sql = format!("DELETE FROM {table} WHERE instance=? AND id IN ({})", placeholders(ids.len()));
+    let sql = format!(
+        "DELETE FROM {table} WHERE instance=? AND id IN ({})",
+        placeholders(ids.len())
+    );
     let mut args: Vec<rusqlite::types::Value> = vec![instance.to_string().into()];
     args.extend(ids.iter().map(|i| rusqlite::types::Value::Integer(*i)));
     with(|c| c.execute(&sql, params_from_iter(args)))
@@ -374,7 +469,12 @@ pub fn delete_messages(instance: &str, ids: &[i64]) -> anyhow::Result<usize> {
 }
 
 pub fn delete_thread(instance: &str, peer: &str) -> anyhow::Result<usize> {
-    with(|c| c.execute("DELETE FROM messages WHERE instance=? AND peer=?", params![instance, peer]))
+    with(|c| {
+        c.execute(
+            "DELETE FROM messages WHERE instance=? AND peer=?",
+            params![instance, peer],
+        )
+    })
 }
 
 pub fn clear_messages(instance: &str) -> anyhow::Result<usize> {
@@ -384,20 +484,41 @@ pub fn clear_messages(instance: &str) -> anyhow::Result<usize> {
 pub fn add_call(instance: &str, direction: &str, peer: &str, status: &str) -> anyhow::Result<Call> {
     let ts = now();
     let id = with(|c| {
-        c.execute("INSERT INTO calls(instance,direction,peer,status,start_ts) VALUES(?,?,?,?,?)",
-                  params![instance, direction, peer, status, ts])?;
+        c.execute(
+            "INSERT INTO calls(instance,direction,peer,status,start_ts) VALUES(?,?,?,?,?)",
+            params![instance, direction, peer, status, ts],
+        )?;
         Ok(c.last_insert_rowid())
     })?;
-    Ok(Call { id, instance: instance.into(), direction: direction.into(), peer: peer.into(),
-              status: Some(status.into()), start_ts: ts, end_ts: None,
-              media: CallMedia::default(), carrier_codec: None, client_codec: None })
+    Ok(Call {
+        id,
+        instance: instance.into(),
+        direction: direction.into(),
+        peer: peer.into(),
+        status: Some(status.into()),
+        start_ts: ts,
+        end_ts: None,
+        media: CallMedia::default(),
+        carrier_codec: None,
+        client_codec: None,
+    })
 }
 
 /// The most recent still-open call for (instance, direction), no older than `within_s`.
-fn get_open_call(instance: &str, direction: &str, within_s: Option<i64>) -> anyhow::Result<Option<Call>> {
-    let row = with(|c| c.query_row(
-        "SELECT * FROM calls WHERE instance=? AND direction=? AND end_ts IS NULL \
-         ORDER BY start_ts DESC LIMIT 1", params![instance, direction], Call::from_row).optional())?;
+fn get_open_call(
+    instance: &str,
+    direction: &str,
+    within_s: Option<i64>,
+) -> anyhow::Result<Option<Call>> {
+    let row = with(|c| {
+        c.query_row(
+            "SELECT * FROM calls WHERE instance=? AND direction=? AND end_ts IS NULL \
+         ORDER BY start_ts DESC LIMIT 1",
+            params![instance, direction],
+            Call::from_row,
+        )
+        .optional()
+    })?;
     Ok(row.filter(|r| within_s.is_none_or(|w| now() - r.start_ts <= w)))
 }
 
@@ -406,24 +527,34 @@ fn get_open_call(instance: &str, direction: &str, within_s: Option<i64>) -> anyh
 /// preconditions / GRUU fork / retransmit), all before the call_result, so the record is
 /// still open and is reused. An anonymous dup ('') matches anything; a numbered one must match
 /// (or fill in) the open record's peer — a different number is a distinct call.
-pub fn add_call_deduped(instance: &str, direction: &str, peer: &str, status: &str) -> anyhow::Result<Call> {
+pub fn add_call_deduped(
+    instance: &str,
+    direction: &str,
+    peer: &str,
+    status: &str,
+) -> anyhow::Result<Call> {
     if let Some(mut open) = get_open_call(instance, direction, Some(90))?
-        && (peer.is_empty() || open.peer.is_empty() || peer == open.peer) {
-            if !peer.is_empty() && open.peer.is_empty() {
-                with(|c| c.execute("UPDATE calls SET peer=? WHERE id=?", params![peer, open.id]))?;
-                open.peer = peer.to_string();
-            }
-            return Ok(open);
+        && (peer.is_empty() || open.peer.is_empty() || peer == open.peer)
+    {
+        if !peer.is_empty() && open.peer.is_empty() {
+            with(|c| c.execute("UPDATE calls SET peer=? WHERE id=?", params![peer, open.id]))?;
+            open.peer = peer.to_string();
         }
+        return Ok(open);
+    }
     add_call(instance, direction, peer, status)
 }
 
 /// Finalize the most recent open call for (instance, direction[, peer]). `peer` may be empty:
 /// Asterisk's 'h' handler loses pre-Dial variables when the caller hangs up mid-Dial, and with
 /// one call at a time "the latest open call of that direction" is unambiguous.
-pub fn update_last_call(instance: &str, direction: &str, peer: Option<&str>, status: &str,
-                        media: &CallMedia) -> anyhow::Result<Option<Call>>
-{
+pub fn update_last_call(
+    instance: &str,
+    direction: &str,
+    peer: Option<&str>,
+    status: &str,
+    media: &CallMedia,
+) -> anyhow::Result<Option<Call>> {
     with(|c| {
         let id: Option<i64> = match peer.filter(|p| !p.is_empty()) {
             Some(p) => c.query_row(
@@ -434,18 +565,35 @@ pub fn update_last_call(instance: &str, direction: &str, peer: Option<&str>, sta
                  ORDER BY start_ts DESC LIMIT 1", params![instance, direction], |r| r.get(0)).optional()?,
         };
         let Some(id) = id else { return Ok(None) };
-        c.execute("UPDATE calls SET status=?, end_ts=? WHERE id=?", params![status, now(), id])?;
+        c.execute(
+            "UPDATE calls SET status=?, end_ts=? WHERE id=?",
+            params![status, now(), id],
+        )?;
         if !media.is_empty() {
-            c.execute("UPDATE calls SET carrier_sdp=?, carrier_bw=?, our_sdp=?, client_sdp=? WHERE id=?",
-                      params![media.carrier_sdp, media.carrier_bw, media.our_sdp, media.client_sdp, id])?;
+            c.execute(
+                "UPDATE calls SET carrier_sdp=?, carrier_bw=?, our_sdp=?, client_sdp=? WHERE id=?",
+                params![
+                    media.carrier_sdp,
+                    media.carrier_bw,
+                    media.our_sdp,
+                    media.client_sdp,
+                    id
+                ],
+            )?;
         }
-        c.query_row("SELECT * FROM calls WHERE id=?", params![id], Call::from_row).optional()
+        c.query_row(
+            "SELECT * FROM calls WHERE id=?",
+            params![id],
+            Call::from_row,
+        )
+        .optional()
     })
 }
 
 pub fn list_calls(instance: &str, limit: i64) -> anyhow::Result<Vec<Call>> {
     with(|c| {
-        let mut st = c.prepare("SELECT * FROM calls WHERE instance=? ORDER BY start_ts DESC LIMIT ?")?;
+        let mut st =
+            c.prepare("SELECT * FROM calls WHERE instance=? ORDER BY start_ts DESC LIMIT ?")?;
         let rows = st.query_map(params![instance, limit], Call::from_row)?;
         rows.collect()
     })
@@ -476,14 +624,24 @@ pub fn carrier_codecs_seen(instance: &str) -> anyhow::Result<CarrierCodecs> {
     let rows: Vec<(String, String, String, i64)> = with(|c| {
         let mut st = c.prepare(
             "SELECT direction, carrier_sdp, COALESCE(carrier_bw,''), start_ts FROM calls \
-             WHERE instance=? AND COALESCE(carrier_sdp,'') != '' ORDER BY start_ts")?;
-        let rows = st.query_map(params![instance], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?;
+             WHERE instance=? AND COALESCE(carrier_sdp,'') != '' ORDER BY start_ts",
+        )?;
+        let rows = st.query_map(params![instance], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+        })?;
         rows.collect()
     })?;
     fn bump(list: &mut Vec<SeenCodec>, name: &str, ts: i64) {
         match list.iter_mut().find(|s| s.name.eq_ignore_ascii_case(name)) {
-            Some(s) => { s.calls += 1; s.last_ts = s.last_ts.max(ts); }
-            None => list.push(SeenCodec { name: name.to_string(), calls: 1, last_ts: ts }),
+            Some(s) => {
+                s.calls += 1;
+                s.last_ts = s.last_ts.max(ts);
+            }
+            None => list.push(SeenCodec {
+                name: name.to_string(),
+                calls: 1,
+                last_ts: ts,
+            }),
         }
     }
     let mut out = CarrierCodecs::default();
@@ -530,14 +688,25 @@ mod tests {
 
     #[test]
     fn call_media_parse_and_speech_codecs() {
-        let m = CallMedia::parse("rs=EVS/16000,AMR-WB/16000,PCMA/8000,telephone-event/16000\
-                                  &bw=AS:88&ls=AMR-WB/16000,telephone-event/16000&cl=G722/8000,PCMA/8000&x=1");
+        let m = CallMedia::parse(
+            "rs=EVS/16000,AMR-WB/16000,PCMA/8000,telephone-event/16000\
+                                  &bw=AS:88&ls=AMR-WB/16000,telephone-event/16000&cl=G722/8000,PCMA/8000&x=1",
+        );
         assert_eq!(m.carrier_bw, "AS:88");
         assert_eq!(m.client_sdp, "G722/8000,PCMA/8000");
-        assert_eq!(speech_codecs(&m.carrier_sdp), ["EVS/16000", "AMR-WB/16000", "PCMA/8000"]);
-        assert_eq!(speech_codecs("telephone-event/8000,CN/8000,pt98,AMR/8000"), ["AMR/8000"]);
+        assert_eq!(
+            speech_codecs(&m.carrier_sdp),
+            ["EVS/16000", "AMR-WB/16000", "PCMA/8000"]
+        );
+        assert_eq!(
+            speech_codecs("telephone-event/8000,CN/8000,pt98,AMR/8000"),
+            ["AMR/8000"]
+        );
         // Shell/HTML metacharacters never survive.
-        assert_eq!(CallMedia::parse("rs=AMR/8000;rm -rf <x>").carrier_sdp, "AMR/8000rm-rfx");
+        assert_eq!(
+            CallMedia::parse("rs=AMR/8000;rm -rf <x>").carrier_sdp,
+            "AMR/8000rm-rfx"
+        );
         assert!(CallMedia::parse("rs=&bw=&ls=&cl=").is_empty());
         assert!(CallMedia::parse("").is_empty());
     }

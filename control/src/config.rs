@@ -32,7 +32,9 @@ pub fn data_dir() -> &'static Path {
     static DIR: OnceLock<PathBuf> = OnceLock::new();
     DIR.get_or_init(|| match std::env::var("VOWIFI_DATA") {
         Ok(d) if !d.is_empty() => PathBuf::from(d),
-        _ => std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")).join("data"),
+        _ => std::env::current_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join("data"),
     })
 }
 
@@ -117,18 +119,28 @@ pub struct Tls {
 
 impl Default for Tls {
     fn default() -> Self {
-        Tls { self_signed: true, domain: String::new(), cert_path: String::new(),
-              key_path: String::new(), extra: Map::new() }
+        Tls {
+            self_signed: true,
+            domain: String::new(),
+            cert_path: String::new(),
+            key_path: String::new(),
+            extra: Map::new(),
+        }
     }
 }
 
 impl Tls {
     /// The configured cert/key pair, if both files exist.
     pub fn configured_pair(&self) -> Option<(PathBuf, PathBuf)> {
-        if !self.cert_path.is_empty() && !self.key_path.is_empty()
-            && Path::new(&self.cert_path).exists() && Path::new(&self.key_path).exists()
+        if !self.cert_path.is_empty()
+            && !self.key_path.is_empty()
+            && Path::new(&self.cert_path).exists()
+            && Path::new(&self.key_path).exists()
         {
-            Some((PathBuf::from(&self.cert_path), PathBuf::from(&self.key_path)))
+            Some((
+                PathBuf::from(&self.cert_path),
+                PathBuf::from(&self.key_path),
+            ))
         } else {
             None
         }
@@ -152,7 +164,12 @@ pub struct Retry {
 
 impl Default for Retry {
     fn default() -> Self {
-        Retry { max: 3, interval: 30, auto_recover: true, extra: Map::new() }
+        Retry {
+            max: 3,
+            interval: 30,
+            auto_recover: true,
+            extra: Map::new(),
+        }
     }
 }
 
@@ -169,7 +186,10 @@ pub struct Rekey {
 
 impl Default for Rekey {
     fn default() -> Self {
-        Rekey { minutes: 30, extra: Map::new() }
+        Rekey {
+            minutes: 30,
+            extra: Map::new(),
+        }
     }
 }
 
@@ -186,7 +206,11 @@ pub struct PushEvents {
 
 impl Default for PushEvents {
     fn default() -> Self {
-        PushEvents { incoming_sms: true, incoming_call: true, extra: Map::new() }
+        PushEvents {
+            incoming_sms: true,
+            incoming_call: true,
+            extra: Map::new(),
+        }
     }
 }
 
@@ -235,8 +259,12 @@ pub struct Esim {
 
 impl Default for Esim {
     fn default() -> Self {
-        Esim { lpac_bin: String::new(), download_timeout: 300,
-               auto_process_notifications: true, extra: Map::new() }
+        Esim {
+            lpac_bin: String::new(),
+            download_timeout: 300,
+            auto_process_notifications: true,
+            extra: Map::new(),
+        }
     }
 }
 
@@ -251,7 +279,11 @@ impl Esim {
 
     /// Seconds; 0/negative falls back to 300 (the old `int(x or 300)`).
     pub fn download_timeout_s(&self) -> u64 {
-        if self.download_timeout > 0 { self.download_timeout as u64 } else { 300 }
+        if self.download_timeout > 0 {
+            self.download_timeout as u64
+        } else {
+            300
+        }
     }
 }
 
@@ -331,7 +363,9 @@ pub struct Ports {
 impl<'de> Deserialize<'de> for PortsLenient {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let v = Value::deserialize(d)?;
-        let Value::Object(m) = v else { return Ok(PortsLenient(None)) };
+        let Value::Object(m) = v else {
+            return Ok(PortsLenient(None));
+        };
         let base = alloc_ports(0);
         let g = |k: &str, dflt: u32| lenient::or(m.get(k), dflt);
         Ok(PortsLenient(Some(Ports {
@@ -365,21 +399,33 @@ pub struct ExternalAccount {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct WebRtc {
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub enable: Option<bool>,
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub username: Option<String>,
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub password: Option<String>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
 
-fn de_accounts<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Vec<ExternalAccount>>, D::Error> {
+fn de_accounts<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Option<Vec<ExternalAccount>>, D::Error> {
     let v = Value::deserialize(d)?;
     Ok(match v {
         Value::Array(items) => Some(
-            items.into_iter()
+            items
+                .into_iter()
                 .filter(|a| a.is_object())
                 .filter_map(|a| serde_json::from_value(a).ok())
                 .collect(),
@@ -391,32 +437,71 @@ fn de_accounts<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Vec<Exte
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Sip {
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub listen_addr: Option<String>,
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub transport: Option<String>,
-    #[serde(deserialize_with = "de_accounts", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "de_accounts",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub external: Option<Vec<ExternalAccount>>,
-    #[serde(deserialize_with = "de_nested_opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "de_nested_opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub webrtc: Option<WebRtc>,
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub ring_timeout: Option<i64>,
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub user_agent: Option<String>,
     /// Raw P-Access-Network-Info override; when set the pani_* knobs are ignored.
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub pani: Option<String>,
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub pani_access_type: Option<String>,
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub pani_country_enable: Option<bool>,
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub pani_country: Option<String>,
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub pani_node_id_enable: Option<bool>,
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub pani_node_id: Option<String>,
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub pani_local_time_zone: Option<String>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -439,7 +524,10 @@ impl Sip {
 pub struct Instance {
     #[serde(deserialize_with = "de_string")]
     pub id: String,
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub name: Option<String>,
     #[serde(deserialize_with = "de_string")]
     pub imsi: String,
@@ -447,79 +535,169 @@ pub struct Instance {
     pub mcc: String,
     #[serde(deserialize_with = "de_string")]
     pub mnc: String,
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub iccid: Option<String>,
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub imei: Option<String>,
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub imeisv: Option<String>,
     /// The saved SIM PIN (locally stored credential, used on every engine start).
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub pin: Option<String>,
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub reader: Option<String>,
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub reader_index: Option<i64>,
     /// Stable physical USB port path of the reader (usbreader.rs), e.g. "3-2".
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub reader_port: Option<String>,
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub smsc: Option<String>,
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub msisdn: Option<String>,
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub enabled: Option<bool>,
-    #[serde(deserialize_with = "de_nested_opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "de_nested_opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub sip: Option<Sip>,
     #[serde(deserialize_with = "de_ports", skip_serializing_if = "Option::is_none")]
     pub ports: Option<Ports>,
     /// Persistent, unique per-line index (IKE source ports 45000+2k / 45001+2k).
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub index: Option<i64>,
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub ami_user: Option<String>,
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub ami_secret: Option<String>,
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub apn: Option<String>,
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub idr_mode: Option<String>,
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub cp_mode: Option<String>,
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub cp_mode_source: Option<String>,
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub use_reauth_id: Option<bool>,
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub ims_domain: Option<String>,
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub reg_geolocation_country: Option<String>,
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub reg_srvcc_tags: Option<bool>,
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub reg_imei_urn_spare_zero: Option<bool>,
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub dial_00_to_plus: Option<bool>,
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub update_after_prack: Option<bool>,
     /// Incoming calls use QoS preconditions only when the INVITE *requires* them (Asterisk
     /// fork PATCH_MT_PRECONDITION_REQUIRE_ONLY). Off by default.
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub mt_precondition_require_only: Option<bool>,
     /// Incoming calls: answer the carrier with exactly one speech codec (pjsip
     /// `preferred_codec_only`). Off by default: MTS RU only sets up media after re-offering a
     /// multi-codec answer; Beeline RU rejects anything but a single-codec answer.
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub mt_single_codec: Option<bool>,
     /// Carrier (IMS) leg codecs in preference order (`normalize_ims_codecs`); unset = the
     /// phone-like default. Kept as raw JSON so a hand-edited odd value can't fail the load.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ims_codecs: Option<Value>,
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub rekey_minutes: Option<i64>,
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub epdg: Option<String>,
-    #[serde(deserialize_with = "lenient::opt", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub pcscf: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub debug: Option<Value>,
@@ -560,7 +738,8 @@ impl Instance {
         self.sip.clone().unwrap_or_default()
     }
     pub fn ports_or_nominal(&self) -> Ports {
-        self.ports.unwrap_or_else(|| alloc_ports(self.index.unwrap_or(0).max(0) as u32))
+        self.ports
+            .unwrap_or_else(|| alloc_ports(self.index.unwrap_or(0).max(0) as u32))
     }
     pub fn realm(&self) -> String {
         ims_realm(&self.mcc, &self.mnc)
@@ -569,7 +748,10 @@ impl Instance {
     pub fn epdg_fqdn(&self) -> String {
         match non_empty(&self.epdg) {
             Some(e) => e.to_string(),
-            None => format!("epdg.epc.mnc{:0>3}.mcc{}.pub.3gppnetwork.org", self.mnc, self.mcc),
+            None => format!(
+                "epdg.epc.mnc{:0>3}.mcc{}.pub.3gppnetwork.org",
+                self.mnc, self.mcc
+            ),
         }
     }
     /// The instance as returned to the WebUI: everything but the PIN.
@@ -632,8 +814,12 @@ fn write_atomic(path: &Path, data: &[u8], mode: u32) -> anyhow::Result<()> {
         path.extension().and_then(|e| e.to_str()).unwrap_or("")
     ));
     {
-        let mut f = fs::OpenOptions::new().write(true).create(true).truncate(true)
-            .mode(mode).open(&tmp)
+        let mut f = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(mode)
+            .open(&tmp)
             .with_context(|| format!("open {}", tmp.display()))?;
         f.write_all(data)?;
         f.sync_all()?;
@@ -650,8 +836,8 @@ fn load_locked() -> anyhow::Result<ConfigFile> {
         return Ok(fresh);
     }
     let text = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
-    let raw: serde_yaml::Value = serde_yaml::from_str(&text)
-        .with_context(|| format!("parse {}", path.display()))?;
+    let raw: serde_yaml::Value =
+        serde_yaml::from_str(&text).with_context(|| format!("parse {}", path.display()))?;
     let raw = yaml_to_json(raw);
     let settings = match raw.get("settings") {
         Some(s @ Value::Object(_)) => serde_json::from_value(s.clone()).unwrap_or_default(),
@@ -675,12 +861,19 @@ fn load_locked() -> anyhow::Result<ConfigFile> {
             }
         }
     }
-    Ok(ConfigFile { settings, instances })
+    Ok(ConfigFile {
+        settings,
+        instances,
+    })
 }
 
 fn save_locked(data: &ConfigFile) -> anyhow::Result<()> {
     // 0600: the file holds SIM PINs, AMI and SIP secrets.
-    write_atomic(&config_path(), serde_yaml::to_string(data)?.as_bytes(), 0o600)
+    write_atomic(
+        &config_path(),
+        serde_yaml::to_string(data)?.as_bytes(),
+        0o600,
+    )
 }
 
 fn with_lock<T>(f: impl FnOnce() -> T) -> T {
@@ -718,7 +911,9 @@ pub fn get_instance(iid: &str) -> Option<Instance> {
 
 pub fn instance_by_iccid(iccid: Option<&str>) -> Option<Instance> {
     let iccid = iccid.filter(|s| !s.is_empty())?;
-    list_instances().into_iter().find(|i| i.iccid.as_deref() == Some(iccid))
+    list_instances()
+        .into_iter()
+        .find(|i| i.iccid.as_deref() == Some(iccid))
 }
 
 // -------------------------------------------------------------------------- advertise address
@@ -728,15 +923,40 @@ fn iface_is_lan_candidate(name: &str) -> bool {
         return false;
     }
     const SKIP: &[&str] = &[
-        "podman", "docker", "br-", "veth", "virbr", "cni", "flannel", "tun", "tap", "wg",
-        "ipsec", "vti", "gre", "gretap", "erspan", "sit", "nlmon", "uk-", "nordlynx",
-        "tailscale", "zerotier", "zt", "ppp",
+        "podman",
+        "docker",
+        "br-",
+        "veth",
+        "virbr",
+        "cni",
+        "flannel",
+        "tun",
+        "tap",
+        "wg",
+        "ipsec",
+        "vti",
+        "gre",
+        "gretap",
+        "erspan",
+        "sit",
+        "nlmon",
+        "uk-",
+        "nordlynx",
+        "tailscale",
+        "zerotier",
+        "zt",
+        "ppp",
     ];
-    !SKIP.iter().any(|p| n.starts_with(p) || n == p.trim_end_matches('-'))
+    !SKIP
+        .iter()
+        .any(|p| n.starts_with(p) || n == p.trim_end_matches('-'))
 }
 
 fn usable_v4(ip: &str) -> bool {
-    !ip.is_empty() && !ip.starts_with("127.") && !ip.starts_with("169.254.") && !ip.starts_with("172.17.")
+    !ip.is_empty()
+        && !ip.starts_with("127.")
+        && !ip.starts_with("169.254.")
+        && !ip.starts_with("172.17.")
 }
 
 /// Best-effort primary LAN IPv4 of this host: the address Asterisk advertises to LOCAL SIP
@@ -751,7 +971,10 @@ pub fn host_lan_ipv4() -> String {
                 continue;
             }
             if let Some(sin) = a.address.as_ref().and_then(|s| s.as_sockaddr_in()) {
-                by_iface.entry(a.interface_name.clone()).or_default().push(sin.ip());
+                by_iface
+                    .entry(a.interface_name.clone())
+                    .or_default()
+                    .push(sin.ip());
             }
         }
         let mut names: Vec<String> = by_iface.keys().cloned().collect();
@@ -772,18 +995,29 @@ pub fn host_lan_ipv4() -> String {
     // Fallbacks for minimal hosts: the route-selected source, preferring a 192.168/16 address
     // from `hostname -I` when the route source looks like a VPN 10/8 address.
     let route_ip = UdpSocket::bind("0.0.0.0:0")
-        .and_then(|s| { s.connect("1.1.1.1:80")?; s.local_addr() })
+        .and_then(|s| {
+            s.connect("1.1.1.1:80")?;
+            s.local_addr()
+        })
         .map(|a| a.ip().to_string())
         .unwrap_or_default();
-    let extras: Vec<String> = std::process::Command::new("hostname").arg("-I").output()
+    let extras: Vec<String> = std::process::Command::new("hostname")
+        .arg("-I")
+        .output()
         .ok()
-        .map(|o| String::from_utf8_lossy(&o.stdout).split_whitespace()
-            .filter(|p| !p.contains(':') && usable_v4(p)).map(String::from).collect())
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .split_whitespace()
+                .filter(|p| !p.contains(':') && usable_v4(p))
+                .map(String::from)
+                .collect()
+        })
         .unwrap_or_default();
     if let Some(p) = extras.iter().find(|ip| ip.starts_with("192.168."))
-        && (route_ip.is_empty() || route_ip.starts_with("10.")) {
-            return p.clone();
-        }
+        && (route_ip.is_empty() || route_ip.starts_with("10."))
+    {
+        return p.clone();
+    }
     if usable_v4(&route_ip) {
         return route_ip;
     }
@@ -798,14 +1032,19 @@ pub fn ims_realm(mcc: &str, mnc: &str) -> String {
 pub fn normalize_advertise_address(value: &str) -> Result<String, CfgError> {
     let v = value.trim();
     if v.chars().any(char::is_whitespace) || v.contains("://") {
-        return invalid("advertise_address must be a bare IP address or hostname \
-                        (for example 192.168.6.239), not a URL");
+        return invalid(
+            "advertise_address must be a bare IP address or hostname \
+                        (for example 192.168.6.239), not a URL",
+        );
     }
     Ok(v.to_string())
 }
 
 fn env_advertise() -> String {
-    std::env::var("VOWIFI_ADVERTISE_ADDR").unwrap_or_default().trim().to_string()
+    std::env::var("VOWIFI_ADVERTISE_ADDR")
+        .unwrap_or_default()
+        .trim()
+        .to_string()
 }
 
 pub fn advertise_address_managed_by_env() -> bool {
@@ -817,13 +1056,15 @@ pub fn advertise_address_managed_by_env() -> bool {
 /// address.
 pub fn advertise_address(settings: &Settings) -> String {
     if let Ok(env) = normalize_advertise_address(&env_advertise())
-        && !env.is_empty() {
-            return env;
-        }
+        && !env.is_empty()
+    {
+        return env;
+    }
     if let Ok(stored) = normalize_advertise_address(&settings.advertise_address)
-        && !stored.is_empty() {
-            return stored;
-        }
+        && !stored.is_empty()
+    {
+        return stored;
+    }
     let domain = settings.tls.domain.trim();
     if !domain.is_empty() {
         return domain.to_string();
@@ -840,7 +1081,10 @@ pub fn public_settings() -> Value {
     if let Value::Object(m) = &mut v {
         m.insert("advertise_address".into(), json!(stored));
         m.insert("advertise_address_effective".into(), json!(effective));
-        m.insert("advertise_address_managed_by_env".into(), json!(advertise_address_managed_by_env()));
+        m.insert(
+            "advertise_address_managed_by_env".into(),
+            json!(advertise_address_managed_by_env()),
+        );
         m.insert("advertise_address_detected".into(), json!(host_lan_ipv4()));
     }
     v
@@ -848,8 +1092,11 @@ pub fn public_settings() -> Value {
 
 /// Shallow-merge a settings patch (nested objects replace wholesale, then defaults refill).
 pub fn update_settings(mut patch: Map<String, Value>) -> Result<Value, CfgError> {
-    for k in ["advertise_address_effective", "advertise_address_managed_by_env",
-              "advertise_address_detected"] {
+    for k in [
+        "advertise_address_effective",
+        "advertise_address_managed_by_env",
+        "advertise_address_detected",
+    ] {
         patch.remove(k);
     }
     if let Some(v) = patch.get("advertise_address") {
@@ -858,7 +1105,8 @@ pub fn update_settings(mut patch: Map<String, Value>) -> Result<Value, CfgError>
     }
     let (settings, instances, changed) = with_lock(|| -> Result<_, CfgError> {
         let mut data = load_locked()?;
-        let previous = normalize_advertise_address(&data.settings.advertise_address).unwrap_or_default();
+        let previous =
+            normalize_advertise_address(&data.settings.advertise_address).unwrap_or_default();
         let mut cur = match serde_json::to_value(&data.settings) {
             Ok(Value::Object(m)) => m,
             _ => Map::new(),
@@ -869,8 +1117,13 @@ pub fn update_settings(mut patch: Map<String, Value>) -> Result<Value, CfgError>
         }
         data.settings = serde_json::from_value(Value::Object(cur)).unwrap_or_default();
         save_locked(&data)?;
-        let current = normalize_advertise_address(&data.settings.advertise_address).unwrap_or_default();
-        Ok((data.settings, data.instances, touched_adv || current != previous))
+        let current =
+            normalize_advertise_address(&data.settings.advertise_address).unwrap_or_default();
+        Ok((
+            data.settings,
+            data.instances,
+            touched_adv || current != previous,
+        ))
     })?;
     // Refresh the host-mounted instance.json files; running engines still need Stop -> Start.
     if changed {
@@ -886,10 +1139,22 @@ pub fn update_settings(mut patch: Map<String, Value>) -> Result<Value, CfgError>
 // ------------------------------------------------------------------------------------- ports
 /// Per-instance port block layout (see AGENTS.md: keep in sync with engine.rs, install.sh
 /// ensure_firewall and the README).
-const PORT_BASE: Ports = Ports { sip_udp: 5060, sip_tls: 5061, webrtc: 8089, ami: 5038,
-                                 rtp_start: 10000, rtp_end: 11000 };
-const PORT_STRIDE: Ports = Ports { sip_udp: 10, sip_tls: 10, webrtc: 10, ami: 10,
-                                   rtp_start: 2000, rtp_end: 2000 };
+const PORT_BASE: Ports = Ports {
+    sip_udp: 5060,
+    sip_tls: 5061,
+    webrtc: 8089,
+    ami: 5038,
+    rtp_start: 10000,
+    rtp_end: 11000,
+};
+const PORT_STRIDE: Ports = Ports {
+    sip_udp: 10,
+    sip_tls: 10,
+    webrtc: 10,
+    ami: 10,
+    rtp_start: 2000,
+    rtp_end: 2000,
+};
 /// RTP host ports an engine actually publishes (engine.rs binds rtp_start..+RTP_SPAN).
 pub const RTP_SPAN: u32 = 60;
 pub const MIN_USER_PORT: u32 = 1024;
@@ -909,7 +1174,9 @@ pub fn alloc_ports(index: u32) -> Ports {
 }
 
 fn block_ports(b: &Ports) -> HashSet<u32> {
-    let mut s: HashSet<u32> = [b.sip_udp, b.sip_tls, b.webrtc, b.ami].into_iter().collect();
+    let mut s: HashSet<u32> = [b.sip_udp, b.sip_tls, b.webrtc, b.ami]
+        .into_iter()
+        .collect();
     s.extend(b.rtp_start..b.rtp_start + RTP_SPAN);
     s
 }
@@ -935,11 +1202,15 @@ fn reserved_ports(data: &ConfigFile, exclude: Option<&str>) -> HashSet<u32> {
 /// SO_REUSEADDR off so a live listener is detected).
 fn host_port_free(port: u32) -> bool {
     use socket2::{Domain, Socket, Type};
-    let Ok(port) = u16::try_from(port) else { return false };
+    let Ok(port) = u16::try_from(port) else {
+        return false;
+    };
     let addr: SocketAddr = (Ipv4Addr::UNSPECIFIED, port).into();
     for ty in [Type::STREAM, Type::DGRAM] {
         // A socket we can't even create says nothing about the port: don't block on it.
-        let Ok(s) = Socket::new(Domain::IPV4, ty, None) else { continue };
+        let Ok(s) = Socket::new(Domain::IPV4, ty, None) else {
+            continue;
+        };
         if s.bind(&addr.into()).is_err() {
             return false;
         }
@@ -953,7 +1224,9 @@ fn block_free(block: &Ports, reserved: &HashSet<u32>) -> bool {
     }
     // Only the 4 service ports are probed on the host (60 RTP probes per try is slow; RTP
     // clashes with other lines are caught by the reserved set).
-    [block.sip_udp, block.sip_tls, block.webrtc, block.ami].into_iter().all(host_port_free)
+    [block.sip_udp, block.sip_tls, block.webrtc, block.ami]
+        .into_iter()
+        .all(host_port_free)
 }
 
 fn alloc_ports_auto_in(data: &ConfigFile, exclude: Option<&str>) -> Result<Ports, CfgError> {
@@ -981,7 +1254,9 @@ pub fn alloc_ports_auto(exclude: Option<&str>) -> Result<Ports, CfgError> {
 /// nominal offsets. Validated for range and conflicts, with user-facing messages.
 pub fn ports_from_sip_base(sip_udp: i64, exclude: Option<&str>) -> Result<Ports, CfgError> {
     if !(MIN_USER_PORT as i64..=MAX_USER_PORT as i64).contains(&sip_udp) {
-        return invalid(format!("port must be between {MIN_USER_PORT} and {MAX_USER_PORT}"));
+        return invalid(format!(
+            "port must be between {MIN_USER_PORT} and {MAX_USER_PORT}"
+        ));
     }
     let sip_udp = sip_udp as u32;
     let b0 = alloc_ports(0);
@@ -995,45 +1270,74 @@ pub fn ports_from_sip_base(sip_udp: i64, exclude: Option<&str>) -> Result<Ports,
         rtp_end: sip_udp + off(b0.rtp_end),
     };
     if block_max(&block) > MAX_USER_PORT {
-        return invalid(format!("port {sip_udp} is too high — its RTP range would exceed {MAX_USER_PORT}"));
+        return invalid(format!(
+            "port {sip_udp} is too high — its RTP range would exceed {MAX_USER_PORT}"
+        ));
     }
     let data = load()?;
     let reserved = reserved_ports(&data, exclude);
-    let clash: Vec<u32> = block_ports(&block).intersection(&reserved).copied().collect();
+    let clash: Vec<u32> = block_ports(&block)
+        .intersection(&reserved)
+        .copied()
+        .collect();
     if !clash.is_empty() {
         if clash.contains(&sip_udp) || clash.contains(&block.sip_tls) {
-            return invalid(format!("port {sip_udp} is already used by another line. \
-                                    Choose a different port or use Automatic."));
+            return invalid(format!(
+                "port {sip_udp} is already used by another line. \
+                                    Choose a different port or use Automatic."
+            ));
         }
         let first = clash.iter().min().copied().unwrap_or(0);
-        return invalid(format!("port {sip_udp} overlaps another line's port range \
-                                (conflict at {first}). Try a port at least 10 away, or use Automatic."));
+        return invalid(format!(
+            "port {sip_udp} overlaps another line's port range \
+                                (conflict at {first}). Try a port at least 10 away, or use Automatic."
+        ));
     }
-    for (port, name) in [(block.sip_udp, "SIP/UDP"), (block.sip_tls, "SIP/TLS"),
-                         (block.webrtc, "WebRTC"), (block.ami, "control")] {
+    for (port, name) in [
+        (block.sip_udp, "SIP/UDP"),
+        (block.sip_tls, "SIP/TLS"),
+        (block.webrtc, "WebRTC"),
+        (block.ami, "control"),
+    ] {
         if !host_port_free(port) {
-            return invalid(format!("port {port} ({name}) is already in use on the host. \
-                                    Choose a different port or use Automatic."));
+            return invalid(format!(
+                "port {port} ({name}) is already in use on the host. \
+                                    Choose a different port or use Automatic."
+            ));
         }
     }
     Ok(block)
 }
 
 fn next_index(data: &ConfigFile) -> i64 {
-    let used: HashSet<i64> = data.instances.values().map(|i| i.index.unwrap_or(0)).collect();
+    let used: HashSet<i64> = data
+        .instances
+        .values()
+        .map(|i| i.index.unwrap_or(0))
+        .collect();
     (0..).find(|i| !used.contains(i)).unwrap_or(0)
 }
 
 // ---------------------------------------------------------------------------- SIP accounts
 const SIP_RESERVED_USERNAMES: &[&str] = &[
-    "global", "system", "volte_ims", "endpoint-local", "auth-local", "aor-local",
-    "transport-local", "transport-wss",
+    "global",
+    "system",
+    "volte_ims",
+    "endpoint-local",
+    "auth-local",
+    "aor-local",
+    "transport-local",
+    "transport-wss",
 ];
 
 /// Reject external SIP names that would collide in the rendered pjsip config.
 pub fn validate_sip_external_usernames(sip: &Sip) -> Result<(), CfgError> {
-    let webrtc_user = sip.webrtc.as_ref().and_then(|w| w.username.clone())
-        .filter(|u| !u.is_empty()).unwrap_or_else(|| "webrtc".into());
+    let webrtc_user = sip
+        .webrtc
+        .as_ref()
+        .and_then(|w| w.username.clone())
+        .filter(|u| !u.is_empty())
+        .unwrap_or_else(|| "webrtc".into());
     let webrtc_user = webrtc_user.trim();
     let mut seen: std::collections::HashMap<String, usize> = Default::default();
     for (index, account) in sip.external_accounts().iter().enumerate() {
@@ -1041,14 +1345,21 @@ pub fn validate_sip_external_usernames(sip: &Sip) -> Result<(), CfgError> {
         if username.is_empty() {
             continue;
         }
-        if SIP_RESERVED_USERNAMES.contains(&username) || (!webrtc_user.is_empty() && username == webrtc_user) {
-            return invalid(format!("SIP username '{username}' is reserved (used by the built-in \
-                                    softphone or Asterisk internals). Choose a different name."));
+        if SIP_RESERVED_USERNAMES.contains(&username)
+            || (!webrtc_user.is_empty() && username == webrtc_user)
+        {
+            return invalid(format!(
+                "SIP username '{username}' is reserved (used by the built-in \
+                                    softphone or Asterisk internals). Choose a different name."
+            ));
         }
         if let Some(prev) = seen.get(username) {
-            return invalid(format!("SIP username '{username}' is used more than once on this line \
+            return invalid(format!(
+                "SIP username '{username}' is used more than once on this line \
                                     (accounts #{} and #{}). Each account needs a unique username.",
-                                   prev + 1, index + 1));
+                prev + 1,
+                index + 1
+            ));
         }
         seen.insert(username.to_string(), index);
     }
@@ -1065,10 +1376,15 @@ pub fn validate_sip_value(sip: Option<&Value>) -> Result<(), CfgError> {
 }
 
 /// Preserve an external account's secret when a save omits or blanks its password.
-fn merge_external_sip_accounts(new_list: &Value, old: &[ExternalAccount]) -> Result<Value, CfgError> {
+fn merge_external_sip_accounts(
+    new_list: &Value,
+    old: &[ExternalAccount],
+) -> Result<Value, CfgError> {
     let mut merged = Vec::new();
     for account in new_list.as_array().map(Vec::as_slice).unwrap_or(&[]) {
-        let Value::Object(acc) = account else { continue };
+        let Value::Object(acc) = account else {
+            continue;
+        };
         let username = lenient::string(acc.get("username")).trim().to_string();
         if username.is_empty() {
             continue;
@@ -1077,12 +1393,16 @@ fn merge_external_sip_accounts(new_list: &Value, old: &[ExternalAccount]) -> Res
         let password = if !given.trim().is_empty() {
             given
         } else {
-            old.iter().find(|o| o.username.trim() == username)
-                .map(|o| o.password.clone()).unwrap_or_default()
+            old.iter()
+                .find(|o| o.username.trim() == username)
+                .map(|o| o.password.clone())
+                .unwrap_or_default()
         };
         if password.is_empty() {
-            return invalid(format!("SIP account '{username}' needs a password \
-                                    (third-party SIP clients will get Unauthorized without one)."));
+            return invalid(format!(
+                "SIP account '{username}' needs a password \
+                                    (third-party SIP clients will get Unauthorized without one)."
+            ));
         }
         let mut out = acc.clone();
         out.insert("username".into(), json!(username));
@@ -1126,24 +1446,37 @@ pub fn upsert_instance(mut patch: Map<String, Value>) -> Result<Instance, CfgErr
             patch.insert("ims_codecs".into(), json!(codecs));
         }
         let existing_typed = data.instances.get(&iid).cloned();
-        let existing = existing_typed.as_ref()
-            .map(|e| match serde_json::to_value(e) { Ok(Value::Object(m)) => m, _ => Map::new() })
+        let existing = existing_typed
+            .as_ref()
+            .map(|e| match serde_json::to_value(e) {
+                Ok(Value::Object(m)) => m,
+                _ => Map::new(),
+            })
             .unwrap_or_default();
 
-        let index = existing_typed.as_ref().and_then(|e| e.index).unwrap_or_else(|| next_index(&data));
+        let index = existing_typed
+            .as_ref()
+            .and_then(|e| e.index)
+            .unwrap_or_else(|| next_index(&data));
         patch.insert("index".into(), json!(index));
         if !patch.contains_key("ports") {
             let ports = match existing_typed.as_ref().and_then(|e| e.ports) {
                 Some(p) => p,
                 None => alloc_ports_auto_in(&data, Some(&iid))?,
             };
-            patch.insert("ports".into(), serde_json::to_value(ports).map_err(anyhow::Error::from)?);
+            patch.insert(
+                "ports".into(),
+                serde_json::to_value(ports).map_err(anyhow::Error::from)?,
+            );
         }
         // A blank secret from the WebUI must never replace the real one (the manager would
         // then log in to the engine's AMI with the wrong credential forever).
         if !lenient::truthy(patch.get("ami_secret")) {
-            let keep = existing_typed.as_ref().and_then(|e| e.ami_secret.clone())
-                .filter(|s| !s.is_empty()).unwrap_or_else(|| token_urlsafe(16));
+            let keep = existing_typed
+                .as_ref()
+                .and_then(|e| e.ami_secret.clone())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| token_urlsafe(16));
             patch.insert("ami_secret".into(), json!(keep));
         }
         // The saved PIN survives edits that don't carry a new non-empty one; clearing is
@@ -1169,9 +1502,14 @@ pub fn upsert_instance(mut patch: Map<String, Value>) -> Result<Instance, CfgErr
                 merged_sip.insert("webrtc".into(), Value::Object(wr));
             }
             if let Some(ext) = new_sip.get("external") {
-                let old_accounts = existing_typed.as_ref().map(|e| e.sip().external.unwrap_or_default())
+                let old_accounts = existing_typed
+                    .as_ref()
+                    .map(|e| e.sip().external.unwrap_or_default())
                     .unwrap_or_default();
-                merged_sip.insert("external".into(), merge_external_sip_accounts(ext, &old_accounts)?);
+                merged_sip.insert(
+                    "external".into(),
+                    merge_external_sip_accounts(ext, &old_accounts)?,
+                );
             }
             patch.insert("sip".into(), Value::Object(merged_sip));
         }
@@ -1185,15 +1523,20 @@ pub fn upsert_instance(mut patch: Map<String, Value>) -> Result<Instance, CfgErr
         let mut wr = obj(sip.get("webrtc"));
         wr.entry("username").or_insert(json!("webrtc"));
         if !lenient::truthy(wr.get("password")) {
-            let prev = existing_typed.as_ref().and_then(|e| e.sip.as_ref())
-                .and_then(|s| s.webrtc.as_ref()).and_then(|w| w.password.clone())
-                .filter(|p| !p.is_empty()).unwrap_or_else(|| token_urlsafe(12));
+            let prev = existing_typed
+                .as_ref()
+                .and_then(|e| e.sip.as_ref())
+                .and_then(|s| s.webrtc.as_ref())
+                .and_then(|w| w.password.clone())
+                .filter(|p| !p.is_empty())
+                .unwrap_or_else(|| token_urlsafe(12));
             wr.insert("password".into(), json!(prev));
         }
         sip.insert("webrtc".into(), Value::Object(wr));
         merged.insert("sip".into(), Value::Object(sip));
 
-        let inst: Instance = serde_json::from_value(Value::Object(merged)).map_err(anyhow::Error::from)?;
+        let inst: Instance =
+            serde_json::from_value(Value::Object(merged)).map_err(anyhow::Error::from)?;
         validate_sip_external_usernames(&inst.sip())?;
         data.instances.insert(iid.clone(), inst.clone());
         save_locked(&data)?;
@@ -1204,8 +1547,12 @@ pub fn upsert_instance(mut patch: Map<String, Value>) -> Result<Instance, CfgErr
 /// Delete the saved PIN. Returns whether one was stored.
 pub fn clear_pin(iid: &str) -> bool {
     with_lock(|| {
-        let Ok(mut data) = load_locked() else { return false };
-        let Some(inst) = data.instances.get_mut(iid) else { return false };
+        let Ok(mut data) = load_locked() else {
+            return false;
+        };
+        let Some(inst) = data.instances.get_mut(iid) else {
+            return false;
+        };
         let had = inst.has_pin();
         inst.pin = Some(String::new());
         if let Err(e) = save_locked(&data) {
@@ -1241,7 +1588,11 @@ pub fn imeisv_from_imei(imei: &str, imeisv: &str, svn: &str) -> String {
     }
     let base14 = format!("{:0<14}", &digits[..digits.len().min(14)]);
     let svn_digits: String = svn.chars().filter(char::is_ascii_digit).collect();
-    let svn_digits = if svn_digits.is_empty() { "00".to_string() } else { svn_digits };
+    let svn_digits = if svn_digits.is_empty() {
+        "00".to_string()
+    } else {
+        svn_digits
+    };
     let svn2 = format!("{:0>2}", &svn_digits[..svn_digits.len().min(2)]);
     base14 + &svn2
 }
@@ -1262,22 +1613,44 @@ pub fn normalize_apn(apn: &str) -> String {
 /// rejected by others).
 pub fn normalize_idr_mode(mode: &str) -> String {
     let m = mode.trim().to_lowercase();
-    if m == "apn" || m == "fqdn" { m } else { "apn".into() }
+    if m == "apn" || m == "fqdn" {
+        m
+    } else {
+        "apn".into()
+    }
 }
 
 /// SWu CFG request address family; must match the carrier's IMS PDN or the ePDG rejects the
 /// PDN connection at the final IKE_AUTH. 'auto' walks a discovery ladder (engine side).
 pub fn normalize_cp_mode(mode: &str) -> String {
     let m = mode.trim().to_lowercase();
-    if ["auto", "v6", "v4", "dual"].contains(&m.as_str()) { m } else { "auto".into() }
+    if ["auto", "v6", "v4", "dual"].contains(&m.as_str()) {
+        m
+    } else {
+        "auto".into()
+    }
 }
 
 /// TS 24.229 7.2A.4.3 WLAN access-type values (+ 3GPP-WLAN seen in osmocom references).
 const PANI_ACCESS_TYPES: &[&str] = &[
-    "IEEE-802.11", "IEEE-802.11a", "IEEE-802.11b", "IEEE-802.11g", "IEEE-802.11n",
-    "IEEE-802.11ac", "IEEE-802.11ax", "IEEE-802.11be", "IEEE-802.11j", "IEEE-802.11p",
-    "IEEE-802.11y", "IEEE-802.11ad", "IEEE-802.11af", "IEEE-802.11ah", "IEEE-802.11aj",
-    "IEEE-802.11ay", "IEEE-802.11bd", "3GPP-WLAN",
+    "IEEE-802.11",
+    "IEEE-802.11a",
+    "IEEE-802.11b",
+    "IEEE-802.11g",
+    "IEEE-802.11n",
+    "IEEE-802.11ac",
+    "IEEE-802.11ax",
+    "IEEE-802.11be",
+    "IEEE-802.11j",
+    "IEEE-802.11p",
+    "IEEE-802.11y",
+    "IEEE-802.11ad",
+    "IEEE-802.11af",
+    "IEEE-802.11ah",
+    "IEEE-802.11aj",
+    "IEEE-802.11ay",
+    "IEEE-802.11bd",
+    "3GPP-WLAN",
 ];
 
 /// Codecs a line may offer/accept on the carrier (IMS) leg. AMR-WB + AMR is what a phone
@@ -1311,7 +1684,10 @@ pub fn normalize_ims_codecs(value: Option<&Value>) -> Result<Vec<String>, CfgErr
             continue;
         }
         if !IMS_CODECS_ALLOWED.contains(&c.as_str()) {
-            return invalid(format!("unknown carrier codec '{c}' (allowed: {})", IMS_CODECS_ALLOWED.join(", ")));
+            return invalid(format!(
+                "unknown carrier codec '{c}' (allowed: {})",
+                IMS_CODECS_ALLOWED.join(", ")
+            ));
         }
         if !out.contains(&c) {
             out.push(c);
@@ -1327,19 +1703,40 @@ pub fn normalize_ims_codecs(value: Option<&Value>) -> Result<Vec<String>, CfgErr
 }
 
 pub fn normalize_pani_country(c: &str) -> String {
-    let s: String = c.trim().to_uppercase().chars().filter(|ch| ch.is_alphabetic()).collect();
-    if s.chars().count() == 2 { s } else { String::new() }
+    let s: String = c
+        .trim()
+        .to_uppercase()
+        .chars()
+        .filter(|ch| ch.is_alphabetic())
+        .collect();
+    if s.chars().count() == 2 {
+        s
+    } else {
+        String::new()
+    }
 }
 
 /// WLAN BSSID for i-wlan-node-id: 12 lower-case hex digits, separators stripped.
 pub fn normalize_pani_node_id(m: &str) -> String {
-    let s: String = m.chars().filter(|c| c.is_alphanumeric()).collect::<String>().to_lowercase();
-    if s.len() == 12 && s.chars().all(|c| c.is_ascii_hexdigit()) { s } else { String::new() }
+    let s: String = m
+        .chars()
+        .filter(|c| c.is_alphanumeric())
+        .collect::<String>()
+        .to_lowercase();
+    if s.len() == 12 && s.chars().all(|c| c.is_ascii_hexdigit()) {
+        s
+    } else {
+        String::new()
+    }
 }
 
 pub fn normalize_pani_access_type(t: &str) -> String {
     let s = t.trim();
-    if PANI_ACCESS_TYPES.contains(&s) { s.into() } else { "IEEE-802.11".into() }
+    if PANI_ACCESS_TYPES.contains(&s) {
+        s.into()
+    } else {
+        "IEEE-802.11".into()
+    }
 }
 
 /// Unescaped P-Access-Network-Info for the engine (render.py escapes it for pjsip.conf).
@@ -1351,7 +1748,9 @@ pub fn build_pani(inst: &Instance, sip: &Sip) -> String {
     if !raw.is_empty() {
         return raw.to_string();
     }
-    let mut parts = vec![normalize_pani_access_type(sip.pani_access_type.as_deref().unwrap_or(""))];
+    let mut parts = vec![normalize_pani_access_type(
+        sip.pani_access_type.as_deref().unwrap_or(""),
+    )];
     if sip.pani_country_enable.unwrap_or(true) {
         let mut country = normalize_pani_country(sip.pani_country.as_deref().unwrap_or(""));
         if country.is_empty() {
@@ -1367,7 +1766,12 @@ pub fn build_pani(inst: &Instance, sip: &Sip) -> String {
             parts.push(format!("i-wlan-node-id={node}"));
         }
     }
-    let mut tz = sip.pani_local_time_zone.as_deref().unwrap_or("").trim().to_string();
+    let mut tz = sip
+        .pani_local_time_zone
+        .as_deref()
+        .unwrap_or("")
+        .trim()
+        .to_string();
     if !tz.is_empty() {
         if (tz.contains(' ') || tz.contains(';')) && !(tz.starts_with('"') && tz.ends_with('"')) {
             tz = format!("\"{}\"", tz.replace('"', ""));
@@ -1395,7 +1799,12 @@ pub fn cp_mode_order_for(mcc: &str, mnc: &str) -> String {
         format!("{mcc}-{}", if stripped.is_empty() { mnc } else { stripped }),
     ];
     let mut order: Vec<&str> = Vec::new();
-    if let Some(pref) = keys.iter().find_map(|k| CARRIER_CP_PREF.iter().find(|(c, _)| c == k).map(|(_, m)| *m)) {
+    if let Some(pref) = keys.iter().find_map(|k| {
+        CARRIER_CP_PREF
+            .iter()
+            .find(|(c, _)| c == k)
+            .map(|(_, m)| *m)
+    }) {
         order.push(pref);
     }
     for m in CP_MODE_LADDER_DEFAULT {
@@ -1421,7 +1830,11 @@ pub fn render_instance_json(inst: &Instance, settings: &Settings) -> Value {
     let ports = inst.ports_or_nominal();
     let sip = inst.sip();
     let webrtc = sip.webrtc.clone().unwrap_or_default();
-    let ring = sip.ring_timeout.filter(|r| *r != 0).unwrap_or(settings.ring_timeout).clamp(5, 180);
+    let ring = sip
+        .ring_timeout
+        .filter(|r| *r != 0)
+        .unwrap_or(settings.ring_timeout)
+        .clamp(5, 180);
     let imei = inst.imei.clone().unwrap_or_default();
     let imeisv = match non_empty(&inst.imeisv) {
         Some(s) => s.to_string(),
@@ -1522,17 +1935,27 @@ mod tests {
         assert_eq!(n(Value::Null).unwrap(), vec!["amrwb", "amr"]);
         assert_eq!(n(json!([])).unwrap(), vec!["amrwb", "amr"]);
         assert_eq!(n(json!(" AMR , amrwb,amr")).unwrap(), vec!["amr", "amrwb"]);
-        assert_eq!(n(json!(["g722", "amrwb", "amr"])).unwrap(), vec!["g722", "amrwb", "amr"]);
+        assert_eq!(
+            n(json!(["g722", "amrwb", "amr"])).unwrap(),
+            vec!["g722", "amrwb", "amr"]
+        );
         assert!(n(json!(["g722"])).unwrap_err().contains("amrwb or amr"));
         assert_eq!(n(json!(["EVS", "amr"])).unwrap(), vec!["evs", "amr"]);
         assert!(n(json!(["evs"])).unwrap_err().contains("amrwb or amr"));
-        assert!(n(json!(["opus", "amr"])).unwrap_err().contains("unknown carrier codec"));
+        assert!(
+            n(json!(["opus", "amr"]))
+                .unwrap_err()
+                .contains("unknown carrier codec")
+        );
         assert!(n(json!(5)).is_err());
     }
 
     #[test]
     fn imeisv() {
-        assert_eq!(imeisv_from_imei("35-209900-176148-1", "", "00"), "3520990017614800");
+        assert_eq!(
+            imeisv_from_imei("35-209900-176148-1", "", "00"),
+            "3520990017614800"
+        );
         assert_eq!(imeisv_from_imei("", "12", "00"), "1200000000000000");
         assert_eq!(imeisv_from_imei("123", "", "7"), "1230000000000007");
         assert_eq!(imeisv_from_imei("", "", "00"), "");
@@ -1547,11 +1970,21 @@ mod tests {
 
     #[test]
     fn pani() {
-        let inst = Instance { mcc: "234".into(), ..Default::default() };
+        let inst = Instance {
+            mcc: "234".into(),
+            ..Default::default()
+        };
         assert_eq!(build_pani(&inst, &Sip::default()), "IEEE-802.11;country=GB");
-        let sip = Sip { pani_node_id_enable: Some(true), pani_node_id: Some("AA:BB:CC:DD:EE:FF".into()),
-                        pani_country_enable: Some(false), ..Default::default() };
-        assert_eq!(build_pani(&inst, &sip), "IEEE-802.11;i-wlan-node-id=aabbccddeeff");
+        let sip = Sip {
+            pani_node_id_enable: Some(true),
+            pani_node_id: Some("AA:BB:CC:DD:EE:FF".into()),
+            pani_country_enable: Some(false),
+            ..Default::default()
+        };
+        assert_eq!(
+            build_pani(&inst, &sip),
+            "IEEE-802.11;i-wlan-node-id=aabbccddeeff"
+        );
     }
 
     #[test]
@@ -1559,7 +1992,10 @@ mod tests {
         let b0 = alloc_ports(0);
         assert_eq!(b0.ami, 5038);
         let b3 = alloc_ports(3);
-        assert_eq!((b3.sip_udp, b3.webrtc, b3.ami, b3.rtp_start), (5090, 8119, 5068, 16000));
+        assert_eq!(
+            (b3.sip_udp, b3.webrtc, b3.ami, b3.rtp_start),
+            (5090, 8119, 5068, 16000)
+        );
     }
 
     #[test]

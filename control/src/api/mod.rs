@@ -45,8 +45,11 @@ pub struct ApiError {
 
 impl ApiError {
     pub fn new(status: u16, detail: impl Into<Value>) -> Self {
-        ApiError { status: StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
-                   detail: detail.into(), headers: Vec::new() }
+        ApiError {
+            status: StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+            detail: detail.into(),
+            headers: Vec::new(),
+        }
     }
 
     pub fn header(mut self, name: header::HeaderName, value: String) -> Self {
@@ -89,7 +92,8 @@ impl<S: Send + Sync> FromRequest<S> for Body {
     type Rejection = ApiError;
 
     async fn from_request(req: Request, state: &S) -> Result<Self, ApiError> {
-        let bytes = Bytes::from_request(req, state).await
+        let bytes = Bytes::from_request(req, state)
+            .await
             .map_err(|e| ApiError::new(400, e.to_string()))?;
         if bytes.iter().all(u8::is_ascii_whitespace) {
             return Ok(Body(Map::new()));
@@ -110,7 +114,9 @@ impl Body {
 
     /// Optional string field ("" counts as absent).
     pub fn str(&self, k: &str) -> Option<String> {
-        self.get(k).map(|v| lenient::string(Some(v))).filter(|s| !s.is_empty())
+        self.get(k)
+            .map(|v| lenient::string(Some(v)))
+            .filter(|s| !s.is_empty())
     }
 
     /// Required field as a string (422 if missing).
@@ -128,7 +134,9 @@ pub type Q = axum::extract::Query<HashMap<String, String>>;
 pub fn q_int(q: &Q, k: &str, default: i64) -> ApiResult<i64> {
     match q.get(k).map(|s| s.trim()).filter(|s| !s.is_empty()) {
         None => Ok(default),
-        Some(s) => s.parse().map_err(|_| ApiError::new(422, format!("query parameter {k} must be an integer"))),
+        Some(s) => s
+            .parse()
+            .map_err(|_| ApiError::new(422, format!("query parameter {k} must be an integer"))),
     }
 }
 
@@ -137,7 +145,9 @@ pub fn q_str(q: &Q, k: &str) -> Option<String> {
 }
 
 pub fn cookie(headers: &HeaderMap, name: &str) -> Option<String> {
-    headers.get_all(header::COOKIE).iter()
+    headers
+        .get_all(header::COOKIE)
+        .iter()
         .filter_map(|v| v.to_str().ok())
         .flat_map(|v| v.split(';'))
         .filter_map(|kv| kv.trim().split_once('='))
@@ -147,7 +157,11 @@ pub fn cookie(headers: &HeaderMap, name: &str) -> Option<String> {
 
 /// The request's Host without the port; IPv6 literals keep their brackets.
 pub fn request_host(headers: &HeaderMap) -> String {
-    let h = headers.get(header::HOST).and_then(|v| v.to_str().ok()).unwrap_or("").trim();
+    let h = headers
+        .get(header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .trim();
     if let Some(rest) = h.strip_prefix('[') {
         return match rest.split_once(']') {
             Some((ip, _)) => format!("[{ip}]"),
@@ -158,7 +172,11 @@ pub fn request_host(headers: &HeaderMap) -> String {
 }
 
 // ------------------------------------------------------------------------------ middleware
-async fn require_login(ConnectInfo(peer): ConnectInfo<SocketAddr>, req: Request, next: Next) -> Response {
+async fn require_login(
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    req: Request,
+    next: Next,
+) -> Response {
     let path = req.uri().path().to_string();
     // The WebSocket handshake applies the policy itself (it must accept, then close 4401).
     if path != "/ws" {
@@ -173,15 +191,23 @@ async fn require_login(ConnectInfo(peer): ConnectInfo<SocketAddr>, req: Request,
             if path == auth::ENGINE_PATH {
                 return ApiError::new(403, "forbidden").into_response();
             }
-            return ApiError::new(401, json!({"code": "auth_required", "message": "Login required"})).into_response();
+            return ApiError::new(
+                401,
+                json!({"code": "auth_required", "message": "Login required"}),
+            )
+            .into_response();
         }
     }
     next.run(req).await
 }
 
 // ------------------------------------------------------------------------------- websocket
-async fn ws_endpoint(State(hub): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>,
-                     headers: HeaderMap, upgrade: WebSocketUpgrade) -> Response {
+async fn ws_endpoint(
+    State(hub): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    upgrade: WebSocketUpgrade,
+) -> Response {
     let c = cookie(&headers, auth::COOKIE_NAME);
     let ok = auth::allowed("/ws", Some(peer.ip()), c.as_deref());
     upgrade.on_upgrade(move |socket| async move {
@@ -196,7 +222,12 @@ async fn ws_endpoint(State(hub): State<AppState>, ConnectInfo(peer): ConnectInfo
 }
 
 async fn close_4401(mut socket: WebSocket) {
-    let _ = socket.send(Message::Close(Some(CloseFrame { code: 4401, reason: "".into() }))).await;
+    let _ = socket
+        .send(Message::Close(Some(CloseFrame {
+            code: 4401,
+            reason: "".into(),
+        })))
+        .await;
 }
 
 async fn ws_session(hub: AppState, mut socket: WebSocket) {
@@ -227,12 +258,17 @@ async fn ws_session(hub: AppState, mut socket: WebSocket) {
 // ------------------------------------------------------------------------------ static UI
 pub fn webui_dir() -> PathBuf {
     if let Ok(d) = std::env::var("VOWIFI_WEBUI")
-        && !d.is_empty() {
-            return PathBuf::from(d);
-        }
+        && !d.is_empty()
+    {
+        return PathBuf::from(d);
+    }
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let sibling = cwd.join("..").join("webui").join("dist");
-    if sibling.is_dir() { sibling } else { cwd.join("webui").join("dist") }
+    if sibling.is_dir() {
+        sibling
+    } else {
+        cwd.join("webui").join("dist")
+    }
 }
 
 // ---------------------------------------------------------------------------------- router
@@ -250,23 +286,47 @@ pub fn router(hub: AppState) -> Router {
         .route("/api/cards", get(sim::cards))
         .route("/api/ports/suggest", get(sim::ports_suggest))
         .route("/api/provision", post(sim::provision))
-        .route("/api/settings", get(instances::get_settings).put(instances::put_settings))
-        .route("/api/instances", get(instances::list).post(instances::upsert))
+        .route(
+            "/api/settings",
+            get(instances::get_settings).put(instances::put_settings),
+        )
+        .route(
+            "/api/instances",
+            get(instances::list).post(instances::upsert),
+        )
         .route("/api/instances/{iid}", delete(instances::remove))
         .route("/api/instances/{iid}/start", post(instances::start))
-        .route("/api/instances/{iid}/reprovision", post(instances::reprovision))
+        .route(
+            "/api/instances/{iid}/reprovision",
+            post(instances::reprovision),
+        )
         .route("/api/instances/{iid}/pin/clear", post(instances::clear_pin))
         .route("/api/instances/{iid}/stop", post(instances::stop))
         .route("/api/instances/{iid}/status", get(instances::status))
         .route("/api/instances/{iid}/logs", get(instances::logs))
         .route("/api/instances/{iid}/register", post(instances::register))
-        .route("/api/instances/{iid}/messages/threads", get(instances::threads))
-        .route("/api/instances/{iid}/messages/delete", post(instances::messages_delete))
-        .route("/api/instances/{iid}/messages/{peer}", get(instances::messages))
+        .route(
+            "/api/instances/{iid}/messages/threads",
+            get(instances::threads),
+        )
+        .route(
+            "/api/instances/{iid}/messages/delete",
+            post(instances::messages_delete),
+        )
+        .route(
+            "/api/instances/{iid}/messages/{peer}",
+            get(instances::messages),
+        )
         .route("/api/instances/{iid}/sms/send", post(instances::sms_send))
         .route("/api/instances/{iid}/calls", get(instances::calls))
-        .route("/api/instances/{iid}/calls/delete", post(instances::calls_delete))
-        .route("/api/instances/{iid}/carrier-codecs", get(instances::carrier_codecs))
+        .route(
+            "/api/instances/{iid}/calls/delete",
+            post(instances::calls_delete),
+        )
+        .route(
+            "/api/instances/{iid}/carrier-codecs",
+            get(instances::carrier_codecs),
+        )
         .route("/api/instances/{iid}/call", post(instances::call))
         .route("/api/instances/{iid}/hangup", post(instances::hangup))
         .route("/api/instances/{iid}/softphone", get(instances::softphone))
@@ -283,8 +343,14 @@ pub fn router(hub: AppState) -> Router {
         .route("/api/esim/download/cancel", post(esim::download_cancel))
         .route("/api/esim/discovery", post(esim::discovery))
         .route("/api/esim/notifications", get(esim::notifications))
-        .route("/api/esim/notifications/process", post(esim::notifications_process))
-        .route("/api/esim/notifications/{seq}", delete(esim::notification_remove))
+        .route(
+            "/api/esim/notifications/process",
+            post(esim::notifications_process),
+        )
+        .route(
+            "/api/esim/notifications/{seq}",
+            delete(esim::notification_remove),
+        )
         .route("/ws", get(ws_endpoint));
 
     let dir = webui_dir();
@@ -294,10 +360,19 @@ pub fn router(hub: AppState) -> Router {
             .fallback(tower_http::services::ServeFile::new(index));
         api.fallback_service(spa)
     } else {
-        tracing::warn!("WebUI not found at {} (set VOWIFI_WEBUI or build webui/dist)", dir.display());
-        api.fallback(|| async { (StatusCode::NOT_FOUND, Json(json!({"error": "webui not built"}))) })
+        tracing::warn!(
+            "WebUI not found at {} (set VOWIFI_WEBUI or build webui/dist)",
+            dir.display()
+        );
+        api.fallback(|| async {
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": "webui not built"})),
+            )
+        })
     };
-    app.layer(middleware::from_fn(require_login)).with_state(hub)
+    app.layer(middleware::from_fn(require_login))
+        .with_state(hub)
 }
 
 #[cfg(test)]
@@ -311,7 +386,10 @@ mod tests {
         assert_eq!(request_host(&h), "gw.example");
         h.insert(header::HOST, HeaderValue::from_static("[2001:db8::1]:8443"));
         assert_eq!(request_host(&h), "[2001:db8::1]");
-        h.insert(header::COOKIE, HeaderValue::from_static("a=1; vowifi_session=abc.def; b=2"));
+        h.insert(
+            header::COOKIE,
+            HeaderValue::from_static("a=1; vowifi_session=abc.def; b=2"),
+        );
         assert_eq!(cookie(&h, "vowifi_session").as_deref(), Some("abc.def"));
     }
 }

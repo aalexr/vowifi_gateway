@@ -47,26 +47,42 @@ impl State {
 pub fn reason(code: &str) -> &'static str {
     match code {
         "no_card" => "No SIM card detected in the reader.",
-        "card_mismatch" => "The card in this line's reader is a different SIM — insert this line's SIM.",
+        "card_mismatch" => {
+            "The card in this line's reader is a different SIM — insert this line's SIM."
+        }
         "pin_wrong" => "SIM PIN is incorrect.",
         "pin_blocked" => "SIM PIN is blocked — PUK required.",
-        "epdg_unresolved" => "Can't resolve the carrier's VoWiFi (ePDG) address — the carrier may \
-                              not support Wi-Fi Calling, or check DNS / internet connectivity.",
-        "tunnel_network" => "Can't establish the VoWiFi tunnel — network problem (no response from \
-                             the carrier's ePDG).",
-        "tunnel_sim_auth" => "Can't establish the VoWiFi tunnel — SIM authentication (EAP-AKA) was \
-                              rejected by the carrier.",
-        "tunnel_not_authorized" => "Can't establish the VoWiFi tunnel — the carrier's ePDG refused the \
+        "epdg_unresolved" => {
+            "Can't resolve the carrier's VoWiFi (ePDG) address — the carrier may \
+                              not support Wi-Fi Calling, or check DNS / internet connectivity."
+        }
+        "tunnel_network" => {
+            "Can't establish the VoWiFi tunnel — network problem (no response from \
+                             the carrier's ePDG)."
+        }
+        "tunnel_sim_auth" => {
+            "Can't establish the VoWiFi tunnel — SIM authentication (EAP-AKA) was \
+                              rejected by the carrier."
+        }
+        "tunnel_not_authorized" => {
+            "Can't establish the VoWiFi tunnel — the carrier's ePDG refused the \
                                     identity before checking the SIM. The line is likely not provisioned \
-                                    for Wi-Fi Calling, or the ePDG blocks connections from this network/region.",
-        "tunnel_proposal" => "Can't establish the VoWiFi tunnel — the carrier rejected the encryption \
-                              settings (IKE proposal).",
+                                    for Wi-Fi Calling, or the ePDG blocks connections from this network/region."
+        }
+        "tunnel_proposal" => {
+            "Can't establish the VoWiFi tunnel — the carrier rejected the encryption \
+                              settings (IKE proposal)."
+        }
         "tunnel_setup" => "Establishing the VoWiFi (IPsec/ePDG) tunnel…",
         "registering" => "VoWiFi tunnel is up — registering to the carrier's IMS…",
-        "reg_rejected" => "Can't register to the carrier's IMS (authentication or provisioning issue).",
-        "ims_rejected" => "The carrier's IMS accepted the registration but then removed it again \
+        "reg_rejected" => {
+            "Can't register to the carrier's IMS (authentication or provisioning issue)."
+        }
+        "ims_rejected" => {
+            "The carrier's IMS accepted the registration but then removed it again \
                            (network-initiated, reg event) — calls and SMS won't work. The carrier \
-                           likely refuses this device or client for Wi-Fi Calling.",
+                           likely refuses this device or client for Wi-Fi Calling."
+        }
         "ok" => "Working — connected to the carrier over Wi-Fi.",
         _ => "",
     }
@@ -90,9 +106,16 @@ pub struct Status {
 
 impl Status {
     fn new(state: State, code: &str, detail: Map<String, Value>) -> Self {
-        Status { state, label: state.label(), reason_code: Some(code.into()),
-                 reason: Some(reason(code).into()), detail, retry: None, frozen: None,
-                 retrying_network: None }
+        Status {
+            state,
+            label: state.label(),
+            reason_code: Some(code.into()),
+            reason: Some(reason(code).into()),
+            detail,
+            retry: None,
+            frozen: None,
+            retrying_network: None,
+        }
     }
 
     pub fn code(&self) -> &str {
@@ -108,7 +131,10 @@ impl Status {
 }
 
 pub async fn resolve_epdg(fqdn: &str) -> bool {
-    tokio::net::lookup_host((fqdn, 0)).await.map(|mut a| a.next().is_some()).unwrap_or(false)
+    tokio::net::lookup_host((fqdn, 0))
+        .await
+        .map(|mut a| a.next().is_some())
+        .unwrap_or(false)
 }
 
 /// Why isn't the tunnel up? swu_ike classifies each failed attach attempt into
@@ -117,8 +143,10 @@ pub async fn resolve_epdg(fqdn: &str) -> bool {
 pub fn classify_ike(iid: &str) -> &'static str {
     let swu = engine::read_run_json(iid, "swu_status.json").unwrap_or_else(|| json!({}));
     let usim = engine::usim_status(iid);
-    ike_reason(swu.get("ike_reason").and_then(Value::as_str).unwrap_or(""),
-               usim.get("state").and_then(Value::as_str).unwrap_or(""))
+    ike_reason(
+        swu.get("ike_reason").and_then(Value::as_str).unwrap_or(""),
+        usim.get("state").and_then(Value::as_str).unwrap_or(""),
+    )
 }
 
 fn ike_reason(swu_reason: &str, usim_state: &str) -> &'static str {
@@ -127,7 +155,8 @@ fn ike_reason(swu_reason: &str, usim_state: &str) -> &'static str {
     if swu_reason == "tunnel_not_authorized" {
         return "tunnel_not_authorized";
     }
-    if ["AUTH_FAIL", "PIN_FAIL", "NO_CARD"].contains(&usim_state) || swu_reason == "tunnel_sim_auth" {
+    if ["AUTH_FAIL", "PIN_FAIL", "NO_CARD"].contains(&usim_state) || swu_reason == "tunnel_sim_auth"
+    {
         return "tunnel_sim_auth";
     }
     match swu_reason {
@@ -139,7 +168,12 @@ fn ike_reason(swu_reason: &str, usim_state: &str) -> &'static str {
 
 pub async fn compute(inst: &Instance, ami: Option<&AmiClient>) -> Status {
     let iid = inst.id.as_str();
-    let opt = |v: &Option<String>| v.as_deref().filter(|s| !s.is_empty()).map(|s| json!(s)).unwrap_or(Value::Null);
+    let opt = |v: &Option<String>| {
+        v.as_deref()
+            .filter(|s| !s.is_empty())
+            .map(|s| json!(s))
+            .unwrap_or(Value::Null)
+    };
     let mut detail = Map::new();
     detail.insert("msisdn".into(), opt(&inst.msisdn));
     detail.insert("smsc".into(), opt(&inst.smsc));
@@ -173,7 +207,12 @@ pub async fn compute(inst: &Instance, ami: Option<&AmiClient>) -> Status {
         return Status::new(State::TunnelDown, code, detail);
     }
 
-    detail.insert("pcscf".into(), engine::read_pcscf(iid).map(Value::String).unwrap_or(Value::Null));
+    detail.insert(
+        "pcscf".into(),
+        engine::read_pcscf(iid)
+            .map(Value::String)
+            .unwrap_or(Value::Null),
+    );
     let reg = match ami {
         Some(a) => a.registration_state().await,
         None => "unknown".into(),
@@ -207,7 +246,10 @@ mod tests {
 
     #[test]
     fn ike_reasons() {
-        assert_eq!(ike_reason("tunnel_not_authorized", "AUTH_FAIL"), "tunnel_not_authorized");
+        assert_eq!(
+            ike_reason("tunnel_not_authorized", "AUTH_FAIL"),
+            "tunnel_not_authorized"
+        );
         assert_eq!(ike_reason("tunnel_network", "AUTH_FAIL"), "tunnel_sim_auth");
         assert_eq!(ike_reason("tunnel_sim_auth", ""), "tunnel_sim_auth");
         assert_eq!(ike_reason("tunnel_proposal", "AUTH_OK"), "tunnel_proposal");

@@ -34,7 +34,13 @@ fn port_path_for(bus: u32, devnum: u32) -> Option<String> {
     let rd = std::fs::read_dir("/sys/bus/usb/devices").ok()?;
     for e in rd.flatten() {
         let d = e.path();
-        let read = |f: &str| std::fs::read_to_string(d.join(f)).ok()?.trim().parse::<u32>().ok();
+        let read = |f: &str| {
+            std::fs::read_to_string(d.join(f))
+                .ok()?
+                .trim()
+                .parse::<u32>()
+                .ok()
+        };
         if read("busnum") == Some(bus) && read("devnum") == Some(devnum) {
             return Some(e.file_name().to_string_lossy().into_owned());
         }
@@ -48,13 +54,16 @@ pub fn reader_port_paths() -> BTreeMap<usize, String> {
     // One context for the whole scan, released on drop (pcscd caps clients at 200 contexts and
     // this runs on API polls).
     let Ok(ctx) = card::context() else { return out };
-    let Ok(readers) = ctx.list_readers_owned() else { return out };
+    let Ok(readers) = ctx.list_readers_owned() else {
+        return out;
+    };
     for (i, r) in readers.iter().enumerate() {
         let name = r.to_string_lossy();
         if let Some((bus, dev)) = channel_id_bus_dev(&ctx, &name)
-            && let Some(p) = port_path_for(bus, dev) {
-                out.insert(i, p);
-            }
+            && let Some(p) = port_path_for(bus, dev)
+        {
+            out.insert(i, p);
+        }
     }
     out
 }
@@ -67,5 +76,8 @@ pub fn index_for_port(port: &str) -> Option<usize> {
     if port.is_empty() {
         return None;
     }
-    reader_port_paths().into_iter().find(|(_, p)| p == port).map(|(i, _)| i)
+    reader_port_paths()
+        .into_iter()
+        .find(|(_, p)| p == port)
+        .map(|(i, _)| i)
 }

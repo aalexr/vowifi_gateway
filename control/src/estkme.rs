@@ -17,12 +17,18 @@ const ESTK_SE1_AID: &str = "A06573746B6D65FFFF4953442D522031";
 const ESTK_MARKER: &[u8] = b"estk.me";
 
 const ESTKME_ATRS: &[&[u8]] = &[
-    &[0x3B, 0x9F, 0x96, 0x80, 0x1F, 0xC7, 0x80, 0x31, 0xE0, 0x73, 0xFE, 0x21, 0x15,
-      0x57, 0x65, 0x73, 0x74, 0x6B, 0x2E, 0x6D, 0x65, 0xC1],
-    &[0x3B, 0x9F, 0x96, 0x80, 0x3F, 0xC7, 0x82, 0x80, 0x31, 0xE0, 0x73, 0xFE, 0x21, 0x15,
-      0x57, 0x65, 0x73, 0x74, 0x6B, 0x2E, 0x6D, 0x65, 0x63],
-    &[0x3B, 0xBF, 0x93, 0x00, 0x80, 0x1F, 0xC6, 0x80, 0x31, 0xE0, 0x73, 0xFE, 0x21, 0x13,
-      0x57, 0x65, 0x73, 0x74, 0x6B, 0x2E, 0x6D, 0x65, 0xE3],
+    &[
+        0x3B, 0x9F, 0x96, 0x80, 0x1F, 0xC7, 0x80, 0x31, 0xE0, 0x73, 0xFE, 0x21, 0x15, 0x57, 0x65,
+        0x73, 0x74, 0x6B, 0x2E, 0x6D, 0x65, 0xC1,
+    ],
+    &[
+        0x3B, 0x9F, 0x96, 0x80, 0x3F, 0xC7, 0x82, 0x80, 0x31, 0xE0, 0x73, 0xFE, 0x21, 0x15, 0x57,
+        0x65, 0x73, 0x74, 0x6B, 0x2E, 0x6D, 0x65, 0x63,
+    ],
+    &[
+        0x3B, 0xBF, 0x93, 0x00, 0x80, 0x1F, 0xC6, 0x80, 0x31, 0xE0, 0x73, 0xFE, 0x21, 0x13, 0x57,
+        0x65, 0x73, 0x74, 0x6B, 0x2E, 0x6D, 0x65, 0xE3,
+    ],
 ];
 
 /// One secure element (ISD-R) to address. `aid` None = lpac's default GSMA ISD-R.
@@ -34,18 +40,31 @@ pub struct Se {
 }
 
 fn default_se() -> Se {
-    Se { id: "default".into(), label: "eUICC".into(), aid: None }
+    Se {
+        id: "default".into(),
+        label: "eUICC".into(),
+        aid: None,
+    }
 }
 
 fn dual_ses() -> Vec<Se> {
     vec![
-        Se { id: "se0".into(), label: "SE1".into(), aid: Some(ESTK_SE0_AID.into()) },
-        Se { id: "se1".into(), label: "SE2".into(), aid: Some(ESTK_SE1_AID.into()) },
+        Se {
+            id: "se0".into(),
+            label: "SE1".into(),
+            aid: Some(ESTK_SE0_AID.into()),
+        },
+        Se {
+            id: "se1".into(),
+            label: "SE2".into(),
+            aid: Some(ESTK_SE1_AID.into()),
+        },
     ]
 }
 
 pub fn is_estkme_atr(atr: &[u8]) -> bool {
-    !atr.is_empty() && (ESTKME_ATRS.contains(&atr) || atr.windows(ESTK_MARKER.len()).any(|w| w == ESTK_MARKER))
+    !atr.is_empty()
+        && (ESTKME_ATRS.contains(&atr) || atr.windows(ESTK_MARKER.len()).any(|w| w == ESTK_MARKER))
 }
 
 fn is_dual_sku(sku: &str) -> bool {
@@ -66,7 +85,9 @@ fn set_cla(cla: u8, channel: u8) -> u8 {
 /// ESTKme SKU string, or None if the ATR / product AID / SKU read doesn't match.
 pub fn read_estk_sku(reader_name: &str) -> Option<String> {
     let ctx = card::context().ok()?;
-    let name = card::list_readers().into_iter().find(|r| r.contains(reader_name))?;
+    let name = card::list_readers()
+        .into_iter()
+        .find(|r| r.contains(reader_name))?;
     let mut conn = match Conn::shared(&ctx, &name) {
         Ok(c) => c,
         Err(e) => {
@@ -75,11 +96,17 @@ pub fn read_estk_sku(reader_name: &str) -> Option<String> {
         }
     };
     let c = conn.card();
-    let atr = c.status2_owned().ok().map(|s| s.atr().to_vec()).unwrap_or_default();
+    let atr = c
+        .status2_owned()
+        .ok()
+        .map(|s| s.atr().to_vec())
+        .unwrap_or_default();
     let atr_hex: String = atr.iter().map(|b| format!("{b:02X}")).collect();
     if !is_estkme_atr(&atr) {
-        tracing::info!("ESTKme ATR not matched reader={name} atr={} (single eUICC path)",
-                       if atr_hex.is_empty() { "-" } else { &atr_hex });
+        tracing::info!(
+            "ESTKme ATR not matched reader={name} atr={} (single eUICC path)",
+            if atr_hex.is_empty() { "-" } else { &atr_hex }
+        );
         return None;
     }
     tracing::info!("ESTKme ATR matched reader={name} atr={atr_hex} — reading SKU");
@@ -103,7 +130,8 @@ pub fn read_estk_sku(reader_name: &str) -> Option<String> {
         }
         // INS=00 P1=03: ESTKme "read SKU string". Some cards reject Le=0 with 6Cxx (correct
         // length in SW2): retry with that Le.
-        let (mut resp, mut s1, mut s2) = transmit(c, &[set_cla(0x00, ch), 0x00, 0x03, 0x00, 0x00]).ok()?;
+        let (mut resp, mut s1, mut s2) =
+            transmit(c, &[set_cla(0x00, ch), 0x00, 0x03, 0x00, 0x00]).ok()?;
         if s1 == 0x6C {
             (resp, s1, s2) = transmit(c, &[set_cla(0x00, ch), 0x00, 0x03, 0x00, s2]).ok()?;
         } else if s1 == 0x61 {
@@ -138,14 +166,25 @@ pub fn discover_ses(reader_name: &str) -> Vec<Se> {
 pub fn resolve_se(ses: &[Se], se_id: Option<&str>, aid: Option<&str>) -> Result<Se, String> {
     if let Some(aid) = aid.filter(|a| !a.is_empty()) {
         let n = aid.trim().to_uppercase().replace(' ', "");
-        if let Some(se) = ses.iter().find(|s| s.aid.as_deref().map(str::to_uppercase).as_deref() == Some(n.as_str())) {
+        if let Some(se) = ses
+            .iter()
+            .find(|s| s.aid.as_deref().map(str::to_uppercase).as_deref() == Some(n.as_str()))
+        {
             return Ok(se.clone());
         }
         let id = se_id.filter(|s| !s.is_empty());
-        return Ok(Se { id: id.unwrap_or("custom").into(), label: id.unwrap_or("eUICC").into(), aid: Some(n) });
+        return Ok(Se {
+            id: id.unwrap_or("custom").into(),
+            label: id.unwrap_or("eUICC").into(),
+            aid: Some(n),
+        });
     }
     if let Some(id) = se_id.filter(|s| !s.is_empty()) {
-        return ses.iter().find(|s| s.id == id).cloned().ok_or_else(|| format!("eUICC SE not found: {id}"));
+        return ses
+            .iter()
+            .find(|s| s.id == id)
+            .cloned()
+            .ok_or_else(|| format!("eUICC SE not found: {id}"));
     }
     if ses.len() == 1 {
         return Ok(ses[0].clone());
@@ -160,10 +199,21 @@ mod tests {
     #[test]
     fn se_resolution() {
         let d = dual_ses();
-        assert_eq!(resolve_se(&d, Some("se1"), None).unwrap().aid.as_deref(), Some(ESTK_SE1_AID));
+        assert_eq!(
+            resolve_se(&d, Some("se1"), None).unwrap().aid.as_deref(),
+            Some(ESTK_SE1_AID)
+        );
         assert!(resolve_se(&d, None, None).is_err());
-        assert_eq!(resolve_se(&d, None, Some(&ESTK_SE0_AID.to_lowercase())).unwrap().id, "se0");
-        assert_eq!(resolve_se(&[default_se()], None, None).unwrap().id, "default");
+        assert_eq!(
+            resolve_se(&d, None, Some(&ESTK_SE0_AID.to_lowercase()))
+                .unwrap()
+                .id,
+            "se0"
+        );
+        assert_eq!(
+            resolve_se(&[default_se()], None, None).unwrap().id,
+            "default"
+        );
         assert_eq!(set_cla(0x00, 5), 0x41);
         assert!(is_estkme_atr(ESTKME_ATRS[0]));
         assert!(!is_estkme_atr(&[0x3B, 0x00]));

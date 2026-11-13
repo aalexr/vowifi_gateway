@@ -26,17 +26,26 @@ async fn resolve_reader(reader_index: i64, reader: Option<String>) -> ApiResult<
     if let Some(r) = reader {
         return match rlist.iter().position(|n| *n == r) {
             Some(i) => Ok((r, i)),
-            None => Err(ApiError::new(409, format!("reader '{r}' is no longer connected"))),
+            None => Err(ApiError::new(
+                409,
+                format!("reader '{r}' is no longer connected"),
+            )),
         };
     }
-    match usize::try_from(reader_index).ok().filter(|i| *i < rlist.len()) {
+    match usize::try_from(reader_index)
+        .ok()
+        .filter(|i| *i < rlist.len())
+    {
         Some(i) => Ok((rlist[i].clone(), i)),
         None => Err(ApiError::new(400, "reader index out of range")),
     }
 }
 
 fn body_reader(body: &Body) -> (i64, Option<String>) {
-    (crate::lenient::or(body.get("reader_index"), 0i64), body.str("reader"))
+    (
+        crate::lenient::or(body.get("reader_index"), 0i64),
+        body.str("reader"),
+    )
 }
 
 async fn query_reader(q: &Q) -> ApiResult<(String, usize)> {
@@ -46,16 +55,25 @@ async fn query_reader(q: &Q) -> ApiResult<(String, usize)> {
 /// Refuse LPA while a VoWiFi engine holds the card.
 async fn guard_engine(hub: &AppState, name: &str) -> ApiResult<()> {
     if let Some(inst) = hub.find_running_by_reader(name).await {
-        return Err(ApiError::new(409, format!(
-            "Line {} is running on this reader — stop it before eSIM operations", inst.id)));
+        return Err(ApiError::new(
+            409,
+            format!(
+                "Line {} is running on this reader — stop it before eSIM operations",
+                inst.id
+            ),
+        ));
     }
     Ok(())
 }
 
 /// Which ISD-R to target. Dual-SE cards need se_id or aid when `require`.
-async fn resolve_se(hub: &AppState, name: &str, se_id: Option<String>, aid: Option<String>, require: bool)
-    -> ApiResult<Se>
-{
+async fn resolve_se(
+    hub: &AppState,
+    name: &str,
+    se_id: Option<String>,
+    aid: Option<String>,
+    require: bool,
+) -> ApiResult<Se> {
     guard_engine(hub, name).await?;
     let l = hub.reader_lock(name);
     let ses = {
@@ -70,20 +88,33 @@ async fn resolve_se(hub: &AppState, name: &str, se_id: Option<String>, aid: Opti
 }
 
 fn body_se(body: &Body) -> (Option<String>, Option<String>) {
-    (body.str("se_id").or_else(|| body.str("seId")), body.str("aid"))
+    (
+        body.str("se_id").or_else(|| body.str("seId")),
+        body.str("aid"),
+    )
 }
 
 fn imei_for_reader(hub: &AppState, name: &str, override_: Option<String>) -> String {
-    if let Some(o) = override_.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()) {
+    if let Some(o) = override_
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+    {
         return o;
     }
-    hub.card(name).and_then(|c| c.matched).and_then(|m| config::get_instance(&m))
-        .and_then(|i| i.imei).unwrap_or_default()
+    hub.card(name)
+        .and_then(|c| c.matched)
+        .and_then(|m| config::get_instance(&m))
+        .and_then(|i| i.imei)
+        .unwrap_or_default()
 }
 
 /// Re-probe the USIM identity after a profile enable/disable/download and broadcast it.
 async fn refresh_card(hub: &AppState, name: &str, idx: usize) -> CardEntry {
-    let mut info = hub.card(name).unwrap_or(CardEntry { name: name.into(), present: true, ..Default::default() });
+    let mut info = hub.card(name).unwrap_or(CardEntry {
+        name: name.into(),
+        present: true,
+        ..Default::default()
+    });
     let c = blocking(move || sim::read_card(idx, None)).await;
     info.index = Some(idx);
     info.name = name.to_string();
@@ -133,7 +164,10 @@ pub async fn status(State(hub): State<AppState>) -> ApiResult {
 
 async fn load(hub: &AppState, name: &str, idx: usize) -> ApiResult<Value> {
     let n = name.to_string();
-    run(hub, name, idx, false, async move { Ok::<_, LpaError>(lpa::load_all_ses(&n).await) }).await
+    run(hub, name, idx, false, async move {
+        Ok::<_, LpaError>(lpa::load_all_ses(&n).await)
+    })
+    .await
 }
 
 fn matched(hub: &AppState, name: &str, running: &Option<config::Instance>) -> Value {
@@ -150,7 +184,12 @@ pub async fn chip(State(hub): State<AppState>, q: Q) -> ApiResult {
     let payload = load(&hub, &name, idx).await?;
     let ses = payload["ses"].as_array().cloned().unwrap_or_default();
     // Backward-compatible single-chip view = the first SE that loaded.
-    let primary = ses.iter().find(|s| !s["chip"].is_null()).or(ses.first()).cloned().unwrap_or(Value::Null);
+    let primary = ses
+        .iter()
+        .find(|s| !s["chip"].is_null())
+        .or(ses.first())
+        .cloned()
+        .unwrap_or(Value::Null);
     ok(json!({
         "ok": true, "reader": name, "reader_index": idx, "dual": payload["dual"].as_bool().unwrap_or(false),
         "ses": ses, "chip": primary.get("chip").cloned().unwrap_or(Value::Null),
@@ -165,7 +204,10 @@ pub async fn profiles(State(hub): State<AppState>, q: Q) -> ApiResult {
     let running = hub.find_running_by_reader(&name).await;
     let payload = load(&hub, &name, idx).await?;
     let ses = payload["ses"].as_array().cloned().unwrap_or_default();
-    let flat: Vec<Value> = ses.iter().flat_map(|s| s["profiles"].as_array().cloned().unwrap_or_default()).collect();
+    let flat: Vec<Value> = ses
+        .iter()
+        .flat_map(|s| s["profiles"].as_array().cloned().unwrap_or_default())
+        .collect();
     ok(json!({
         "ok": true, "reader": name, "reader_index": idx, "dual": payload["dual"].as_bool().unwrap_or(false),
         "ses": ses, "profiles": flat, "imei": imei_for_reader(&hub, &name, None),
@@ -174,38 +216,85 @@ pub async fn profiles(State(hub): State<AppState>, q: Q) -> ApiResult {
     }))
 }
 
-pub async fn enable(State(hub): State<AppState>, Path(iccid): Path<String>, body: Body) -> ApiResult {
+pub async fn enable(
+    State(hub): State<AppState>,
+    Path(iccid): Path<String>,
+    body: Body,
+) -> ApiResult {
     let (ri, r) = body_reader(&body);
     let (name, idx) = resolve_reader(ri, r).await?;
     let (se_id, aid) = body_se(&body);
     let se = resolve_se(&hub, &name, se_id, aid, true).await?;
-    run(&hub, &name, idx, true, lpa::profile_enable(&name, &iccid, se.aid.as_deref())).await?;
+    run(
+        &hub,
+        &name,
+        idx,
+        true,
+        lpa::profile_enable(&name, &iccid, se.aid.as_deref()),
+    )
+    .await?;
     ok(json!({"ok": true, "iccid": iccid, "se_id": se.id, "card": hub.card(&name)}))
 }
 
-pub async fn disable(State(hub): State<AppState>, Path(iccid): Path<String>, body: Body) -> ApiResult {
+pub async fn disable(
+    State(hub): State<AppState>,
+    Path(iccid): Path<String>,
+    body: Body,
+) -> ApiResult {
     let (ri, r) = body_reader(&body);
     let (name, idx) = resolve_reader(ri, r).await?;
     let (se_id, aid) = body_se(&body);
     let se = resolve_se(&hub, &name, se_id, aid, true).await?;
-    run(&hub, &name, idx, true, lpa::profile_disable(&name, &iccid, se.aid.as_deref())).await?;
+    run(
+        &hub,
+        &name,
+        idx,
+        true,
+        lpa::profile_disable(&name, &iccid, se.aid.as_deref()),
+    )
+    .await?;
     ok(json!({"ok": true, "iccid": iccid, "se_id": se.id, "card": hub.card(&name)}))
 }
 
-pub async fn delete_profile(State(hub): State<AppState>, Path(iccid): Path<String>, q: Q) -> ApiResult {
+pub async fn delete_profile(
+    State(hub): State<AppState>,
+    Path(iccid): Path<String>,
+    q: Q,
+) -> ApiResult {
     let (name, idx) = query_reader(&q).await?;
     let se = resolve_se(&hub, &name, q_str(&q, "se_id"), q_str(&q, "aid"), true).await?;
-    run(&hub, &name, idx, true, lpa::profile_delete(&name, &iccid, se.aid.as_deref())).await?;
+    run(
+        &hub,
+        &name,
+        idx,
+        true,
+        lpa::profile_delete(&name, &iccid, se.aid.as_deref()),
+    )
+    .await?;
     ok(json!({"ok": true, "iccid": iccid, "se_id": se.id}))
 }
 
-pub async fn nickname(State(hub): State<AppState>, Path(iccid): Path<String>, body: Body) -> ApiResult {
+pub async fn nickname(
+    State(hub): State<AppState>,
+    Path(iccid): Path<String>,
+    body: Body,
+) -> ApiResult {
     let (ri, r) = body_reader(&body);
     let (name, idx) = resolve_reader(ri, r).await?;
     let (se_id, aid) = body_se(&body);
     let se = resolve_se(&hub, &name, se_id, aid, true).await?;
-    let nick = body.get("nickname").map(|v| crate::lenient::string(Some(v))).unwrap_or_default();
-    run(&hub, &name, idx, false, lpa::profile_nickname(&name, &iccid, &nick, se.aid.as_deref())).await?;
+    let nick = body
+        .get("nickname")
+        .map(|v| crate::lenient::string(Some(v)))
+        .unwrap_or_default();
+    run(
+        &hub,
+        &name,
+        idx,
+        false,
+        lpa::profile_nickname(&name, &iccid, &nick, se.aid.as_deref()),
+    )
+    .await?;
     ok(json!({"ok": true, "iccid": iccid, "nickname": nick, "se_id": se.id}))
 }
 
@@ -216,13 +305,19 @@ pub async fn download(State(hub): State<AppState>, body: Body) -> ApiResult {
     let (se_id, aid) = body_se(&body);
     let se = resolve_se(&hub, &name, se_id, aid, true).await?;
     if hub.lpa_busy(&name) {
-        return Err(ApiError::new(409, "an eSIM operation is already running on this reader"));
+        return Err(ApiError::new(
+            409,
+            "an eSIM operation is already running on this reader",
+        ));
     }
     guard_engine(&hub, &name).await?;
     let imei = imei_for_reader(&hub, &name, body.str("imei"));
     // Claim busy before returning so a second concurrent POST can't start another job.
     if !hub.set_lpa_busy(&name) {
-        return Err(ApiError::new(409, "an eSIM operation is already running on this reader"));
+        return Err(ApiError::new(
+            409,
+            "an eSIM operation is already running on this reader",
+        ));
     }
     let args = lpa::DownloadArgs {
         activation_code: body.str("activation_code"),
@@ -235,8 +330,10 @@ pub async fn download(State(hub): State<AppState>, body: Body) -> ApiResult {
     let job_imei = imei.clone();
     tokio::spawn(async move {
         let (hub, name, se) = (job_hub, job_name, job_se);
-        let base = |event: &str| json!({"type": "esim_download", "reader": name, "reader_index": idx,
-                                        "se_id": se.id, "event": event});
+        let base = |event: &str| {
+            json!({"type": "esim_download", "reader": name, "reader_index": idx,
+                                        "se_id": se.id, "event": event})
+        };
         {
             let l = hub.reader_lock(&name);
             let _g = l.lock().await;
@@ -278,7 +375,11 @@ pub async fn download(State(hub): State<AppState>, body: Body) -> ApiResult {
                     // lpac names the failing function in `message` (e.g. es9p_authenticate_client).
                     let mut err = base("error");
                     let step = e.message.trim();
-                    err["step"] = if step.is_empty() { Value::Null } else { json!(step) };
+                    err["step"] = if step.is_empty() {
+                        Value::Null
+                    } else {
+                        json!(step)
+                    };
                     err["error"] = json!(e.user_message());
                     hub.broadcast(err);
                 }
@@ -286,7 +387,9 @@ pub async fn download(State(hub): State<AppState>, body: Body) -> ApiResult {
         }
         hub.clear_lpa_busy(&name);
     });
-    ok(json!({"ok": true, "started": true, "reader": name, "reader_index": idx, "se_id": se.id, "imei": imei}))
+    ok(
+        json!({"ok": true, "started": true, "reader": name, "reader_index": idx, "se_id": se.id, "imei": imei}),
+    )
 }
 
 pub async fn download_cancel(State(hub): State<AppState>, body: Body) -> ApiResult {
@@ -306,10 +409,24 @@ pub async fn discovery(State(hub): State<AppState>, body: Body) -> ApiResult {
     let se = resolve_se(&hub, &name, se_id, aid, true).await?;
     let imei = imei_for_reader(&hub, &name, body.str("imei"));
     let smds = body.str("smds");
-    let entries = run(&hub, &name, idx, false,
-                      lpa::discovery(&name, Some(&imei).filter(|s| !s.is_empty()).map(|s| s.as_str()),
-                                     smds.as_deref(), se.aid.as_deref())).await?;
-    let entries = if entries.is_null() { json!([]) } else { entries };
+    let entries = run(
+        &hub,
+        &name,
+        idx,
+        false,
+        lpa::discovery(
+            &name,
+            Some(&imei).filter(|s| !s.is_empty()).map(|s| s.as_str()),
+            smds.as_deref(),
+            se.aid.as_deref(),
+        ),
+    )
+    .await?;
+    let entries = if entries.is_null() {
+        json!([])
+    } else {
+        entries
+    };
     ok(json!({"ok": true, "reader": name, "se_id": se.id, "entries": entries, "imei": imei}))
 }
 
@@ -317,9 +434,14 @@ pub async fn notifications(State(hub): State<AppState>, q: Q) -> ApiResult {
     let (name, idx) = query_reader(&q).await?;
     let payload = load(&hub, &name, idx).await?;
     let ses = payload["ses"].as_array().cloned().unwrap_or_default();
-    let flat: Vec<Value> = ses.iter().flat_map(|s| s["notifications"].as_array().cloned().unwrap_or_default()).collect();
-    ok(json!({"ok": true, "reader": name, "dual": payload["dual"].as_bool().unwrap_or(false),
-              "ses": ses, "notifications": flat}))
+    let flat: Vec<Value> = ses
+        .iter()
+        .flat_map(|s| s["notifications"].as_array().cloned().unwrap_or_default())
+        .collect();
+    ok(
+        json!({"ok": true, "reader": name, "dual": payload["dual"].as_bool().unwrap_or(false),
+              "ses": ses, "notifications": flat}),
+    )
 }
 
 pub async fn notifications_process(State(hub): State<AppState>, body: Body) -> ApiResult {
@@ -327,16 +449,42 @@ pub async fn notifications_process(State(hub): State<AppState>, body: Body) -> A
     let (name, idx) = resolve_reader(ri, r).await?;
     let (se_id, aid) = body_se(&body);
     let se = resolve_se(&hub, &name, se_id, aid, true).await?;
-    let seq: Option<i64> = body.get("seq").map(|v| crate::lenient::FromLenient::from_lenient(v)
-        .ok_or_else(|| ApiError::new(422, "seq must be an integer"))).transpose()?;
-    let remove = body.get("remove").map(|v| crate::lenient::truthy(Some(v))).unwrap_or(true);
-    run(&hub, &name, idx, false, lpa::notification_process(&name, seq, remove, se.aid.as_deref())).await?;
+    let seq: Option<i64> = body
+        .get("seq")
+        .map(|v| {
+            crate::lenient::FromLenient::from_lenient(v)
+                .ok_or_else(|| ApiError::new(422, "seq must be an integer"))
+        })
+        .transpose()?;
+    let remove = body
+        .get("remove")
+        .map(|v| crate::lenient::truthy(Some(v)))
+        .unwrap_or(true);
+    run(
+        &hub,
+        &name,
+        idx,
+        false,
+        lpa::notification_process(&name, seq, remove, se.aid.as_deref()),
+    )
+    .await?;
     ok(json!({"ok": true, "se_id": se.id}))
 }
 
-pub async fn notification_remove(State(hub): State<AppState>, Path(seq): Path<i64>, q: Q) -> ApiResult {
+pub async fn notification_remove(
+    State(hub): State<AppState>,
+    Path(seq): Path<i64>,
+    q: Q,
+) -> ApiResult {
     let (name, idx) = query_reader(&q).await?;
     let se = resolve_se(&hub, &name, q_str(&q, "se_id"), q_str(&q, "aid"), true).await?;
-    run(&hub, &name, idx, false, lpa::notification_remove(&name, seq, se.aid.as_deref())).await?;
+    run(
+        &hub,
+        &name,
+        idx,
+        false,
+        lpa::notification_remove(&name, seq, se.aid.as_deref()),
+    )
+    .await?;
     ok(json!({"ok": true, "seq": seq, "se_id": se.id}))
 }

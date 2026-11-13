@@ -27,8 +27,13 @@ fn names(ctx: &Context) -> Result<Vec<CString>, pcsc::Error> {
 
 /// Reader names in PC/SC order (empty on any PC/SC error).
 pub fn list_readers() -> Vec<String> {
-    context().and_then(|c| names(&c))
-        .map(|v| v.into_iter().map(|n| n.to_string_lossy().into_owned()).collect())
+    context()
+        .and_then(|c| names(&c))
+        .map(|v| {
+            v.into_iter()
+                .map(|n| n.to_string_lossy().into_owned())
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -45,16 +50,24 @@ pub fn reader_states() -> Option<Vec<ReaderPresence>> {
     if readers.is_empty() {
         return Some(Vec::new());
     }
-    let mut rs: Vec<ReaderState> = readers.iter().map(|n| ReaderState::new(n.clone(), pcsc::State::UNAWARE)).collect();
+    let mut rs: Vec<ReaderState> = readers
+        .iter()
+        .map(|n| ReaderState::new(n.clone(), pcsc::State::UNAWARE))
+        .collect();
     ctx.get_status_change(Duration::ZERO, &mut rs).ok()?;
-    Some(rs.iter().enumerate().map(|(i, r)| {
-        let ev = r.event_state();
-        ReaderPresence {
-            index: i,
-            name: r.name().to_string_lossy().into_owned(),
-            present: ev.contains(pcsc::State::PRESENT) && !ev.contains(pcsc::State::EMPTY),
-        }
-    }).collect())
+    Some(
+        rs.iter()
+            .enumerate()
+            .map(|(i, r)| {
+                let ev = r.event_state();
+                ReaderPresence {
+                    index: i,
+                    name: r.name().to_string_lossy().into_owned(),
+                    present: ev.contains(pcsc::State::PRESENT) && !ev.contains(pcsc::State::EMPTY),
+                }
+            })
+            .collect(),
+    )
 }
 
 /// Block until a reader is plugged/unplugged or a card moves, or until `timeout`.
@@ -68,7 +81,10 @@ pub fn wait_for_change(timeout: Duration) {
     };
     let mut readers = names(&ctx).unwrap_or_default();
     readers.push(pcsc::PNP_NOTIFICATION().to_owned());
-    let mut rs: Vec<ReaderState> = readers.into_iter().map(|n| ReaderState::new(n, pcsc::State::UNAWARE)).collect();
+    let mut rs: Vec<ReaderState> = readers
+        .into_iter()
+        .map(|n| ReaderState::new(n, pcsc::State::UNAWARE))
+        .collect();
     // The first call resolves UNAWARE into the current state. With zero real readers pcsc-lite
     // reports nothing CHANGED for the PnP reader and the 0-timeout call returns TIMEOUT; the
     // states are still the resolved snapshot, so both codes proceed to the blocking wait.
@@ -82,13 +98,17 @@ pub fn wait_for_change(timeout: Duration) {
     // ...the second call blocks until any state differs from that snapshot. The snapshot keeps
     // the event counter (high word: card events, or the reader count for the PnP reader) but
     // must drop CHANGED, or pcsc-lite would report a change immediately.
-    let mut rs: Vec<ReaderState> = rs.iter().map(|r| {
-        // DWORD is u64 on 64-bit Linux and u32 on 32-bit ARM: convert, don't assume.
-        #[allow(clippy::useless_conversion)] // a no-op on 64-bit only
-        let raw = r.event_state().bits() | (u64::from(r.event_count()) << 16).try_into().unwrap_or(0);
-        let snapshot = pcsc::State::from_bits_retain(raw) - pcsc::State::CHANGED;
-        ReaderState::new(r.name().to_owned(), snapshot)
-    }).collect();
+    let mut rs: Vec<ReaderState> = rs
+        .iter()
+        .map(|r| {
+            // DWORD is u64 on 64-bit Linux and u32 on 32-bit ARM: convert, don't assume.
+            #[allow(clippy::useless_conversion)] // a no-op on 64-bit only
+            let raw =
+                r.event_state().bits() | (u64::from(r.event_count()) << 16).try_into().unwrap_or(0);
+            let snapshot = pcsc::State::from_bits_retain(raw) - pcsc::State::CHANGED;
+            ReaderState::new(r.name().to_owned(), snapshot)
+        })
+        .collect();
     let _ = ctx.get_status_change(timeout, &mut rs);
 }
 
@@ -108,13 +128,19 @@ impl Conn {
     pub fn shared(ctx: &Context, name: &str) -> Result<Conn, pcsc::Error> {
         let c = CString::new(name).map_err(|_| pcsc::Error::UnknownReader)?;
         let card = ctx.connect(&c, ShareMode::Shared, Protocols::ANY)?;
-        Ok(Conn { card: Some(card), disposition: Disposition::UnpowerCard })
+        Ok(Conn {
+            card: Some(card),
+            disposition: Disposition::UnpowerCard,
+        })
     }
 
     pub fn direct(ctx: &Context, name: &str) -> Result<Conn, pcsc::Error> {
         let c = CString::new(name).map_err(|_| pcsc::Error::UnknownReader)?;
         let card = ctx.connect(&c, ShareMode::Direct, Protocols::T0 | Protocols::T1)?;
-        Ok(Conn { card: Some(card), disposition: Disposition::LeaveCard })
+        Ok(Conn {
+            card: Some(card),
+            disposition: Disposition::LeaveCard,
+        })
     }
 
     pub fn card(&mut self) -> &mut pcsc::Card {
@@ -125,9 +151,10 @@ impl Conn {
 impl Drop for Conn {
     fn drop(&mut self) {
         if let Some(card) = self.card.take()
-            && let Err((card, _)) = card.disconnect(self.disposition) {
-                std::mem::forget(card);
-            }
+            && let Err((card, _)) = card.disconnect(self.disposition)
+        {
+            std::mem::forget(card);
+        }
     }
 }
 
@@ -157,5 +184,7 @@ pub fn with_transaction<T>(card: &mut pcsc::Card, f: impl FnOnce(&pcsc::Card) ->
 
 pub fn hx(s: &str) -> Vec<u8> {
     let s: String = s.chars().filter(|c| !c.is_whitespace()).collect();
-    (0..s.len() / 2).filter_map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).ok()).collect()
+    (0..s.len() / 2)
+        .filter_map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).ok())
+        .collect()
 }
