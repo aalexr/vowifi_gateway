@@ -57,14 +57,19 @@ fn init_logging() {
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
     let journald = std::env::var_os("JOURNAL_STREAM")
         .and_then(|_| tracing_journald::layer().ok())
-        .map(|l| l.with_field_prefix(None).with_syslog_identifier("vowifi-control".into()));
+        .map(|l| {
+            l.with_field_prefix(None)
+                .with_syslog_identifier("vowifi-control".into())
+        });
     let registry = tracing_subscriber::registry().with(filter);
     match journald {
         Some(layer) => registry.with(layer).init(),
         None => registry
-            .with(tracing_subscriber::fmt::layer()
-                .with_ansi(std::io::stderr().is_terminal())
-                .with_writer(std::io::stderr))
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_ansi(std::io::stderr().is_terminal())
+                    .with_writer(std::io::stderr),
+            )
             .init(),
     }
 }
@@ -87,32 +92,47 @@ fn main() -> anyhow::Result<()> {
             println!("usage: vowifi-control [serve | logout-all | session-token]");
             return Ok(());
         }
-        Some(other) => anyhow::bail!("unknown command {other:?} (usage: vowifi-control [serve | logout-all | session-token])"),
+        Some(other) => anyhow::bail!(
+            "unknown command {other:?} (usage: vowifi-control [serve | logout-all | session-token])"
+        ),
     }
-    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
     rt.block_on(serve())
 }
 
 async fn serve() -> anyhow::Result<()> {
-    rustls::crypto::ring::default_provider().install_default()
+    rustls::crypto::ring::default_provider()
+        .install_default()
         .map_err(|_| anyhow::anyhow!("rustls crypto provider already installed"))?;
     let settings = config::get_settings();
     let port: u16 = match std::env::var("VOWIFI_HTTP_PORT") {
         Ok(p) if !p.is_empty() => p.trim().parse().context("VOWIFI_HTTP_PORT")?,
         _ => settings.http_port,
     };
-    let bind = std::env::var("VOWIFI_BIND").ok().filter(|s| !s.trim().is_empty())
+    let bind = std::env::var("VOWIFI_BIND")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| settings.bind.clone());
 
     store::init().context("SQLite store")?;
     let (cert, key) = server::tls_pair(&settings)?;
-    let tls = axum_server::tls_rustls::RustlsConfig::from_pem_file(&cert, &key).await
+    let tls = axum_server::tls_rustls::RustlsConfig::from_pem_file(&cert, &key)
+        .await
         .with_context(|| format!("load TLS {} / {}", cert.display(), key.display()))?;
     let listener = server::listen_socket(&bind, port)?;
     let local = listener.local_addr()?;
     let dual = local.ip().is_ipv6() && local.ip().is_unspecified();
-    let host = if local.ip().is_ipv6() { format!("[{}]", local.ip()) } else { local.ip().to_string() };
-    tracing::info!("serving https://{host}:{port}{}", if dual { " (IPv6 + IPv4)" } else { "" });
+    let host = if local.ip().is_ipv6() {
+        format!("[{}]", local.ip())
+    } else {
+        local.ip().to_string()
+    };
+    tracing::info!(
+        "serving https://{host}:{port}{}",
+        if dual { " (IPv6 + IPv4)" } else { "" }
+    );
 
     let hub = hub::Hub::new();
     let poller = tokio::spawn(hub.clone().status_poller());
@@ -159,8 +179,14 @@ mod live_tests {
         println!("running: {}", engine::is_running(&id).await);
         let logs = engine::logs(&id, 3, None).await;
         println!("logs tail: {logs:?}");
-        println!("exec: {:?}", engine::exec_cli(&id, "core show uptime").await);
-        println!("missing container running: {}", engine::is_running("does-not-exist").await);
+        println!(
+            "exec: {:?}",
+            engine::exec_cli(&id, "core show uptime").await
+        );
+        println!(
+            "missing container running: {}",
+            engine::is_running("does-not-exist").await
+        );
     }
 
     #[tokio::test]
@@ -168,8 +194,15 @@ mod live_tests {
     async fn live_ami_readonly() {
         let inst = config::get_instance(&iid()).expect("instance");
         let (host, port) = engine::ami_endpoint(&inst);
-        let c = ami::AmiClient::new(&inst.id, &host, port, inst.ami_user(),
-                                    inst.ami_secret.as_deref().unwrap_or(""), &inst.realm(), inst.msisdn());
+        let c = ami::AmiClient::new(
+            &inst.id,
+            &host,
+            port,
+            inst.ami_user(),
+            inst.ami_secret.as_deref().unwrap_or(""),
+            &inst.realm(),
+            inst.msisdn(),
+        );
         c.connect().await;
         println!("connected: {}", c.connected());
         println!("registration: {}", c.registration_state().await);

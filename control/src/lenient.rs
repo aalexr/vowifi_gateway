@@ -37,7 +37,9 @@ impl FromLenient for i64 {
             Value::Number(n) => n.as_i64().or_else(|| n.as_f64().map(|f| f as i64)),
             Value::String(s) => {
                 let t = s.trim();
-                t.parse::<i64>().ok().or_else(|| t.parse::<f64>().ok().map(|f| f as i64))
+                t.parse::<i64>()
+                    .ok()
+                    .or_else(|| t.parse::<f64>().ok().map(|f| f as i64))
             }
             Value::Bool(b) => Some(*b as i64),
             _ => None,
@@ -72,9 +74,10 @@ impl FromLenient for bool {
         match v {
             Value::Bool(b) => Some(*b),
             Value::Number(n) => Some(n.as_f64().map(|f| f != 0.0).unwrap_or(false)),
-            Value::String(s) => {
-                Some(matches!(s.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
-            }
+            Value::String(s) => Some(matches!(
+                s.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )),
             _ => None,
         }
     }

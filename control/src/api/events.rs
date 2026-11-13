@@ -52,7 +52,10 @@ fn rp_cause(c: u8) -> Option<&'static str> {
 enum Verdict {
     Delivered,
     /// The carrier refused it: an RP-ERROR (code None) or a SIP error response (code Some).
-    Failed { reason: String, code: Option<u16> },
+    Failed {
+        reason: String,
+        code: Option<u16>,
+    },
     /// It never reached the carrier: no SIP response, or IMS not registered.
     NotSent(String),
     Unknown,
@@ -65,14 +68,19 @@ fn sms_verdict(reports: &[SmsReport]) -> Verdict {
         match r.kind.as_str() {
             "error" => {
                 let reason = match r.rp_cause {
-                    Some(c) => rp_cause(c).map(String::from).unwrap_or_else(|| format!("cause {c}")),
+                    Some(c) => rp_cause(c)
+                        .map(String::from)
+                        .unwrap_or_else(|| format!("cause {c}")),
                     None => "delivery failed".into(),
                 };
                 return Verdict::Failed { reason, code: None };
             }
             "sip" => {
                 return match r.sip_status {
-                    Some(code) if code >= 300 => Verdict::Failed { reason: r.reason.clone(), code: Some(code) },
+                    Some(code) if code >= 300 => Verdict::Failed {
+                        reason: r.reason.clone(),
+                        code: Some(code),
+                    },
                     _ if r.reason == "not registered" => {
                         Verdict::NotSent("the line is not registered with the IMS".into())
                     }
@@ -82,7 +90,11 @@ fn sms_verdict(reports: &[SmsReport]) -> Verdict {
             _ => {}
         }
     }
-    if reports.iter().any(|r| r.kind == "ack") { Verdict::Delivered } else { Verdict::Unknown }
+    if reports.iter().any(|r| r.kind == "ack") {
+        Verdict::Delivered
+    } else {
+        Verdict::Unknown
+    }
 }
 
 /// Resolve an MO SMS's REAL outcome after the IMS accepted it (stored as 'sent'): wait for the
@@ -94,9 +106,16 @@ pub async fn watch_sms_delivery(hub: AppState, iid: String, mid: i64, since: i64
         let (status, err) = match sms_verdict(&hub.sms_reports_since(&iid, since)) {
             Verdict::Delivered => ("delivered", None),
             Verdict::Failed { reason, code } => {
-                let reason = if reason.is_empty() { "unknown".to_string() } else { reason };
+                let reason = if reason.is_empty() {
+                    "unknown".to_string()
+                } else {
+                    reason
+                };
                 let sip = code.map(|c| format!(" (SIP {c})")).unwrap_or_default();
-                ("failed", Some(format!("Carrier rejected the SMS: {reason}{sip}")))
+                (
+                    "failed",
+                    Some(format!("Carrier rejected the SMS: {reason}{sip}")),
+                )
             }
             Verdict::NotSent(why) => ("failed", Some(format!("SMS not sent: {why}"))),
             Verdict::Unknown => {
@@ -107,7 +126,8 @@ pub async fn watch_sms_delivery(hub: AppState, iid: String, mid: i64, since: i64
             }
         };
         let e = err.clone();
-        if let Err(e) = blocking(move || store::set_message_status(mid, status, e.as_deref())).await {
+        if let Err(e) = blocking(move || store::set_message_status(mid, status, e.as_deref())).await
+        {
             tracing::warn!(instance = %iid, "sms {mid}: status update failed: {e:#}");
         }
         hub.broadcast(json!({"type": "sms", "instance": iid,
@@ -125,10 +145,15 @@ fn call_disposition(dialstatus: &str, cause: i64, direction: &str) -> String {
         return "answered".into();
     }
     if direction == "in" {
-        return if dialstatus == "BUSY" || cause == 21 { "rejected" } else { "missed" }.into();
+        return if dialstatus == "BUSY" || cause == 21 {
+            "rejected"
+        } else {
+            "missed"
+        }
+        .into();
     }
     match (dialstatus, cause) {
-        (_, 21) => "rejected".into(),             // 603 Decline
+        (_, 21) => "rejected".into(), // 603 Decline
         ("BUSY", _) | (_, 17) => "busy".into(),
         ("NOANSWER", _) | (_, 19) => "no answer".into(),
         ("CANCEL", _) => "cancelled".into(),
@@ -155,19 +180,29 @@ fn arg(args: &[Value], i: usize) -> String {
 
 fn int_arg(args: &[Value], i: usize) -> i64 {
     let s = arg(args, i);
-    if !s.is_empty() && s.chars().all(|c| c.is_ascii_digit()) { s.parse().unwrap_or(0) } else { 0 }
+    if !s.is_empty() && s.chars().all(|c| c.is_ascii_digit()) {
+        s.parse().unwrap_or(0)
+    } else {
+        0
+    }
 }
 
 /// notify.py callbacks from the engines.
 pub async fn engine_event(State(hub): State<AppState>, body: Body) -> ApiResult {
     let iid = crate::lenient::string(body.get("instance"));
     let event = crate::lenient::string(body.get("event"));
-    let args: Vec<Value> = body.get("args").and_then(Value::as_array).cloned().unwrap_or_default();
+    let args: Vec<Value> = body
+        .get("args")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
     match event.as_str() {
         "sms_in" if args.len() >= 2 => {
             let raw = arg(&args, 1);
-            let text = base64::engine::general_purpose::STANDARD.decode(raw.trim())
-                .map(|b| String::from_utf8_lossy(&b).into_owned()).unwrap_or(raw);
+            let text = base64::engine::general_purpose::STANDARD
+                .decode(raw.trim())
+                .map(|b| String::from_utf8_lossy(&b).into_owned())
+                .unwrap_or(raw);
             let sender = arg(&args, 0);
             // An inbound MESSAGE without human-readable text is IMS-internal signalling (the
             // IP-SM-GW/SMSC's non-user MESSAGEs from a bare private-IP URI) or a binary/OTA SIM
@@ -182,15 +217,23 @@ pub async fn engine_event(State(hub): State<AppState>, body: Body) -> ApiResult 
             // into one row that fills in as parts land, push once when complete.
             if let Some((r, total, seq)) = parse_sms_concat(&arg(&args, 2)) {
                 let (i, s, t) = (iid.clone(), sender.clone(), text.clone());
-                let part = blocking(move || store::add_message_part(&i, &s, r, total, seq, &t)).await?;
+                let part =
+                    blocking(move || store::add_message_part(&i, &s, r, total, seq, &t)).await?;
                 if !part.changed {
                     tracing::info!(instance = %iid, "ignoring re-delivered SMS part {seq}/{total} (ref {r}) from {sender:?}");
                     return ok(json!({"ok": true, "duplicate": true}));
                 }
-                hub.broadcast(json!({"type": "sms", "instance": iid, "message": part.message,
-                                     "update": !part.created}));
+                hub.broadcast(
+                    json!({"type": "sms", "instance": iid, "message": part.message,
+                                     "update": !part.created}),
+                );
                 if part.complete {
-                    hub.dispatch_push(push::EV_INCOMING_SMS, &iid, &sender, Some(part.message.body.clone()));
+                    hub.dispatch_push(
+                        push::EV_INCOMING_SMS,
+                        &iid,
+                        &sender,
+                        Some(part.message.body.clone()),
+                    );
                 }
                 return ok(json!({"ok": true}));
             }
@@ -207,8 +250,10 @@ pub async fn engine_event(State(hub): State<AppState>, body: Body) -> ApiResult 
                 return ok(json!({"ok": false, "error": "unknown report kind"}));
             }
             let num = |i: usize| arg(&args, i).trim().parse::<i64>().ok();
-            let reason = base64::engine::general_purpose::STANDARD.decode(arg(&args, 4).trim())
-                .map(|b| String::from_utf8_lossy(&b).trim().to_string()).unwrap_or_default();
+            let reason = base64::engine::general_purpose::STANDARD
+                .decode(arg(&args, 4).trim())
+                .map(|b| String::from_utf8_lossy(&b).trim().to_string())
+                .unwrap_or_default();
             let report = SmsReport {
                 ts: now(),
                 rp_cause: num(2).and_then(|c| u8::try_from(c).ok()),
@@ -233,7 +278,11 @@ pub async fn engine_event(State(hub): State<AppState>, body: Body) -> ApiResult 
             // number, or ~4 s if the caller really withheld it.
             let age = now() - rec.start_ts;
             if (!peer.is_empty() || age >= 4) && hub.first_push_for_call(rec.id) {
-                let who = if rec.peer.is_empty() { peer } else { rec.peer.clone() };
+                let who = if rec.peer.is_empty() {
+                    peer
+                } else {
+                    rec.peer.clone()
+                };
                 hub.dispatch_push(push::EV_INCOMING_CALL, &iid, &who, None);
             }
         }
@@ -248,24 +297,46 @@ pub async fn engine_event(State(hub): State<AppState>, body: Body) -> ApiResult 
             let first = arg(&args, 0);
             // An optional 5th arg (base64) carries the call's SDP codecs (store::CallMedia).
             let (direction, to, dialstatus, cause) = if first == "in" || first == "out" {
-                (first, arg(&args, 1), arg(&args, 2).to_uppercase(), int_arg(&args, 3))
+                (
+                    first,
+                    arg(&args, 1),
+                    arg(&args, 2).to_uppercase(),
+                    int_arg(&args, 3),
+                )
             } else {
-                ("out".to_string(), first, arg(&args, 1).to_uppercase(), int_arg(&args, 2))
+                (
+                    "out".to_string(),
+                    first,
+                    arg(&args, 1).to_uppercase(),
+                    int_arg(&args, 2),
+                )
             };
-            let media = base64::engine::general_purpose::STANDARD.decode(arg(&args, 4).trim())
+            let media = base64::engine::general_purpose::STANDARD
+                .decode(arg(&args, 4).trim())
                 .map(|b| store::CallMedia::parse(&String::from_utf8_lossy(&b)))
                 .unwrap_or_default();
             if !media.is_empty() {
                 // On an outgoing call our SDP is read after the answer, when pjmedia has
                 // narrowed the offer to the negotiated codecs: call it that, not "ours".
-                let ours = if direction == "in" { "our answer" } else { "negotiated" };
+                let ours = if direction == "in" {
+                    "our answer"
+                } else {
+                    "negotiated"
+                };
                 tracing::info!(instance = %iid, "call {direction} {}: carrier SDP [{}] b=[{}], {ours} [{}], client [{}]",
                                if to.is_empty() { "(anonymous)" } else { to.as_str() },
                                media.carrier_sdp, media.carrier_bw, media.our_sdp, media.client_sdp);
             }
             let disp = call_disposition(&dialstatus, cause, &direction);
-            let (i, d, t, s, m) = (iid.clone(), direction.clone(), to.clone(), disp.clone(), media.clone());
-            let mut rec = blocking(move || store::update_last_call(&i, &d, Some(&t), &s, &m)).await?;
+            let (i, d, t, s, m) = (
+                iid.clone(),
+                direction.clone(),
+                to.clone(),
+                disp.clone(),
+                media.clone(),
+            );
+            let mut rec =
+                blocking(move || store::update_last_call(&i, &d, Some(&t), &s, &m)).await?;
             if rec.is_none() && !to.is_empty() {
                 // The exact peer matched no open record ('h' lost the number to a masquerade,
                 // or call_out stored another form): finalize the latest open call of this
@@ -284,29 +355,47 @@ pub async fn engine_event(State(hub): State<AppState>, body: Body) -> ApiResult 
             let resolved = arg(&args, 0).trim().to_lowercase();
             if ["v6", "v4", "dual"].contains(&resolved.as_str())
                 && let Some(inst) = config::get_instance(&iid)
-                    && config::normalize_cp_mode(inst.cp_mode.as_deref().unwrap_or("")) == "auto" {
-                        let mut patch = Map::new();
-                        patch.insert("id".into(), json!(iid));
-                        patch.insert("cp_mode".into(), json!(resolved));
-                        patch.insert("cp_mode_source".into(), json!("auto"));
-                        match blocking(move || config::upsert_instance(patch)).await {
-                            Ok(_) => tracing::info!(instance = %iid, "instance {iid}: CP auto-discovery resolved to {resolved} (repinned)"),
-                            Err(e) => tracing::warn!(instance = %iid, "cp_mode_resolved persist failed for {iid}: {e}"),
-                        }
+                && config::normalize_cp_mode(inst.cp_mode.as_deref().unwrap_or("")) == "auto"
+            {
+                let mut patch = Map::new();
+                patch.insert("id".into(), json!(iid));
+                patch.insert("cp_mode".into(), json!(resolved));
+                patch.insert("cp_mode_source".into(), json!("auto"));
+                match blocking(move || config::upsert_instance(patch)).await {
+                    Ok(_) => {
+                        tracing::info!(instance = %iid, "instance {iid}: CP auto-discovery resolved to {resolved} (repinned)")
                     }
+                    Err(e) => {
+                        tracing::warn!(instance = %iid, "cp_mode_resolved persist failed for {iid}: {e}")
+                    }
+                }
+            }
             hub.broadcast(json!({"type": "engine", "instance": iid, "event": event, "args": args}));
         }
-        _ => hub.broadcast(json!({"type": "engine", "instance": iid, "event": event, "args": args})),
+        _ => {
+            hub.broadcast(json!({"type": "engine", "instance": iid, "event": event, "args": args}))
+        }
     }
     // Real-time: any tunnel/registration transition triggers an immediate status push.
-    if ["tunnel_up", "tunnel_down", "pcscf", "registered", "unregistered"].contains(&event.as_str()) {
+    if [
+        "tunnel_up",
+        "tunnel_down",
+        "pcscf",
+        "registered",
+        "unregistered",
+    ]
+    .contains(&event.as_str())
+    {
         hub.spawn_push_status(&iid);
     }
     ok(json!({"ok": true}))
 }
 
 fn now() -> i64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -316,22 +405,51 @@ mod tests {
     #[test]
     fn sms_verdicts() {
         let r = |kind: &str, rp_cause, sip_status, reason: &str| SmsReport {
-            ts: 0, kind: kind.into(), rp_cause, sip_status, reason: reason.into() };
+            ts: 0,
+            kind: kind.into(),
+            rp_cause,
+            sip_status,
+            reason: reason.into(),
+        };
         assert_eq!(sms_verdict(&[]), Verdict::Unknown);
         assert_eq!(sms_verdict(&[r("ack", None, None, "")]), Verdict::Delivered);
-        assert_eq!(sms_verdict(&[r("error", Some(38), None, "")]),
-                   Verdict::Failed { reason: "network out of order".into(), code: None });
-        assert_eq!(sms_verdict(&[r("error", Some(200), None, "")]),
-                   Verdict::Failed { reason: "cause 200".into(), code: None });
+        assert_eq!(
+            sms_verdict(&[r("error", Some(38), None, "")]),
+            Verdict::Failed {
+                reason: "network out of order".into(),
+                code: None
+            }
+        );
+        assert_eq!(
+            sms_verdict(&[r("error", Some(200), None, "")]),
+            Verdict::Failed {
+                reason: "cause 200".into(),
+                code: None
+            }
+        );
         // One failed part fails a multi-part SMS, whatever the order.
-        assert_eq!(sms_verdict(&[r("ack", None, None, ""), r("error", None, None, "")]),
-                   Verdict::Failed { reason: "delivery failed".into(), code: None });
-        assert_eq!(sms_verdict(&[r("sip", None, Some(403), "Forbidden")]),
-                   Verdict::Failed { reason: "Forbidden".into(), code: Some(403) });
-        assert_eq!(sms_verdict(&[r("sip", None, Some(0), "not registered")]),
-                   Verdict::NotSent("the line is not registered with the IMS".into()));
-        assert_eq!(sms_verdict(&[r("sip", None, Some(0), "")]),
-                   Verdict::NotSent("no response from the IMS".into()));
+        assert_eq!(
+            sms_verdict(&[r("ack", None, None, ""), r("error", None, None, "")]),
+            Verdict::Failed {
+                reason: "delivery failed".into(),
+                code: None
+            }
+        );
+        assert_eq!(
+            sms_verdict(&[r("sip", None, Some(403), "Forbidden")]),
+            Verdict::Failed {
+                reason: "Forbidden".into(),
+                code: Some(403)
+            }
+        );
+        assert_eq!(
+            sms_verdict(&[r("sip", None, Some(0), "not registered")]),
+            Verdict::NotSent("the line is not registered with the IMS".into())
+        );
+        assert_eq!(
+            sms_verdict(&[r("sip", None, Some(0), "")]),
+            Verdict::NotSent("no response from the IMS".into())
+        );
     }
 
     #[test]

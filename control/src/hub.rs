@@ -61,7 +61,12 @@ pub struct CardEntry {
 
 impl CardEntry {
     fn blank(index: usize, name: &str, present: bool) -> Self {
-        CardEntry { index: Some(index), name: name.into(), present, ..Default::default() }
+        CardEntry {
+            index: Some(index),
+            name: name.into(),
+            present,
+            ..Default::default()
+        }
     }
 
     /// Copy the probed identity of a fresh card read into this entry.
@@ -116,7 +121,11 @@ pub enum WsOut {
 #[derive(Debug, Clone)]
 pub enum Preflight {
     Ok,
-    Fail { code: &'static str, clear: bool, tries: Option<u8> },
+    Fail {
+        code: &'static str,
+        clear: bool,
+        tries: Option<u8>,
+    },
 }
 
 /// Reason codes that are likely transient network/DNS problems: after freeze + stop the
@@ -170,7 +179,8 @@ impl Hub {
 
     /// Reports for `iid` that arrived at or after `since` (unix seconds), oldest first.
     pub fn sms_reports_since(&self, iid: &str, since: i64) -> Vec<SmsReport> {
-        lock(&self.sms_reports).get(iid)
+        lock(&self.sms_reports)
+            .get(iid)
             .map(|q| q.iter().filter(|r| r.ts >= since).cloned().collect())
             .unwrap_or_default()
     }
@@ -202,7 +212,10 @@ impl Hub {
 
     // ---------------------------------------------------------------------------- readers
     pub fn reader_lock(&self, name: &str) -> Arc<tokio::sync::Mutex<()>> {
-        lock(&self.reader_locks).entry(name.to_string()).or_default().clone()
+        lock(&self.reader_locks)
+            .entry(name.to_string())
+            .or_default()
+            .clone()
     }
 
     pub fn lpa_busy(&self, name: &str) -> bool {
@@ -233,8 +246,13 @@ impl Hub {
     /// Reader/card entries sorted by current PC/SC index (the UI display order).
     pub fn cards_list(&self) -> Vec<CardEntry> {
         let mut v: Vec<CardEntry> = lock(&self.cards).values().cloned().collect();
-        v.sort_by(|a, b| (a.index.is_none(), a.index.unwrap_or(0), &a.name)
-            .cmp(&(b.index.is_none(), b.index.unwrap_or(0), &b.name)));
+        v.sort_by(|a, b| {
+            (a.index.is_none(), a.index.unwrap_or(0), &a.name).cmp(&(
+                b.index.is_none(),
+                b.index.unwrap_or(0),
+                &b.name,
+            ))
+        });
         v
     }
 
@@ -244,7 +262,10 @@ impl Hub {
         let instances = config::list_instances();
         for c in lock(&self.cards).values_mut() {
             if c.present && c.iccid.as_deref().is_some_and(|s| !s.is_empty()) {
-                c.matched = instances.iter().find(|i| i.iccid == c.iccid).map(|i| i.id.clone());
+                c.matched = instances
+                    .iter()
+                    .find(|i| i.iccid == c.iccid)
+                    .map(|i| i.id.clone());
             }
         }
     }
@@ -254,7 +275,10 @@ impl Hub {
     /// old endpoint. Serialised per instance so concurrent callers can't orphan each other's
     /// client.
     pub async fn ami_for(&self, iid: &str) -> Option<Arc<AmiClient>> {
-        let l = lock(&self.ami_locks).entry(iid.to_string()).or_default().clone();
+        let l = lock(&self.ami_locks)
+            .entry(iid.to_string())
+            .or_default()
+            .clone();
         let _g = l.lock().await;
         let inst = config::get_instance(iid);
         let running = match &inst {
@@ -265,16 +289,29 @@ impl Hub {
         {
             let map = self.ami.lock().await;
             if let (Some(c), Some((host, port))) = (map.get(iid), &ep)
-                && c.connected() && &c.host == host && c.port == *port {
-                    return Some(c.clone());
-                }
+                && c.connected()
+                && &c.host == host
+                && c.port == *port
+            {
+                return Some(c.clone());
+            }
         }
         self.drop_ami(iid).await;
         let (inst, (host, port)) = (inst?, ep?);
-        let client = AmiClient::new(iid, &host, port, inst.ami_user(), inst.ami_secret.as_deref().unwrap_or(""),
-                                    &inst.realm(), inst.msisdn());
+        let client = AmiClient::new(
+            iid,
+            &host,
+            port,
+            inst.ami_user(),
+            inst.ami_secret.as_deref().unwrap_or(""),
+            &inst.realm(),
+            inst.msisdn(),
+        );
         client.connect().await;
-        self.ami.lock().await.insert(iid.to_string(), client.clone());
+        self.ami
+            .lock()
+            .await
+            .insert(iid.to_string(), client.clone());
         Some(client)
     }
 
@@ -314,7 +351,12 @@ impl Hub {
     /// continuous failure (SIM still present) the engine is stopped and the status frozen to
     /// ERROR + reason. Network-class freezes keep probing the ePDG and re-provision once it
     /// resolves (when auto_recover is on).
-    pub async fn apply_health(self: &Arc<Self>, iid: &str, inst: &Instance, mut st: Status) -> Status {
+    pub async fn apply_health(
+        self: &Arc<Self>,
+        iid: &str,
+        inst: &Instance,
+        mut st: Status,
+    ) -> Status {
         let settings = config::get_settings();
         let rcfg = match &inst.retry {
             Some(v) if crate::lenient::truthy(Some(v)) => v.clone(),
@@ -343,11 +385,16 @@ impl Hub {
             st.retry = Some(json!({"count": 0, "max": rmax}));
             return st;
         }
-        let snapshot = lock(&self.health).entry(iid.to_string()).or_default().clone();
+        let snapshot = lock(&self.health)
+            .entry(iid.to_string())
+            .or_default()
+            .clone();
         if let Some(code) = snapshot.frozen_code.clone() {
             let recoverable = NETWORK_RECOVERABLE.contains(&code.as_str());
             if recoverable && auto_recover && !snapshot.recovering && inst.enabled() {
-                let due = snapshot.last_recover_try.is_none_or(|t| t.elapsed() >= interval);
+                let due = snapshot
+                    .last_recover_try
+                    .is_none_or(|t| t.elapsed() >= interval);
                 if due && status::resolve_epdg(&inst.epdg_fqdn()).await {
                     let start = {
                         let mut h = lock(&self.health);
@@ -374,7 +421,10 @@ impl Hub {
             }
             State::NoCard => {
                 // Absent SIM is the card monitor's business: not a retry.
-                lock(&self.health).entry(iid.to_string()).or_default().fail_start = None;
+                lock(&self.health)
+                    .entry(iid.to_string())
+                    .or_default()
+                    .fail_start = None;
                 st.retry = Some(json!({"count": 0, "max": rmax}));
                 return st;
             }
@@ -482,12 +532,17 @@ impl Hub {
         if let Err(e) = r {
             tracing::warn!(instance = %iid, "auto-recover failed instance={iid}: {e:#}");
         }
-        lock(&self.health).entry(iid.to_string()).or_default().recovering = false;
+        lock(&self.health)
+            .entry(iid.to_string())
+            .or_default()
+            .recovering = false;
     }
 
     /// Compute + broadcast one instance's status now (event-driven).
     pub async fn push_status(self: &Arc<Self>, iid: &str) {
-        let Some(inst) = config::get_instance(iid) else { return };
+        let Some(inst) = config::get_instance(iid) else {
+            return;
+        };
         let ami = self.ami_for(iid).await;
         let st = status::compute(&inst, ami.as_deref()).await;
         let st = self.apply_health(iid, &inst, st).await;
@@ -558,7 +613,9 @@ impl Hub {
                         c.set_msisdn(&m);
                     }
                     tracing::info!(instance = %iid, "learned MSISDN {m} for instance {iid}");
-                    self.broadcast(json!({"type": "engine", "instance": iid, "event": "msisdn", "args": [m]}));
+                    self.broadcast(
+                        json!({"type": "engine", "instance": iid, "event": "msisdn", "args": [m]}),
+                    );
                 }
                 Err(e) => tracing::debug!("learn_msisdn persist failed: {e}"),
             }
@@ -579,13 +636,27 @@ impl Hub {
         true
     }
 
-    pub fn dispatch_push(&self, event: &'static str, iid: &str, source: &str, text: Option<String>) {
-        let Some(inst) = config::get_instance(iid) else { return };
+    pub fn dispatch_push(
+        &self,
+        event: &'static str,
+        iid: &str,
+        source: &str,
+        text: Option<String>,
+    ) {
+        let Some(inst) = config::get_instance(iid) else {
+            return;
+        };
         let settings = config::get_settings();
         if !push::any_enabled(&settings) {
             return;
         }
-        tokio::spawn(push::dispatch(settings, event, inst, source.to_string(), text));
+        tokio::spawn(push::dispatch(
+            settings,
+            event,
+            inst,
+            source.to_string(),
+            text,
+        ));
     }
 
     // -------------------------------------------------------------- reader <-> line binding
@@ -599,7 +670,12 @@ impl Hub {
                 continue;
             }
             let ps = engine::read_run_json(&i.id, "pin_status.json");
-            if ps.as_ref().and_then(|p| p.get("reader")).and_then(Value::as_str) == Some(name) {
+            if ps
+                .as_ref()
+                .and_then(|p| p.get("reader"))
+                .and_then(Value::as_str)
+                == Some(name)
+            {
                 return Some(i);
             }
         }
@@ -610,17 +686,22 @@ impl Hub {
     /// (survives pcscd swapping two identical readers), else an ICCID match in the monitor.
     pub async fn reader_index_for_instance(&self, inst: &Instance) -> Option<usize> {
         if let Some(port) = inst.reader_port().map(String::from)
-            && let Some(idx) = blocking(move || usbreader::index_for_port(&port)).await {
-                return Some(idx);
-            }
+            && let Some(idx) = blocking(move || usbreader::index_for_port(&port)).await
+        {
+            return Some(idx);
+        }
         let iccid = inst.iccid()?;
-        lock(&self.cards).values().find(|c| c.present && c.iccid.as_deref() == Some(iccid)).and_then(|c| c.index)
+        lock(&self.cards)
+            .values()
+            .find(|c| c.present && c.iccid.as_deref() == Some(iccid))
+            .and_then(|c| c.index)
     }
 
     /// The USB port this instance's SIM sits at now (by ICCID, from the live monitor).
     pub fn reader_port_for_instance(&self, inst: &Instance) -> Option<String> {
         let iccid = inst.iccid()?;
-        lock(&self.cards).values()
+        lock(&self.cards)
+            .values()
             .find(|c| c.present && c.iccid.as_deref() == Some(iccid) && c.reader_port.is_some())
             .and_then(|c| c.reader_port.clone())
     }
@@ -636,22 +717,32 @@ impl Hub {
         // This line's SIM is in some reader right now: no conflict (rebind_reader moves the
         // binding there). Not `reader_index_for_instance`: that resolves the saved USB port
         // whatever card sits in it, which is exactly the swapped-card case this guards.
-        if cards.values().any(|c| c.present && c.iccid.as_deref().map(str::trim) == Some(want.as_str())) {
+        if cards
+            .values()
+            .any(|c| c.present && c.iccid.as_deref().map(str::trim) == Some(want.as_str()))
+        {
             return None;
         }
         let port = inst.reader_port().unwrap_or("").trim().to_string();
         let idx = inst.reader_index.and_then(|i| usize::try_from(i).ok());
         for c in cards.values().filter(|c| c.present) {
-            let same_reader = if !port.is_empty() { c.reader_port.as_deref() == Some(port.as_str()) }
-                              else { c.index == idx };
+            let same_reader = if !port.is_empty() {
+                c.reader_port.as_deref() == Some(port.as_str())
+            } else {
+                c.index == idx
+            };
             if !same_reader {
                 continue;
             }
             let got = c.iccid.as_deref().unwrap_or("").trim();
             if !got.is_empty() && got != want {
-                let label = if !c.name.is_empty() { c.name.clone() }
-                            else if !port.is_empty() { format!("USB {port}") }
-                            else { format!("reader {}", idx.map(|i| i.to_string()).unwrap_or_default()) };
+                let label = if !c.name.is_empty() {
+                    c.name.clone()
+                } else if !port.is_empty() {
+                    format!("USB {port}")
+                } else {
+                    format!("reader {}", idx.map(|i| i.to_string()).unwrap_or_default())
+                };
                 return Some((label, got.to_string()));
             }
         }
@@ -662,7 +753,9 @@ impl Hub {
     /// a locked card). Fails OPEN when the card can't be located/read (an engine may hold it).
     pub async fn preflight_pin(&self, inst: &Instance) -> Preflight {
         let fail_open = Preflight::Ok;
-        let Some(idx) = self.reader_index_for_instance(inst).await else { return fail_open };
+        let Some(idx) = self.reader_index_for_instance(inst).await else {
+            return fail_open;
+        };
         let rname = blocking(card::list_readers).await.into_iter().nth(idx);
         if rname.as_deref().is_some_and(|n| self.lpa_busy(n)) {
             return fail_open; // lpac owns the reader exclusively; let the engine try later
@@ -682,16 +775,18 @@ impl Hub {
     pub async fn rebind_reader(&self, mut inst: Instance, why: &str) -> anyhow::Result<Instance> {
         let mut patch = Map::new();
         if let Some(port) = self.reader_port_for_instance(&inst)
-            && inst.reader_port() != Some(port.as_str()) {
-                tracing::info!(instance = %inst.id, "{why} instance {}: reader port {:?} -> {port}", inst.id, inst.reader_port);
-                patch.insert("reader_port".into(), json!(port));
-                inst.reader_port = Some(port);
-            }
+            && inst.reader_port() != Some(port.as_str())
+        {
+            tracing::info!(instance = %inst.id, "{why} instance {}: reader port {:?} -> {port}", inst.id, inst.reader_port);
+            patch.insert("reader_port".into(), json!(port));
+            inst.reader_port = Some(port);
+        }
         if let Some(idx) = self.reader_index_for_instance(&inst).await
-            && inst.reader_index != Some(idx as i64) {
-                tracing::info!(instance = %inst.id, "{why} instance {}: reader index {:?} -> {idx}", inst.id, inst.reader_index);
-                patch.insert("reader_index".into(), json!(idx));
-            }
+            && inst.reader_index != Some(idx as i64)
+        {
+            tracing::info!(instance = %inst.id, "{why} instance {}: reader index {:?} -> {idx}", inst.id, inst.reader_index);
+            patch.insert("reader_index".into(), json!(idx));
+        }
         if patch.is_empty() {
             return Ok(inst);
         }
@@ -715,12 +810,18 @@ impl Hub {
             info.matched = Some(inst.id.clone());
             info.smsc = inst.smsc.clone();
         } else if self.lpa_busy(name) {
-            info = CardEntry { index: Some(idx), name: name.into(), present: true, reader_port: info.reader_port,
-                               ..prev };
+            info = CardEntry {
+                index: Some(idx),
+                name: name.into(),
+                present: true,
+                reader_port: info.reader_port,
+                ..prev
+            };
             tracing::info!("card insert during LPA busy — skipping probe reader={name}");
         } else {
             let l = self.reader_lock(name);
-            let Ok(guard) = tokio::time::timeout(Duration::from_millis(50), l.lock_owned()).await else {
+            let Ok(guard) = tokio::time::timeout(Duration::from_millis(50), l.lock_owned()).await
+            else {
                 info.iccid = prev.iccid;
                 info.imsi = prev.imsi;
                 info.matched = prev.matched;
@@ -745,7 +846,11 @@ impl Hub {
                 }
             }
         }
-        tracing::info!("card inserted reader={idx} ({name}) iccid={:?} matched={:?}", info.iccid, info.matched);
+        tracing::info!(
+            "card inserted reader={idx} ({name}) iccid={:?} matched={:?}",
+            info.iccid,
+            info.matched
+        );
         self.set_card(info);
         // Deliberately NO auto-start here: a reappearing card leaves the line stopped until
         // the user presses Start (avoids insert -> start -> fail -> stop loops and respects a
@@ -760,9 +865,18 @@ impl Hub {
             blank.index = entry.index;
             self.set_card(blank);
         }
-        tracing::info!("{} reader={:?} ({}) (was iccid={:?} matched={:?})",
-                       if reader_unplugged { "reader unplugged" } else { "card removed" },
-                       entry.index, entry.name, entry.iccid, entry.matched);
+        tracing::info!(
+            "{} reader={:?} ({}) (was iccid={:?} matched={:?})",
+            if reader_unplugged {
+                "reader unplugged"
+            } else {
+                "card removed"
+            },
+            entry.index,
+            entry.name,
+            entry.iccid,
+            entry.matched
+        );
         let mut target = entry.matched.as_deref().and_then(config::get_instance);
         if target.is_none() {
             target = config::instance_by_iccid(entry.iccid.as_deref());
@@ -805,9 +919,15 @@ impl Hub {
                 states.into_iter().map(|s| (s.name.clone(), s)).collect();
             let mut changed = false;
 
-            let gone: Vec<String> = lock(&self.cards).keys().filter(|n| !current.contains_key(*n)).cloned().collect();
+            let gone: Vec<String> = lock(&self.cards)
+                .keys()
+                .filter(|n| !current.contains_key(*n))
+                .cloned()
+                .collect();
             for name in gone {
-                let Some(entry) = lock(&self.cards).shift_remove(&name) else { continue };
+                let Some(entry) = lock(&self.cards).shift_remove(&name) else {
+                    continue;
+                };
                 if !self.on_card_remove(entry, true).await {
                     // on_card_remove already broadcast the more specific "reader_lost"; only
                     // emit the generic one when no line was affected (one toast in the UI).
@@ -853,7 +973,9 @@ impl Hub {
                     // changed too, so refresh its USB port binding.
                     e.index = Some(st.index);
                     let idx = st.index;
-                    e.reader_port = blocking(move || usbreader::port_for_index(idx)).await.or(e.reader_port);
+                    e.reader_port = blocking(move || usbreader::port_for_index(idx))
+                        .await
+                        .or(e.reader_port);
                     self.set_card(e.clone());
                     changed = true;
                 }
@@ -882,17 +1004,29 @@ impl Hub {
 fn preflight_locked(idx: usize, saved: Option<&str>) -> Preflight {
     let probe = sim::read_card(idx, None); // no VERIFY: learns presence + pin_enabled
     if !probe.present {
-        return Preflight::Fail { code: "no_card", clear: false, tries: None };
+        return Preflight::Fail {
+            code: "no_card",
+            clear: false,
+            tries: None,
+        };
     }
     if probe.pin_enabled == Some(false) {
         return Preflight::Ok;
     }
     let Some(saved) = saved else {
-        return Preflight::Fail { code: "pin_required", clear: false, tries: probe.pin_tries };
+        return Preflight::Fail {
+            code: "pin_required",
+            clear: false,
+            tries: probe.pin_tries,
+        };
     };
     let chk = sim::read_card(idx, Some(saved));
     if chk.pin_error() {
-        return Preflight::Fail { code: "pin_invalid", clear: true, tries: chk.pin_tries };
+        return Preflight::Fail {
+            code: "pin_invalid",
+            clear: true,
+            tries: chk.pin_tries,
+        };
     }
     Preflight::Ok
 }
@@ -901,9 +1035,8 @@ fn preflight_locked(idx: usize, saved: Option<&str>) -> Preflight {
 /// several headers comma-joined): the first tel:/sip: identity that is an E.164 number.
 /// Identities without one (sip:<IMSI>@...) are skipped.
 fn msisdn_from_pau(pau: &str) -> Option<String> {
-    static RE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
-        Regex::new(r"(?i)<(?:tel|sip):(\+\d+)").expect("valid regex")
-    });
+    static RE: std::sync::LazyLock<Regex> =
+        std::sync::LazyLock::new(|| Regex::new(r"(?i)<(?:tel|sip):(\+\d+)").expect("valid regex"));
     RE.captures(pau).map(|c| c[1].to_string())
 }
 
@@ -913,10 +1046,16 @@ mod tests {
 
     #[test]
     fn msisdn_from_pau_values() {
-        assert_eq!(msisdn_from_pau("<sip:+4915112345678@ims.mnc003.mcc262.3gppnetwork.org>, <tel:+4915112345678>"),
-                   Some("+4915112345678".into()));
-        assert_eq!(msisdn_from_pau("<sip:262031234567890@ims.example>, <tel:+4915112345678;cpc=x>"),
-                   Some("+4915112345678".into()));
+        assert_eq!(
+            msisdn_from_pau(
+                "<sip:+4915112345678@ims.mnc003.mcc262.3gppnetwork.org>, <tel:+4915112345678>"
+            ),
+            Some("+4915112345678".into())
+        );
+        assert_eq!(
+            msisdn_from_pau("<sip:262031234567890@ims.example>, <tel:+4915112345678;cpc=x>"),
+            Some("+4915112345678".into())
+        );
         assert_eq!(msisdn_from_pau("<sip:262031234567890@ims.example>"), None);
         assert_eq!(msisdn_from_pau(""), None);
     }
@@ -924,8 +1063,13 @@ mod tests {
     #[test]
     fn sms_reports_window() {
         let hub = Hub::new();
-        let r = |ts, kind: &str| SmsReport { ts, kind: kind.into(), rp_cause: None, sip_status: None,
-                                             reason: String::new() };
+        let r = |ts, kind: &str| SmsReport {
+            ts,
+            kind: kind.into(),
+            rp_cause: None,
+            sip_status: None,
+            reason: String::new(),
+        };
         for i in 0..40 {
             hub.push_sms_report("1", r(i, "ack"));
         }

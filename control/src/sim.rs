@@ -40,7 +40,9 @@ pub struct CardInfo {
 impl CardInfo {
     /// The card reported a PIN problem (the established "PIN" in error check).
     pub fn pin_error(&self) -> bool {
-        self.error.as_deref().is_some_and(|e| e.to_uppercase().contains("PIN"))
+        self.error
+            .as_deref()
+            .is_some_and(|e| e.to_uppercase().contains("PIN"))
     }
 }
 
@@ -53,7 +55,15 @@ fn hexs(b: &[u8]) -> String {
 
 fn swap_nibbles(s: &str) -> String {
     let c: Vec<char> = s.chars().collect();
-    c.chunks(2).flat_map(|p| if p.len() == 2 { vec![p[1], p[0]] } else { vec![] }).collect()
+    c.chunks(2)
+        .flat_map(|p| {
+            if p.len() == 2 {
+                vec![p[1], p[0]]
+            } else {
+                vec![]
+            }
+        })
+        .collect()
 }
 
 fn dec_imsi(ef_hex: &str) -> Option<String> {
@@ -105,7 +115,9 @@ fn usim_aid_from_dir(c: &Card) -> R<Option<Vec<u8>>> {
 
 fn select_adf_usim(c: &Card) -> R<bool> {
     transmit(c, &hx("00a40004023f0000"))?;
-    let Some(aid) = usim_aid_from_dir(c)? else { return Ok(false) };
+    let Some(aid) = usim_aid_from_dir(c)? else {
+        return Ok(false);
+    };
     let mut apdu = vec![0x00, 0xA4, 0x04, 0x04, aid.len() as u8];
     apdu.extend_from_slice(&aid);
     let (_, s1, _) = transmit(c, &apdu)?;
@@ -136,7 +148,11 @@ fn decode_ton_bcd(field: &[u8]) -> Option<String> {
     if digits.is_empty() {
         return None;
     }
-    Some(if ton & 0x70 == 0x10 { format!("+{digits}") } else { digits })
+    Some(if ton & 0x70 == 0x10 {
+        format!("+{digits}")
+    } else {
+        digits
+    })
 }
 
 /// SMSC from EF_SMSP (6F42, under ADF_USIM) record 1 — the per-SIM SMS centre a real phone
@@ -205,7 +221,10 @@ fn reader_name(index: usize) -> Option<String> {
 /// Read card identity. With `pin`, CHV1 is verified on the SAME connection before reading the
 /// IMSI (PIN state does not survive a disconnect when no other handle holds the card).
 pub fn read_card(reader_index: usize, pin: Option<&str>) -> CardInfo {
-    let mut info = CardInfo { reader_index, ..Default::default() };
+    let mut info = CardInfo {
+        reader_index,
+        ..Default::default()
+    };
     let Some(name) = reader_name(reader_index) else {
         info.error = Some("reader index out of range".into());
         return info;
@@ -251,18 +270,23 @@ fn read_card_body(c: &Card, pin: Option<&str>, info: &mut CardInfo) -> R<()> {
     info.pin_enabled = Some(tries.is_some());
     let pin = pin.filter(|p| !p.is_empty());
     if let (Some(p), Some(t)) = (pin, tries)
-        && t >= MIN_TRIES {
-            if !valid_pin(p) {
-                info.error = Some("PIN must be 4-8 digits".into());
-            } else {
-                let mut apdu = vec![0x00, 0x20, 0x00, 0x01, 0x08];
-                apdu.extend_from_slice(&pin_block(p));
-                let (_, s1, s2) = transmit(c, &apdu)?;
-                if (s1, s2) != (0x90, 0x00) {
-                    info.error = Some(if s1 == 0x63 { "wrong PIN".into() } else { format!("pin sw={s1:02x}{s2:02x}") });
-                }
+        && t >= MIN_TRIES
+    {
+        if !valid_pin(p) {
+            info.error = Some("PIN must be 4-8 digits".into());
+        } else {
+            let mut apdu = vec![0x00, 0x20, 0x00, 0x01, 0x08];
+            apdu.extend_from_slice(&pin_block(p));
+            let (_, s1, s2) = transmit(c, &apdu)?;
+            if (s1, s2) != (0x90, 0x00) {
+                info.error = Some(if s1 == 0x63 {
+                    "wrong PIN".into()
+                } else {
+                    format!("pin sw={s1:02x}{s2:02x}")
+                });
             }
         }
+    }
     // IMSI (normally behind the PIN).
     transmit(c, &hx("00a40004026f0700"))?;
     let (d, s1, s2) = transmit(c, &hx("00b0000009"))?;
@@ -299,7 +323,8 @@ fn open(reader_index: usize) -> Result<(pcsc::Context, String), Value> {
     let Some(name) = reader_name(reader_index) else {
         return Err(json!({"ok": false, "error": "reader index out of range"}));
     };
-    let ctx = card::context().map_err(|_| json!({"ok": false, "error": "No SIM card in this reader."}))?;
+    let ctx = card::context()
+        .map_err(|_| json!({"ok": false, "error": "No SIM card in this reader."}))?;
     Ok((ctx, name))
 }
 
@@ -312,7 +337,8 @@ fn pin_op(reader_index: usize, f: impl FnOnce(&Card) -> R<Value>) -> Value {
         Ok(c) => c,
         Err(_) => return json!({"ok": false, "error": "No SIM card in this reader."}),
     };
-    with_transaction(conn.card(), f).unwrap_or_else(|e| json!({"ok": false, "error": format!("{e}")}))
+    with_transaction(conn.card(), f)
+        .unwrap_or_else(|e| json!({"ok": false, "error": format!("{e}")}))
 }
 
 pub fn verify_pin(pin: &str, reader_index: usize) -> Value {
@@ -328,7 +354,9 @@ pub fn verify_pin(pin: &str, reader_index: usize) -> Value {
             return Ok(json!({"ok": false, "error": "PIN blocked", "tries": 0}));
         }
         if let Some(t) = tries.filter(|t| *t < MIN_TRIES) {
-            return Ok(json!({"ok": false, "error": format!("refusing: only {t} tries left"), "tries": t}));
+            return Ok(
+                json!({"ok": false, "error": format!("refusing: only {t} tries left"), "tries": t}),
+            );
         }
         let mut apdu = vec![0x00, 0x20, 0x00, 0x01, 0x08];
         apdu.extend_from_slice(&pin_block(pin));
@@ -397,12 +425,20 @@ mod tests {
     #[test]
     fn decoders() {
         // EF_IMSI 08 29 43 01 ... -> "234..." (first nibble is the parity/type digit)
-        assert_eq!(dec_imsi("082943010000000010").as_deref(), Some("234100000000001"));
+        assert_eq!(
+            dec_imsi("082943010000000010").as_deref(),
+            Some("234100000000001")
+        );
         assert_eq!(dec_iccid("98440000000000000020"), "89440000000000000002");
-        assert_eq!(decode_ton_bcd(&[0x07, 0x91, 0x44, 0x77, 0x58, 0x10, 0x06, 0xF0]).as_deref(),
-                   Some("+44778501600"));
+        assert_eq!(
+            decode_ton_bcd(&[0x07, 0x91, 0x44, 0x77, 0x58, 0x10, 0x06, 0xF0]).as_deref(),
+            Some("+44778501600")
+        );
         assert_eq!(decode_ton_bcd(&[0xFF, 0xFF]), None);
-        assert_eq!(pin_block("1234"), [0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]);
+        assert_eq!(
+            pin_block("1234"),
+            [0x31, 0x32, 0x33, 0x34, 0xFF, 0xFF, 0xFF, 0xFF]
+        );
         assert!(!valid_pin("123"));
         assert!(!valid_pin("123456789"));
     }

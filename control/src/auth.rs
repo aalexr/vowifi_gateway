@@ -37,7 +37,10 @@ pub const SESSION_TTL: u64 = 30 * 24 * 3600;
 const MAX_PASSWORD_LEN: usize = 1024;
 
 fn now() -> f64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0)
 }
 
 fn auth_path() -> PathBuf {
@@ -48,9 +51,13 @@ fn auth_path() -> PathBuf {
 pub fn service_user() -> String {
     static USER: OnceLock<String> = OnceLock::new();
     USER.get_or_init(|| {
-        nix::unistd::User::from_uid(nix::unistd::geteuid()).ok().flatten()
-            .map(|u| u.name).unwrap_or_default()
-    }).clone()
+        nix::unistd::User::from_uid(nix::unistd::geteuid())
+            .ok()
+            .flatten()
+            .map(|u| u.name)
+            .unwrap_or_default()
+    })
+    .clone()
 }
 
 // --------------------------------------------------------------------- session key storage
@@ -59,7 +66,10 @@ struct KeyCache {
     secret: Option<Vec<u8>>,
 }
 
-static KEY: Mutex<KeyCache> = Mutex::new(KeyCache { mtime: None, secret: None });
+static KEY: Mutex<KeyCache> = Mutex::new(KeyCache {
+    mtime: None,
+    secret: None,
+});
 
 fn rotate_locked(cache: &mut KeyCache) -> anyhow::Result<()> {
     let path = auth_path();
@@ -70,8 +80,12 @@ fn rotate_locked(cache: &mut KeyCache) -> anyhow::Result<()> {
     let body = json!({"secret": hex::encode(secret), "rotated": now() as i64}).to_string();
     {
         use std::io::Write;
-        let mut f = fs::OpenOptions::new().write(true).create(true).truncate(true)
-            .mode(0o600).open(&tmp)?;
+        let mut f = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&tmp)?;
         f.write_all(body.as_bytes())?;
     }
     fs::rename(&tmp, &path)?;
@@ -100,13 +114,21 @@ fn session_key() -> Option<Vec<u8>> {
     };
     let mtime = meta.mtime() as i128 * 1_000_000_000 + meta.mtime_nsec() as i128;
     if cache.mtime != Some(mtime) {
-        let secret = fs::read_to_string(&path).ok()
+        let secret = fs::read_to_string(&path)
+            .ok()
             .and_then(|t| serde_json::from_str::<Value>(&t).ok())
-            .and_then(|v| v.get("secret").and_then(Value::as_str).and_then(|s| hex::decode(s).ok()))
+            .and_then(|v| {
+                v.get("secret")
+                    .and_then(Value::as_str)
+                    .and_then(|s| hex::decode(s).ok())
+            })
             .filter(|s| !s.is_empty());
         if secret.is_none() {
-            tracing::error!("cannot read {}; no WebUI session is valid until \
-                             'vowifi-control logout-all' rewrites it", path.display());
+            tracing::error!(
+                "cannot read {}; no WebUI session is valid until \
+                             'vowifi-control logout-all' rewrites it",
+                path.display()
+            );
         }
         cache.mtime = Some(mtime);
         cache.secret = secret;
@@ -150,14 +172,21 @@ pub fn session_user(token: Option<&str>) -> Option<String> {
     let token = token?;
     let key = session_key()?;
     let (body, sig) = token.rsplit_once('.')?;
-    let sig = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(sig.trim_end_matches('=')).ok()?;
+    let sig = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(sig.trim_end_matches('='))
+        .ok()?;
     let mut mac = Hmac::<Sha256>::new_from_slice(&key).ok()?;
     mac.update(body.as_bytes());
-    mac.verify_slice(&sig).ok()?;  // constant-time
+    mac.verify_slice(&sig).ok()?; // constant-time
     let claims: Value = serde_json::from_slice(
-        &base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(body.trim_end_matches('=')).ok()?,
-    ).ok()?;
-    let exp = claims.get("exp").and_then(|e| e.as_f64().or_else(|| e.as_str()?.parse().ok()))?;
+        &base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(body.trim_end_matches('='))
+            .ok()?,
+    )
+    .ok()?;
+    let exp = claims
+        .get("exp")
+        .and_then(|e| e.as_f64().or_else(|| e.as_str()?.parse().ok()))?;
     if exp <= now() {
         return None;
     }
@@ -193,7 +222,12 @@ struct PamResponse {
     resp_retcode: c_int,
 }
 
-type ConvFn = unsafe extern "C" fn(c_int, *mut *const PamMessage, *mut *mut PamResponse, *mut c_void) -> c_int;
+type ConvFn = unsafe extern "C" fn(
+    c_int,
+    *mut *const PamMessage,
+    *mut *mut PamResponse,
+    *mut c_void,
+) -> c_int;
 
 #[repr(C)]
 struct PamConv {
@@ -210,8 +244,12 @@ struct ConvData {
 /// PAM conversation: answers ONE echo-off prompt with the password and echo-on prompts with
 /// the user name. PAM frees the response array and strings with free(), so allocate them with
 /// the C allocator.
-unsafe extern "C" fn conv(n: c_int, msgs: *mut *const PamMessage, resp: *mut *mut PamResponse,
-                          data: *mut c_void) -> c_int {
+unsafe extern "C" fn conv(
+    n: c_int,
+    msgs: *mut *const PamMessage,
+    resp: *mut *mut PamResponse,
+    data: *mut c_void,
+) -> c_int {
     use nix::libc;
     if n <= 0 || msgs.is_null() || resp.is_null() || data.is_null() {
         return PAM_CONV_ERR;
@@ -257,11 +295,15 @@ unsafe extern "C" fn conv(n: c_int, msgs: *mut *const PamMessage, resp: *mut *mu
 
 pub fn pam_service() -> String {
     if let Ok(env) = std::env::var("VOWIFI_PAM_SERVICE")
-        && !env.trim().is_empty() {
-            return env.trim().to_string();
-        }
+        && !env.trim().is_empty()
+    {
+        return env.trim().to_string();
+    }
     for name in ["vowifi", "system-auth", "login"] {
-        if ["/etc/pam.d", "/usr/lib/pam.d"].iter().any(|d| std::path::Path::new(d).join(name).is_file()) {
+        if ["/etc/pam.d", "/usr/lib/pam.d"]
+            .iter()
+            .any(|d| std::path::Path::new(d).join(name).is_file())
+        {
             return name.to_string();
         }
     }
@@ -270,15 +312,23 @@ pub fn pam_service() -> String {
 
 /// (ok, reason). Blocking (pam_unix sleeps ~2 s on failure): call from a blocking thread.
 fn pam_check(user: &str, password: &str, rhost: Option<&str>) -> anyhow::Result<(bool, String)> {
-    type StartFn = unsafe extern "C" fn(*const c_char, *const c_char, *const PamConv, *mut *mut c_void) -> c_int;
+    type StartFn = unsafe extern "C" fn(
+        *const c_char,
+        *const c_char,
+        *const PamConv,
+        *mut *mut c_void,
+    ) -> c_int;
     type SetItemFn = unsafe extern "C" fn(*mut c_void, c_int, *const c_void) -> c_int;
     type FlagsFn = unsafe extern "C" fn(*mut c_void, c_int) -> c_int;
     type StrerrorFn = unsafe extern "C" fn(*mut c_void, c_int) -> *const c_char;
 
     static LIB: OnceLock<Result<libloading::Library, String>> = OnceLock::new();
-    let lib = LIB.get_or_init(|| unsafe {
-        libloading::Library::new("libpam.so.0").map_err(|e| e.to_string())
-    }).as_ref().map_err(|e| anyhow::anyhow!("libpam: {e}"))?;
+    let lib = LIB
+        .get_or_init(|| unsafe {
+            libloading::Library::new("libpam.so.0").map_err(|e| e.to_string())
+        })
+        .as_ref()
+        .map_err(|e| anyhow::anyhow!("libpam: {e}"))?;
     // SAFETY: symbol types match the Linux-PAM ABI (security/pam_appl.h).
     unsafe {
         let start: libloading::Symbol<StartFn> = lib.get(b"pam_start\0")?;
@@ -291,25 +341,35 @@ fn pam_check(user: &str, password: &str, rhost: Option<&str>) -> anyhow::Result<
         let service = pam_service();
         let c_service = CString::new(service.clone())?;
         let c_user = CString::new(user)?;
-        let mut data = Box::new(ConvData { user: c_user.clone(), secret: CString::new(password)?,
-                                           secrets_asked: 0 });
-        let conv_s = PamConv { conv, appdata_ptr: &mut *data as *mut ConvData as *mut c_void };
+        let mut data = Box::new(ConvData {
+            user: c_user.clone(),
+            secret: CString::new(password)?,
+            secrets_asked: 0,
+        });
+        let conv_s = PamConv {
+            conv,
+            appdata_ptr: &mut *data as *mut ConvData as *mut c_void,
+        };
         let mut handle: *mut c_void = std::ptr::null_mut();
         let rc = start(c_service.as_ptr(), c_user.as_ptr(), &conv_s, &mut handle);
         if rc != PAM_SUCCESS {
             return Ok((false, format!("pam_start({service}) failed: {rc}")));
         }
         if let Some(h) = rhost
-            && let Ok(c) = CString::new(h) {
-                set_item(handle, PAM_RHOST, c.as_ptr() as *const c_void);
-            }
+            && let Ok(c) = CString::new(h)
+        {
+            set_item(handle, PAM_RHOST, c.as_ptr() as *const c_void);
+        }
         let mut rc = authenticate(handle, 0);
         if rc == PAM_SUCCESS {
             rc = acct_mgmt(handle, 0);
         }
         let reason_p = strerror(handle, rc);
-        let reason = if reason_p.is_null() { String::new() }
-                     else { CStr::from_ptr(reason_p).to_string_lossy().into_owned() };
+        let reason = if reason_p.is_null() {
+            String::new()
+        } else {
+            CStr::from_ptr(reason_p).to_string_lossy().into_owned()
+        };
         end(handle, rc);
         drop(data);
         Ok((rc == PAM_SUCCESS, format!("{service}: {reason}")))
@@ -345,14 +405,19 @@ pub fn check_login(username: &str, password: &str, rhost: Option<&str>) -> bool 
 /// Dual-stack sockets report IPv4 clients as ::ffff:a.b.c.d; normalise to plain IPv4.
 pub fn canonical_ip(ip: IpAddr) -> IpAddr {
     match ip {
-        IpAddr::V6(v6) => v6.to_ipv4_mapped().map(IpAddr::V4).unwrap_or(IpAddr::V6(v6)),
+        IpAddr::V6(v6) => v6
+            .to_ipv4_mapped()
+            .map(IpAddr::V4)
+            .unwrap_or(IpAddr::V6(v6)),
         v4 => v4,
     }
 }
 
 /// True if `ip` is loopback or one of this machine's own addresses (bindable).
 pub fn is_host_address(ip: Option<IpAddr>) -> bool {
-    let Some(ip) = ip.map(canonical_ip) else { return false };
+    let Some(ip) = ip.map(canonical_ip) else {
+        return false;
+    };
     if ip.is_loopback() {
         return true;
     }
@@ -374,7 +439,9 @@ impl Throttle {
     const FORGET: f64 = 3600.0;
 
     pub const fn new() -> Self {
-        Throttle { fails: Mutex::new(None) }
+        Throttle {
+            fails: Mutex::new(None),
+        }
     }
 
     fn key(ip: Option<IpAddr>) -> String {
@@ -391,12 +458,20 @@ impl Throttle {
 
     pub fn retry_after(&self, ip: Option<IpAddr>) -> u64 {
         let f = self.fails.lock().unwrap_or_else(|e| e.into_inner());
-        let (n, last) = f.as_ref().and_then(|m| m.get(&Self::key(ip)).copied()).unwrap_or((0, 0.0));
+        let (n, last) = f
+            .as_ref()
+            .and_then(|m| m.get(&Self::key(ip)).copied())
+            .unwrap_or((0, 0.0));
         if n < Self::FREE {
             return 0;
         }
-        let wait = (Self::BASE * 2f64.powi((n - Self::FREE) as i32)).min(Self::CAP) - (now() - last);
-        if wait <= 0.0 { 0 } else { (wait + 0.999) as u64 }
+        let wait =
+            (Self::BASE * 2f64.powi((n - Self::FREE) as i32)).min(Self::CAP) - (now() - last);
+        if wait <= 0.0 {
+            0
+        } else {
+            (wait + 0.999) as u64
+        }
     }
 
     pub fn fail(&self, ip: Option<IpAddr>) {
@@ -409,7 +484,12 @@ impl Throttle {
     }
 
     pub fn ok(&self, ip: Option<IpAddr>) {
-        if let Some(m) = self.fails.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+        if let Some(m) = self
+            .fails
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_mut()
+        {
             m.remove(&Self::key(ip));
         }
     }
@@ -424,7 +504,10 @@ pub fn needs_auth(path: &str) -> bool {
     if path.starts_with("/api/auth/") || path == ENGINE_PATH {
         return false;
     }
-    path == "/api" || ["/api/", "/ws", "/docs", "/redoc", "/openapi.json"].iter().any(|p| path.starts_with(p))
+    path == "/api"
+        || ["/api/", "/ws", "/docs", "/redoc", "/openapi.json"]
+            .iter()
+            .any(|p| path.starts_with(p))
 }
 
 /// Policy for one request (HTTP or WebSocket handshake).

@@ -19,12 +19,18 @@ fn with_cookie(mut r: Response, value: &str) -> Response {
 }
 
 fn session_cookie(token: &str) -> String {
-    format!("{}={token}; HttpOnly; Max-Age={}; Path=/; SameSite=strict; Secure", auth::COOKIE_NAME, auth::SESSION_TTL)
+    format!(
+        "{}={token}; HttpOnly; Max-Age={}; Path=/; SameSite=strict; Secure",
+        auth::COOKIE_NAME,
+        auth::SESSION_TTL
+    )
 }
 
 fn cleared_cookie() -> String {
-    format!("{}=\"\"; expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Max-Age=0; Path=/; SameSite=strict; Secure",
-            auth::COOKIE_NAME)
+    format!(
+        "{}=\"\"; expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Max-Age=0; Path=/; SameSite=strict; Secure",
+        auth::COOKIE_NAME
+    )
 }
 
 pub async fn status(headers: HeaderMap) -> Json<Value> {
@@ -42,8 +48,15 @@ pub async fn login(ConnectInfo(peer): ConnectInfo<SocketAddr>, body: Body) -> Ap
             .header(header::RETRY_AFTER, wait.to_string()));
     }
     // Only real strings count (a number or object is a failed login, not a coerced one).
-    let username = body.get("username").and_then(Value::as_str).unwrap_or("").to_string();
-    let password = body.get("password").and_then(Value::as_str).map(String::from);
+    let username = body
+        .get("username")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let password = body
+        .get("password")
+        .and_then(Value::as_str)
+        .map(String::from);
     let rhost = auth::canonical_ip(peer.ip()).to_string();
     let ok = match password {
         Some(pw) => blocking(move || auth::check_login(&username, &pw, Some(&rhost))).await,
@@ -57,8 +70,15 @@ pub async fn login(ConnectInfo(peer): ConnectInfo<SocketAddr>, body: Body) -> Ap
     auth::THROTTLE.ok(ip);
     let user = auth::service_user();
     tracing::info!("WebUI login as {user} from {}", peer.ip());
-    let token = blocking({ let u = user.clone(); move || auth::new_session(&u) }).await?;
-    Ok(with_cookie(Json(json!({"ok": true})).into_response(), &session_cookie(&token)))
+    let token = blocking({
+        let u = user.clone();
+        move || auth::new_session(&u)
+    })
+    .await?;
+    Ok(with_cookie(
+        Json(json!({"ok": true})).into_response(),
+        &session_cookie(&token),
+    ))
 }
 
 pub async fn logout() -> Response {
@@ -66,8 +86,11 @@ pub async fn logout() -> Response {
 }
 
 /// Rotate the session key: every browser (this one included) must log in again.
-pub async fn logout_all(State(hub): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>,
-                        headers: HeaderMap) -> ApiResult<Response> {
+pub async fn logout_all(
+    State(hub): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+) -> ApiResult<Response> {
     let c = cookie(&headers, auth::COOKIE_NAME);
     if !auth::session_valid(c.as_deref()) {
         return Err(ApiError::new(401, "Login required"));

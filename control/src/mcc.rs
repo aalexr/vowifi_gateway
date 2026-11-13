@@ -254,7 +254,11 @@ pub fn mcc_to_iso2(mcc: &str) -> &'static str {
         return "";
     }
     let key = format!("{:0>3}", &digits[..digits.len().min(3)]);
-    MCC_TO_ISO2.iter().find(|(k, _)| *k == key).map(|(_, v)| *v).unwrap_or("")
+    MCC_TO_ISO2
+        .iter()
+        .find(|(k, _)| *k == key)
+        .map(|(_, v)| *v)
+        .unwrap_or("")
 }
 
 #[cfg(test)]
