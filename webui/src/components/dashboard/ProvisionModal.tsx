@@ -36,12 +36,12 @@ interface ProvisionModalProps {
   onDone?: () => void;
 }
 
-export default function ProvisionModal({
+export const ProvisionModal = ({
   card,
   pin: pinProp,
   onClose,
   onDone,
-}: ProvisionModalProps) {
+}: ProvisionModalProps) => {
   const simSmsc = card.smsc || "";
   const [f, setF] = useState<ProvisionForm>({
     name: "",
@@ -489,4 +489,4 @@ export default function ProvisionModal({
       </div>
     </div>
   );
-}
+};

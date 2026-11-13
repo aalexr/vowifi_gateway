@@ -9,12 +9,14 @@ import {
   PhoneOff,
   PhoneIncoming,
   PhoneOutgoing,
+  PhoneLog,
   Mic,
   MicOff,
   Grid3x3,
   CircleDot,
   Delete,
   Trash2,
+  ListCheck,
 } from "lucide-react";
 import { GREEN, KEYS, fmtDur, RED } from "../components/softphone/constants";
 import Avatar from "../components/softphone/Avatar";
@@ -1011,7 +1013,8 @@ export default function Softphone({
               flexShrink: 0,
             }}
           >
-            <div style={{ fontSize: 15, fontWeight: 600 }}>Recent calls</div>
+            <PhoneLog size={16} style={{ marginRight: 4 }} />
+            <span style={{ fontSize: 15, fontWeight: 600 }}>Recent calls</span>
             {calls.length > 0 &&
               (callSelMode ? (
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -1024,7 +1027,7 @@ export default function Softphone({
                     disabled={!callSel.size}
                     onClick={deleteSelectedCalls}
                   >
-                    Delete
+                    <Trash2 size={14} />
                   </button>
                   <button
                     className="btn btn-ghost"
@@ -1044,7 +1047,7 @@ export default function Softphone({
                     style={{ padding: "4px 10px", fontSize: 12 }}
                     onClick={() => setCallSelMode(true)}
                   >
-                    Select
+                    <ListCheck size={14} />
                   </button>
                   <button
                     className="btn btn-ghost"
@@ -1138,26 +1141,32 @@ export default function Softphone({
                   )}
                   <div style={{ flex: "1 1 140px", minWidth: 0 }}>
                     <div
-                      className="mono"
                       style={{
-                        fontWeight: 600,
-                        color: peer ? undefined : "var(--text-mute)",
+                        flexDirection: "row",
+                        display: "flex",
+                        alignItems: "center",
                       }}
                     >
-                      {peerLabel}
-                    </div>
-                    <div style={{ fontSize: 11, color: "var(--text-mute)" }}>
                       <DirIcon
-                        size={11}
+                        size={14}
                         aria-hidden="true"
                         style={{
-                          display: "inline",
-                          verticalAlign: "-1px",
                           marginRight: 4,
                         }}
                       />
-                      {dlabel}
-                      {when ? ` · ${when}` : ""}
+                      <span
+                        className="mono"
+                        style={{
+                          fontWeight: 600,
+                          color: peer ? undefined : "var(--text-mute)",
+                        }}
+                      >
+                        {peerLabel}
+                      </span>
+                    </div>
+
+                    <div style={{ fontSize: 11, color: "var(--text-mute)" }}>
+                      {when}
                       {codecText && (
                         <span title={codecTip} style={{ cursor: "help" }}>
                           {` · ${codecText}`}

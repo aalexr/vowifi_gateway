@@ -5,9 +5,9 @@
 // Provisioned lines whose reader is unplugged are NOT shown here — the dashboard
 // reflects physical readers only (their config stays available under SIM Config, and
 
-import { DetectedCard, InstanceConfig } from "../../api";
+import { apiErrorDetail, DetectedCard, InstanceConfig } from "../../api";
 
-interface Reader {
+export interface Reader {
   index?: number;
   name?: string;
   present: boolean;
@@ -45,3 +45,14 @@ export function readerTitle(r: Reader) {
 }
 
 export const PIN_RE = /^\d{4,8}$/; // basic client-side validity: 4–8 digits, numeric only
+
+// A start/reprovision may be refused (409) because the card needs a PIN we don't have
+// (deleted, or the saved one is now wrong). Returns the PIN problem, or null for any
+// other error.
+export function pinError(e: unknown) {
+  const detail = apiErrorDetail(e);
+  const code = detail?.code;
+  return code === "pin_required" || code === "pin_invalid"
+    ? { code, tries: detail?.tries }
+    : null;
+}

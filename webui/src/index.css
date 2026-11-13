@@ -1,12 +1,12 @@
 @import "tailwindcss";
-@import "@fontsource-variable/geist";
-@import "@fontsource-variable/geist-mono";
+@import "@fontsource/adwaita-sans";
+@import "@fontsource/adwaita-mono";
 
 /* ============ Theme palettes (clean devtool) ============ */
 :root {
   --safe-bottom: env(safe-area-inset-bottom, 0px);
-  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "Geist Mono Variable", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-sans: "Adwaita Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Adwaita Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --font-display: var(--font-sans);
   --radius: 10px;
   --radius-sm: 8px;

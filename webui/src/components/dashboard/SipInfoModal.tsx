@@ -30,11 +30,11 @@ interface InfoFieldProps {
 //   Dial Plan         -> pass numbers straight through (E.164) or map +->00
 // The gateway exposes one SIP endpoint per external account configured on the line
 // (SIM Config → External SIP accounts). If none exist we tell the user to add one.
-export default function SipInfoModal({
+export const SipInfoModal = ({
   instance,
   onClose,
   setSelected,
-}: SipInfoModalProps) {
+}: SipInfoModalProps) => {
   const navigate = useNavigate();
   const [info, setInfo] = useState<SipInfo | null>(null);
   const [err, setErr] = useState("");
@@ -272,4 +272,4 @@ export default function SipInfoModal({
       </div>
     </div>
   );
-}
+};
