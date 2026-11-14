@@ -10,6 +10,9 @@
 //!   vowifi-control session-token
 //!                               print a 2-minute WebUI session cookie value for local scripts
 //!                               (install.sh); needs read access to $VOWIFI_DATA/auth.json
+//!   vowifi-control sip-accounts [--show-secrets]
+//!                               list every line's external SIP accounts (the default
+//!                               phone-number account is marked; passwords only on request)
 //!
 //! Env:
 //!   VOWIFI_DATA        data dir (default ./data)
@@ -28,6 +31,7 @@ mod card;
 mod config;
 mod engine;
 mod estkme;
+mod front_proxy;
 mod hub;
 mod lenient;
 mod lpa;
@@ -88,18 +92,46 @@ fn main() -> anyhow::Result<()> {
             println!("{}", auth::new_session_ttl(&auth::service_user(), 120)?);
             return Ok(());
         }
+        Some("sip-accounts") => {
+            print_sip_accounts(args.iter().any(|a| a == "--show-secrets"));
+            return Ok(());
+        }
         Some("-h" | "--help" | "help") => {
-            println!("usage: vowifi-control [serve | logout-all | session-token]");
+            println!("usage: vowifi-control [serve | logout-all | session-token | sip-accounts]");
             return Ok(());
         }
         Some(other) => anyhow::bail!(
-            "unknown command {other:?} (usage: vowifi-control [serve | logout-all | session-token])"
+            "unknown command {other:?} (usage: vowifi-control [serve | logout-all | session-token | sip-accounts])"
         ),
     }
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
     rt.block_on(serve())
+}
+
+/// `sip-accounts`: one row per external account. `00…` is the number as a FRITZ!Box wants it.
+fn print_sip_accounts(show_secrets: bool) {
+    for inst in config::list_instances() {
+        let ports = inst.ports_or_nominal();
+        let sip = inst.sip();
+        let name = inst.name.clone().unwrap_or_default();
+        for a in sip.external_accounts() {
+            let user = a.username.trim();
+            let default = inst.default_account.as_deref() == Some(user);
+            let mut row = format!(
+                "line {}\t{name}\tport {}\tuser {user}",
+                inst.id, ports.sip_udp
+            );
+            if default {
+                row += &format!("\tdefault (FRITZ!Box number 00{user})");
+            }
+            if show_secrets {
+                row += &format!("\tpassword {}", a.password);
+            }
+            println!("{row}");
+        }
+    }
 }
 
 async fn serve() -> anyhow::Result<()> {
@@ -117,6 +149,17 @@ async fn serve() -> anyhow::Result<()> {
         .unwrap_or_else(|| settings.bind.clone());
 
     store::init().context("SQLite store")?;
+    // Default phone-number SIP accounts for lines that know their MSISDN (+ sip-front export).
+    match tokio::task::spawn_blocking(config::ensure_default_accounts).await? {
+        Ok(changed) if !changed.is_empty() => {
+            tracing::info!(
+                "default SIP accounts added for line(s) {}",
+                changed.join(", ")
+            )
+        }
+        Ok(_) => {}
+        Err(e) => tracing::warn!("default SIP accounts: {e:#}"),
+    }
     let (cert, key) = server::tls_pair(&settings)?;
     let tls = axum_server::tls_rustls::RustlsConfig::from_pem_file(&cert, &key)
         .await

@@ -55,11 +55,6 @@ exten => h,1,Set(MEDIA=rs=${CARRIER_SDP}&bw=${CARRIER_BW}&ls=${CHANNEL(pjsip,loc
 same => n,TrySystem(/usr/local/bin/notify.py call_result in "${CALLPEER}" "${DIALSTATUS}" "${HANGUPCAUSE}" "${BASE64_ENCODE(${MEDIA})}" &)
 same => n,Hangup()
 
-; Dial U() subroutines: run on the answered callee channel, record its negotiated SDP on the
-; calling channel (MASTER_CHANNEL) for the 'h' handler's call_result. rs/ls = the carrier
-; leg's remote/local SDP codecs (after an answer pjmedia has narrowed the local one to the
-; negotiated codecs, so an outgoing call's ls is not the full offer), bw = its b= lines,
-; cl = the local client's answer.
 ; Pre-dial handler on each local client leg (Dial b()): offer the client our codec order,
 ; Opus first. Without it chan_pjsip offers in the carrier channel's order (G722, AMR, opus …)
 ; and the FRITZ!Box picks G722; codec_prefs_outgoing_offer does not change that. Same list as
@@ -68,6 +63,19 @@ same => n,Hangup()
 exten => s,1,Set(PJSIP_MEDIA_OFFER(audio)=opus,g722,ulaw,alaw,amr)
 same => n,Return()
 
+; Pre-dial handler on the carrier leg of an outgoing call (Dial b()): offer the carrier the
+; line's ims_codecs in that order. Without it chan_pjsip puts the calling client's codecs
+; first (G722, PCMU, PCMA, then EVS/AMR-WB/AMR), which no phone does: an iPhone offers EVS,
+; AMR-WB, AMR only (TS 26.114), and the far end / interworking gateway picks from the front.
+[ims_offer]
+exten => s,1,Set(PJSIP_MEDIA_OFFER(audio)={{ ims_codecs | join(',') }})
+same => n,Return()
+
+; Dial U() subroutines: run on the answered callee channel, record its negotiated SDP on the
+; calling channel (MASTER_CHANNEL) for the 'h' handler's call_result. rs/ls = the carrier
+; leg's remote/local SDP codecs (after an answer pjmedia has narrowed the local one to the
+; negotiated codecs, so an outgoing call's ls is not the full offer), bw = its b= lines,
+; cl = the local client's answer.
 [codec_mt_answered]
 exten => s,1,Set(MASTER_CHANNEL(CLIENT_SDP)=${CHANNEL(pjsip,remote_sdp_codecs)})
 same => n,Return()
@@ -119,7 +127,12 @@ same => n,TrySystem(/usr/local/bin/notify.py call_out "{{ dest }}" &)
 ; we give up. Most carriers roll to voicemail by ~30s; 35 is the default. (The repeated
 ; ringing itself is carrier-side MMTel behaviour and can't be removed here.) A caller who
 ; hangs up earlier still CANCELs immediately.
-same => n,Dial(PJSIP/{{ dest }}@volte_ims,{{ ring_timeout }},U(codec_mo_answered^s^1))
+; Dial the number as an explicit URI with ;user=phone (TS 24.229 5.1.2A.1.2: a telephone
+; number in a SIP URI needs user=phone), as phones do (iPhone: tel:+7... on MTS,
+; sip:+7...@realm;user=phone on Beeline). Without it MTS RU treats the user part as a SIP
+; user name and breaks the call out to the circuit-switched side (9 s setup, AMR 12.2 only).
+; Set here and not with user_eq_phone, which would also mark SMS MESSAGEs (pjsip.conf).
+same => n,Dial(PJSIP/volte_ims/sip:{{ dest }}@{{ realm }}\;user=phone,{{ ring_timeout }},b(ims_offer^s^1)U(codec_mo_answered^s^1))
 ; Dial only returns here when the call was NEVER answered (reject/busy/no-answer/congestion);
 ; answered calls are bridged and tear down via BYE, never reaching this line.
 ; Save the REAL disposition for the call log BEFORE overriding the response (PJSIPHangup does
