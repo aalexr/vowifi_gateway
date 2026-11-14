@@ -119,7 +119,12 @@ same => n,TrySystem(/usr/local/bin/notify.py call_out "{{ dest }}" &)
 ; we give up. Most carriers roll to voicemail by ~30s; 35 is the default. (The repeated
 ; ringing itself is carrier-side MMTel behaviour and can't be removed here.) A caller who
 ; hangs up earlier still CANCELs immediately.
-same => n,Dial(PJSIP/{{ dest }}@volte_ims,{{ ring_timeout }},b(ims_offer^s^1)U(codec_mo_answered^s^1))
+; Dial the number as an explicit URI with ;user=phone (TS 24.229 5.1.2A.1.2: a telephone
+; number in a SIP URI needs user=phone), as phones do (iPhone: tel:+7... on MTS,
+; sip:+7...@realm;user=phone on Beeline). Without it MTS RU treats the user part as a SIP
+; user name and breaks the call out to the circuit-switched side (9 s setup, AMR 12.2 only).
+; Set here and not with user_eq_phone, which would also mark SMS MESSAGEs (pjsip.conf).
+same => n,Dial(PJSIP/volte_ims/sip:{{ dest }}@{{ realm }}\;user=phone,{{ ring_timeout }},b(ims_offer^s^1)U(codec_mo_answered^s^1))
 ; Dial only returns here when the call was NEVER answered (reject/busy/no-answer/congestion);
 ; answered calls are bridged and tear down via BYE, never reaching this line.
 ; Save the REAL disposition for the call log BEFORE overriding the response (PJSIPHangup does

@@ -47,7 +47,8 @@ receive_sms=yes
 type=endpoint
 ; user_eq_phone MUST be off: Telus' SMSC rejects a MESSAGE whose request-URI carries
 ; ;user=phone with "400 SIP Parser Error, line 10 col 168" (breaks MO SMS). Registration
-; and calls don't use phone-number request-URIs, so disabling this is safe.
+; doesn't use phone-number request-URIs; outgoing calls add ;user=phone themselves in the
+; dial string (extensions.conf, from-local).
 user_eq_phone=no
 transport=volte_ims
 context=volte_ims
