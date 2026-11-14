@@ -104,19 +104,20 @@ def _default_gateway_ipv4():
     return ""
 
 
-# Carrier-leg codecs (control config.rs normalize_ims_codecs; re-checked here so a
-# hand-edited instance.json can't render an invalid allow= list).
-_IMS_CODECS_ALLOWED = ("evs", "amrwb", "amr", "g722", "alaw", "ulaw")
-_IMS_CODECS_DEFAULT = ["amrwb", "amr"]
+# Carrier-leg codecs: what a phone offers (TS 26.114; iPhone/Samsung captures on Beeline,
+# 2026-11-14): EVS when this image can transcode it, then AMR-WB, AMR. Not configurable per
+# line: an incoming call answers in the carrier's own offer order, so its first codec of this
+# set comes first (pjsip.conf.j2), and an outgoing call offers this order ([ims_offer] in
+# extensions.conf.j2). G.722/G.711 are left out like on a phone: Vodafone DE polices calls to
+# 50 kbit/s, which clips them.
+_IMS_CODECS_PHONE = ["evs", "amrwb", "amr"]
 # Asterisk codec name where it differs from ours (the fork names its EVS codec "vevs").
 _IMS_CODEC_ASTERISK = {"evs": "vevs"}
 # SDP b=AS (kbit/s) per codec, INCLUDING RTP/UDP/IP headers as the fork's bw_value requires.
-# 41 = the value every line has always sent (AMR-WB 23.85 + headers, what iPhones send);
-# 88 = 64 kbit/s G.722/G.711 + 60-byte IPv6/UDP/RTP headers at 50 packets/s (24 kbit/s),
-# exactly what O2 DE sends when it offers G.722. The largest codec on the list wins:
-# too small a value can make the network reserve too little bandwidth for the call.
-# 49 = EVS at up to 24.4 kbit/s (the fork's br=5.9-24.4 offer) + 24 kbit/s headers.
-_IMS_CODEC_BW = {"evs": 49, "amrwb": 41, "amr": 41, "g722": 88, "alaw": 88, "ulaw": 88}
+# 41 = AMR-WB 23.85 + headers, what iPhones send; 49 = EVS at up to 24.4 kbit/s (the fork's
+# br=5.9-24.4 offer) + 24 kbit/s headers. The largest codec offered wins: too small a value
+# can make the network reserve too little bandwidth for the call.
+_IMS_CODEC_BW = {"evs": 49, "amrwb": 41, "amr": 41}
 
 
 def evs_available() -> bool:
@@ -130,27 +131,17 @@ def evs_available() -> bool:
         return False
 
 
-def _ims_codec_ctx(value, evs_ok=None) -> dict:
-    items = value if isinstance(value, list) else []
-    codecs = []
-    for c in items:
-        c = str(c).strip().lower()
-        if c in _IMS_CODECS_ALLOWED and c not in codecs:
-            codecs.append(c)
-    if not any(c in ("amrwb", "amr") for c in codecs):
-        codecs = list(_IMS_CODECS_DEFAULT)
-    if "evs" in codecs and not (evs_available() if evs_ok is None else evs_ok):
+def _ims_codec_ctx(evs_ok=None) -> dict:
+    codecs = list(_IMS_CODECS_PHONE)
+    if not (evs_available() if evs_ok is None else evs_ok):
         # Without libvocal.so codec_vevs isn't loaded: an EVS call could not be transcoded
         # to the local client, so don't offer/accept EVS at all.
-        print("[render] ims_codecs: evs needs an engine image built with EVS_CODEC=1, ignoring it")
+        print("[render] carrier codecs: no EVS (engine image built without EVS_CODEC=1)")
         codecs.remove("evs")
     return {
-        # Asterisk codec names, for allow= (pjsip.conf.j2)
+        # Asterisk codec names, for allow= (pjsip.conf.j2) and the MO offer (extensions.conf.j2)
         "ims_codecs": [_IMS_CODEC_ASTERISK.get(c, c) for c in codecs],
         "ims_bw": max(_IMS_CODEC_BW[c] for c in codecs),
-        # Only a non-default list switches incoming calls to OUR order; the default keeps
-        # the carrier's offer order (pjsip.conf.j2 codec_prefs_incoming_offer).
-        "ims_codecs_custom": codecs != _IMS_CODECS_DEFAULT,
     }
 
 
@@ -335,9 +326,7 @@ def build_context(cfg):
         # Outbound ring timeout (s) for Dial() — see extensions.conf.j2. Default 35.
         "ring_timeout": int(sip.get("ring_timeout", 35) or 35),
         "dial_00_to_plus": bool(cfg.get("dial_00_to_plus", False)),
-        **_ims_codec_ctx(cfg.get("ims_codecs")),
-        # Incoming calls: single-codec SDP answer (pjsip preferred_codec_only), see pjsip.conf.j2.
-        "mt_single_codec": bool(cfg.get("mt_single_codec", False)),
+        **_ims_codec_ctx(),
         # The container's own RTP bind IP (docker-bridge private, e.g. 172.17.0.2). Used as the
         # LHS of rtp.conf [ice_host_candidates] to rewrite that unreachable host candidate to
         # the host LAN IP (advertise_addr) so a LAN WebRTC browser can reach our RTP.

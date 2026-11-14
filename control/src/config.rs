@@ -707,18 +707,6 @@ pub struct Instance {
         skip_serializing_if = "Option::is_none"
     )]
     pub mt_precondition_require_only: Option<bool>,
-    /// Incoming calls: answer the carrier with exactly one speech codec (pjsip
-    /// `preferred_codec_only`). Off by default: MTS RU only sets up media after re-offering a
-    /// multi-codec answer; Beeline RU rejects anything but a single-codec answer.
-    #[serde(
-        deserialize_with = "lenient::opt",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub mt_single_codec: Option<bool>,
-    /// Carrier (IMS) leg codecs in preference order (`normalize_ims_codecs`); unset = the
-    /// phone-like default. Kept as raw JSON so a hand-edited odd value can't fail the load.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ims_codecs: Option<Value>,
     #[serde(
         deserialize_with = "lenient::opt",
         skip_serializing_if = "Option::is_none"
@@ -863,6 +851,17 @@ pub(crate) fn write_atomic(path: &Path, data: &[u8], mode: u32) -> anyhow::Resul
     Ok(())
 }
 
+/// Per-line settings that no longer exist; dropped on load (gone from config.yaml after the
+/// next save) and from API patches. `ims_codecs` / `mt_single_codec`: the carrier codecs are
+/// the same phone-like set on every line and chosen per call (engine render.py, pjsip.conf.j2).
+const RETIRED_INSTANCE_KEYS: &[&str] = &["ims_codecs", "mt_single_codec"];
+
+fn drop_retired_keys(inst: &mut Instance) {
+    for k in RETIRED_INSTANCE_KEYS {
+        inst.extra.remove(*k);
+    }
+}
+
 fn load_locked() -> anyhow::Result<ConfigFile> {
     let path = config_path();
     if !path.exists() {
@@ -890,6 +889,7 @@ fn load_locked() -> anyhow::Result<ConfigFile> {
                     if inst.id.is_empty() {
                         inst.id = key.clone();
                     }
+                    drop_retired_keys(&mut inst);
                     instances.insert(key.clone(), inst);
                 }
                 Err(e) => tracing::warn!("config: instance {key:?} unreadable ({e}); ignored"),
@@ -1599,9 +1599,8 @@ pub fn upsert_instance(mut patch: Map<String, Value>) -> Result<Instance, CfgErr
         patch.remove("status");
         patch.remove("has_pin");
         patch.insert("id".into(), json!(iid));
-        if let Some(v) = patch.get("ims_codecs") {
-            let codecs = normalize_ims_codecs(Some(v))?;
-            patch.insert("ims_codecs".into(), json!(codecs));
+        for k in RETIRED_INSTANCE_KEYS {
+            patch.remove(*k);
         }
         let existing_typed = data.instances.get(&iid).cloned();
         let existing = existing_typed
@@ -1830,55 +1829,6 @@ const PANI_ACCESS_TYPES: &[&str] = &[
     "3GPP-WLAN",
 ];
 
-/// Codecs a line may offer/accept on the carrier (IMS) leg. AMR-WB + AMR is what a phone
-/// offers; G.722 / G.711 are opt-in for carriers that accept them (O2 DE offers G.722 itself),
-/// so a G.722 local client (FRITZ!Box DECT HD) is bridged without transcoding. AMR before
-/// AMR-WB is for carriers that fail AMR-WB answers (Beeline RU incoming calls). EVS needs an
-/// engine image built with `EVS_CODEC=1` (libvocal.so compiled locally from the 3GPP
-/// reference code); on an image without it render.py drops `evs` from the list, so a line
-/// never negotiates a codec it cannot transcode.
-pub const IMS_CODECS_ALLOWED: &[&str] = &["evs", "amrwb", "amr", "g722", "alaw", "ulaw"];
-
-pub fn ims_codecs_default() -> Vec<String> {
-    vec!["amrwb".into(), "amr".into()]
-}
-
-/// Ordered, de-duplicated carrier-leg codec list; None/null/empty -> the phone-like default.
-/// Accepts a list or a comma-separated string. Unknown codecs, or a list without AMR-WB/AMR,
-/// are rejected: every IMS core supports AMR, and a list without it fails calls the carrier
-/// routes without a transcoder.
-pub fn normalize_ims_codecs(value: Option<&Value>) -> Result<Vec<String>, CfgError> {
-    let items: Vec<String> = match value {
-        None | Some(Value::Null) => return Ok(ims_codecs_default()),
-        Some(Value::String(s)) => s.split(',').map(String::from).collect(),
-        Some(Value::Array(a)) => a.iter().map(|v| lenient::string(Some(v))).collect(),
-        Some(_) => return invalid("ims_codecs must be a list of codec names"),
-    };
-    let mut out: Vec<String> = Vec::new();
-    for c in items {
-        let c = c.trim().to_lowercase();
-        if c.is_empty() {
-            continue;
-        }
-        if !IMS_CODECS_ALLOWED.contains(&c.as_str()) {
-            return invalid(format!(
-                "unknown carrier codec '{c}' (allowed: {})",
-                IMS_CODECS_ALLOWED.join(", ")
-            ));
-        }
-        if !out.contains(&c) {
-            out.push(c);
-        }
-    }
-    if out.is_empty() {
-        return Ok(ims_codecs_default());
-    }
-    if !out.iter().any(|c| c == "amrwb" || c == "amr") {
-        return invalid("ims_codecs must include amrwb or amr");
-    }
-    Ok(out)
-}
-
 pub fn normalize_pani_country(c: &str) -> String {
     let s: String = c
         .trim()
@@ -2032,10 +1982,6 @@ pub fn render_instance_json(inst: &Instance, settings: &Settings) -> Value {
         "dial_00_to_plus": inst.dial_00_to_plus.unwrap_or(false),
         "update_after_prack": inst.update_after_prack.unwrap_or(false),
         "mt_precondition_require_only": inst.mt_precondition_require_only.unwrap_or(false),
-        "mt_single_codec": inst.mt_single_codec.unwrap_or(false),
-        // Carrier (IMS) leg codecs, in preference order. A stored value that no longer
-        // validates renders as the default instead of failing the start.
-        "ims_codecs": normalize_ims_codecs(inst.ims_codecs.as_ref()).unwrap_or_else(|_| ims_codecs_default()),
         "imeisv": imeisv,
         "pin": inst.pin.clone().unwrap_or_default(),
         "reader": non_empty(&inst.reader).map(String::from).unwrap_or_else(|| format!("imsi:{}", inst.imsi)),
@@ -2106,25 +2052,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ims_codecs() {
-        let n = |v: Value| normalize_ims_codecs(Some(&v)).map_err(|e| e.to_string());
-        assert_eq!(normalize_ims_codecs(None).unwrap(), vec!["amrwb", "amr"]);
-        assert_eq!(n(Value::Null).unwrap(), vec!["amrwb", "amr"]);
-        assert_eq!(n(json!([])).unwrap(), vec!["amrwb", "amr"]);
-        assert_eq!(n(json!(" AMR , amrwb,amr")).unwrap(), vec!["amr", "amrwb"]);
-        assert_eq!(
-            n(json!(["g722", "amrwb", "amr"])).unwrap(),
-            vec!["g722", "amrwb", "amr"]
-        );
-        assert!(n(json!(["g722"])).unwrap_err().contains("amrwb or amr"));
-        assert_eq!(n(json!(["EVS", "amr"])).unwrap(), vec!["evs", "amr"]);
-        assert!(n(json!(["evs"])).unwrap_err().contains("amrwb or amr"));
-        assert!(
-            n(json!(["opus", "amr"]))
-                .unwrap_err()
-                .contains("unknown carrier codec")
-        );
-        assert!(n(json!(5)).is_err());
+    fn retired_keys_dropped() {
+        let mut inst: Instance = serde_json::from_value(json!({
+            "id": "1", "ims_codecs": ["amr", "amrwb"], "mt_single_codec": true, "custom_key": 1
+        }))
+        .unwrap();
+        drop_retired_keys(&mut inst);
+        assert!(!inst.extra.contains_key("ims_codecs"));
+        assert!(!inst.extra.contains_key("mt_single_codec"));
+        assert_eq!(inst.extra.get("custom_key"), Some(&json!(1)));
     }
 
     #[test]

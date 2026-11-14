@@ -87,13 +87,6 @@ export default function ImsRegistrationSection({
         (fixes no audio on incoming calls on Vodafone DE, and incoming calls
         cancelled before ringing on Beeline RU)
       </CheckboxRow>
-      <CheckboxRow
-        checked={!!form.mt_single_codec}
-        onChange={(mt_single_codec) => upd({ mt_single_codec })}
-      >
-        Incoming calls: answer with a single speech codec (breaks audio on MTS
-        RU; none of the tested carriers needs it)
-      </CheckboxRow>
       <Hint>
         These change only this line. Some IMS cores accept the REGISTER and then
         remove it within a second (status "The carrier's IMS accepted the

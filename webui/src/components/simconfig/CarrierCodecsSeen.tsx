@@ -5,12 +5,12 @@ import { codecLabel, codecSetting } from "../common/codecs";
 
 interface Props {
   id?: InstanceId;
-  /** The line's current carrier codec list (ims_codecs keys), to mark what it uses. */
-  configured: string[];
+  /** Carrier codecs the gateway uses (codecSetting keys), to mark them. */
+  supported: string[];
 }
 
 /** What the carrier has offered/answered in this line's logged calls (call log SDP). */
-export default function CarrierCodecsSeen({ id, configured }: Props) {
+export default function CarrierCodecsSeen({ id, supported }: Props) {
   const [seen, setSeen] = useState<Seen | null>(null);
   useEffect(() => {
     setSeen(null);
@@ -25,17 +25,13 @@ export default function CarrierCodecsSeen({ id, configured }: Props) {
   const none = !seen.incoming_calls && !seen.outgoing_calls;
   const chip = (name: string, calls: number, total: number, key: string) => {
     const setting = codecSetting(name);
-    const used = setting !== undefined && configured.includes(setting);
+    const used = setting !== undefined && supported.includes(setting);
     return (
       <span
         key={key}
         className="mono"
         title={`${name}: ${calls} of ${total} call${total === 1 ? "" : "s"}${
-          setting === undefined
-            ? " · the gateway can't use this codec towards the carrier"
-            : used
-              ? " · in this line's list"
-              : ` · not in this line's list (${setting})`
+          used ? " · the gateway uses it" : " · the gateway doesn't use it towards the carrier"
         }`}
         style={{
           display: "inline-block",

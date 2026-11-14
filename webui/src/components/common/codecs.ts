@@ -1,5 +1,5 @@
-/** SDP codec names ("AMR-WB/16000", as the call log stores them) for display and for the
- *  line's carrier codec setting (control config.rs ims_codecs). */
+/** SDP codec names ("AMR-WB/16000", as the call log stores them) for display, and their
+ *  gateway codec keys (engine render.py carrier codecs). */
 
 const LABELS: Record<string, string> = {
   evs: "EVS",
@@ -29,7 +29,7 @@ export function codecLabel(sdp: string): string {
   return LABELS[encName(sdp)] ?? sdp.split("/")[0];
 }
 
-/** The ims_codecs key for an SDP codec, or undefined if the gateway can't use it there. */
+/** The gateway codec key for an SDP codec ("AMR-WB/16000" -> "amrwb"), or undefined. */
 export function codecSetting(sdp: string): string | undefined {
   return SETTING[encName(sdp)];
 }

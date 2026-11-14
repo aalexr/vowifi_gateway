@@ -279,7 +279,7 @@ export default function SimConfig({
           />
           {/* Advanced: collapsed unless the saved line already uses them. */}
           <ImsRegistrationSection form={form} upd={upd} saved={selected} />
-          <CarrierCodecsSection form={form} upd={upd} saved={selected} />
+          <CarrierCodecsSection id={form.id} />
           <PaniSection form={form} updSip={updSip} saved={selected} />
 
           <div className="card simcfg-actions">
