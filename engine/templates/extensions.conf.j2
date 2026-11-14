@@ -25,7 +25,7 @@ same => n,TrySystem(/usr/local/bin/notify.py call_in "${CALLERID(num)}" &)
 same => n,WaitForPrecondition(10,2000)
 same => n,Ringing()
 {% if dialstr %}
-same => n,Dial({{ dialstr }},60,U(codec_mt_answered^s^1))
+same => n,Dial({{ dialstr }},60,b(local_offer^s^1)U(codec_mt_answered^s^1))
 same => n,GotoIf($["${DIALSTATUS}" = "ANSWER"]?done)
 ; Not answered: give the carrier the final response a phone would. Declined on a local client
 ; (603 -> Q.850 21) or busy -> cause 17 = 486 Busy Here; unanswered / no client reachable ->
@@ -55,11 +55,22 @@ exten => h,1,Set(MEDIA=rs=${CARRIER_SDP}&bw=${CARRIER_BW}&ls=${CHANNEL(pjsip,loc
 same => n,TrySystem(/usr/local/bin/notify.py call_result in "${CALLPEER}" "${DIALSTATUS}" "${HANGUPCAUSE}" "${BASE64_ENCODE(${MEDIA})}" &)
 same => n,Hangup()
 
-; Dial U() subroutines: run on the answered callee channel, record its negotiated SDP on the
-; calling channel (MASTER_CHANNEL) for the 'h' handler's call_result. rs/ls = the carrier
-; leg's remote/local SDP codecs (after an answer pjmedia has narrowed the local one to the
-; negotiated codecs, so an outgoing call's ls is not the full offer), bw = its b= lines,
-; cl = the local client's answer.
+; Pre-dial handler on each local client leg (Dial b()): offer the client our codec order.
+; Without it chan_pjsip offers in the carrier channel's order (e.g. AMR before PCM);
+; codec_prefs_outgoing_offer does not change that. SIP clients: G.722 first, as
+; endpoint-local in pjsip.conf. The browser softphone: Opus first, as its own endpoint.
+[local_offer]
+{% if webrtc_enable %}
+exten => s,1,GotoIf($["${CHANNEL(endpoint)}" = "{{ webrtc_user }}"]?browser)
+same => n,Set(PJSIP_MEDIA_OFFER(audio)=g722,ulaw,alaw,opus,amr)
+same => n,Return()
+same => n(browser),Set(PJSIP_MEDIA_OFFER(audio)=opus,g722,ulaw,alaw)
+same => n,Return()
+{% else %}
+exten => s,1,Set(PJSIP_MEDIA_OFFER(audio)=g722,ulaw,alaw,opus,amr)
+same => n,Return()
+{% endif %}
+
 ; Pre-dial handler on the carrier leg of an outgoing call (Dial b()): offer the carrier the
 ; line's ims_codecs in that order. Without it chan_pjsip puts the calling client's codecs
 ; first (G722, PCMU, PCMA, then EVS/AMR-WB/AMR), which no phone does: an iPhone offers EVS,
@@ -68,6 +79,11 @@ same => n,Hangup()
 exten => s,1,Set(PJSIP_MEDIA_OFFER(audio)={{ ims_codecs | join(',') }})
 same => n,Return()
 
+; Dial U() subroutines: run on the answered callee channel, record its negotiated SDP on the
+; calling channel (MASTER_CHANNEL) for the 'h' handler's call_result. rs/ls = the carrier
+; leg's remote/local SDP codecs (after an answer pjmedia has narrowed the local one to the
+; negotiated codecs, so an outgoing call's ls is not the full offer), bw = its b= lines,
+; cl = the local client's answer.
 [codec_mt_answered]
 exten => s,1,Set(MASTER_CHANNEL(CLIENT_SDP)=${CHANNEL(pjsip,remote_sdp_codecs)})
 same => n,Return()
