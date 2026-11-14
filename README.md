@@ -323,7 +323,7 @@ On an image without EVS, `evs` in a list is ignored at engine start (logged as `
 
 What the gateway offers and answers:
 - EVS Primary, wideband (16 kHz, the gateway's internal audio rate), with DTX unless the carrier sets `dtx=0`.
-- Its offer carries `br=5.9-24.4;bw=nb-swb;max-red=220`, what an iPhone offers. It accepts super-wideband but sends wideband. An answer, and any later offer in the same call, carries `br` and `bw` as the overlap with the other side's (the other side's band when there's no overlap: an offer with `bw=swb` only is answered `bw=swb` and gets wideband audio) and repeats the other side's `cmr`, `evs-mode-switch` and `ch-aw-recv`. Inside the agreed `br` range the gateway sends 13.2 kbit/s, or the allowed rate closest to it. `b=AS` is 49 kbit/s.
+- Its offer carries `br=5.9-24.4;bw=nb-swb;max-red=220`, what an iPhone offers. It accepts super-wideband but sends wideband. An answer, and any later offer in the same call, carries `br` and `bw` as the overlap with the other side's (the other side's band when there's no overlap: an offer with `bw=swb` only is answered `bw=swb` and gets wideband audio) and repeats the other side's `cmr`, `evs-mode-switch` and `ch-aw-recv`. Inside the agreed `br` range the gateway sends the highest rate up to 24.4 kbit/s (13.2 if the other side named no `br` at all). `b=AS` is 49 kbit/s.
 - Incoming EVS frames are decoded at any rate, compact or header-full, including the AMR-WB IO mode. Lost frames are concealed.
 - Redundancy is received, not sent: when a packet carries several frames, a redundant copy stands in for a frame whose own packet was lost.
 - Not supported: channel-aware mode, reacting to CMR rate requests, and sending redundancy.
