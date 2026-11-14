@@ -278,6 +278,30 @@ Once an instance reaches `OK`, connect any SIP client to the **engine's** publis
 - **Domain/Server**: `<host-ip>` (or the FQDN in `settings.tls.domain` if you set one)
 - **Transport**: UDP (port 5060+offset), TLS (5061+offset), or WebRTC/WSS (8089+offset; path `/ws`)
 
+### Default phone-number account
+
+Every line gets one external SIP account named after its phone number as soon as the number is known (read from the SIM, or learned from the network at the first registration):
+- **Username**: the number in international form, digits only, with no `+` (e.g. `79161234567`). Phone numbers are unique, so two SIMs from the same carrier never clash. External account usernames now have to be unique across all lines.
+- **Password**: 24 random letters and digits, stored with the other secrets in `data/config.yaml` (mode 0600).
+- It's added next to any accounts you already have and never replaces one. If you delete it, it isn't recreated. A line that is already running picks it up at its next start.
+
+To list the accounts, run `VOWIFI_DATA=<data dir> control/bin/vowifi-control sip-accounts`. Add `--show-secrets` to include passwords. The default account is shown with its number in FRITZ!Box format (`00…`).
+
+### One FRITZ!Box trunk for all lines (sip-front add-on)
+
+The separate **sip-front** add-on (a Kamailio container in its own repo) gives a FRITZ!Box **one** account on host port 5060. Every line's number goes under *Other Phone Numbers* on that account. sip-front registers to each engine with that line's default account, so the engines don't change. To feed it, point vowifi at its lines file in `config.yaml` (there's no WebUI setting):
+
+```yaml
+settings:
+  front_proxy:
+    lines_file: ~/.config/sip-front/lines.d/vowifi.json   # written atomically, mode 0600 (holds SIP passwords)
+    # engine_host: 192.168.178.44                          # default: the host LAN IPv4 (not 127.0.0.1)
+```
+
+In the FRITZ!Box account, tick **Use phone number for registration**: without it the box doesn't say which number an outgoing call uses. The steps are in the sip-front README.
+
+vowifi rewrites the file whenever a line, an account or the settings change. Each entry holds the line, its number, `target` (`<engine_host>:<SIP port>`), `transport`, `username` and `password`. Lines without a default account are left out. vowifi never calls sip-front.
+
 Tested clients: **MicroSIP** (Windows), **Zoiper** (multi-platform), Asterisk PJSIP trunk. Phones that can't dial `+` (e.g. FRITZ!Box DECT handsets) can dial `00…` instead if the line has **SIM Config → Dial a leading 00 as +** enabled; the gateway then sends `+…` to the carrier. Use it for carriers that don't accept `00` as the international prefix (MTS RU); it's off by default. The engine's `/` context accepts any `INVITE` and hairpins it to the IMS trunk (so you dial the **target number** directly, no prefix).
 
 ### Codecs

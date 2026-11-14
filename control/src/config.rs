@@ -325,6 +325,33 @@ pub struct Settings {
     pub telegram: Telegram,
     #[serde(deserialize_with = "de_nested")]
     pub esim: Esim,
+    /// Optional line export for the separate sip-front add-on (front_proxy.rs). Unset = off.
+    #[serde(
+        deserialize_with = "de_nested_opt",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub front_proxy: Option<FrontProxy>,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
+}
+
+/// `settings.front_proxy` (config.yaml only, no WebUI): where to export the lines for sip-front.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FrontProxy {
+    /// JSON file sip-front reads, e.g. `~/.config/sip-front/lines.d/vowifi.json`.
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub lines_file: Option<String>,
+    /// Address sip-front reaches the engines' published SIP ports on (default: the host's LAN
+    /// IPv4; never 127.0.0.1, see front_proxy.rs).
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub engine_host: Option<String>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
@@ -344,6 +371,7 @@ impl Default for Settings {
             webhook: Webhook::default(),
             telegram: Telegram::default(),
             esim: Esim::default(),
+            front_proxy: None,
             extra: Map::new(),
         }
     }
@@ -582,6 +610,13 @@ pub struct Instance {
         skip_serializing_if = "Option::is_none"
     )]
     pub msisdn: Option<String>,
+    /// Username of the default phone-number SIP account this line was given
+    /// (`ensure_default_account`). Set once, so an account the user deleted is not re-created.
+    #[serde(
+        deserialize_with = "lenient::opt",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub default_account: Option<String>,
     #[serde(
         deserialize_with = "lenient::opt",
         skip_serializing_if = "Option::is_none"
@@ -805,7 +840,7 @@ fn yaml_to_json(v: serde_yaml::Value) -> Value {
     }
 }
 
-fn write_atomic(path: &Path, data: &[u8], mode: u32) -> anyhow::Result<()> {
+pub(crate) fn write_atomic(path: &Path, data: &[u8], mode: u32) -> anyhow::Result<()> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }
@@ -1117,6 +1152,7 @@ pub fn update_settings(mut patch: Map<String, Value>) -> Result<Value, CfgError>
         }
         data.settings = serde_json::from_value(Value::Object(cur)).unwrap_or_default();
         save_locked(&data)?;
+        crate::front_proxy::export(&data.settings, data.instances.values());
         let current =
             normalize_advertise_address(&data.settings.advertise_address).unwrap_or_default();
         Ok((
@@ -1412,6 +1448,128 @@ fn merge_external_sip_accounts(
     Ok(Value::Array(merged))
 }
 
+// ------------------------------------------------------------ default phone-number account
+/// SIP username for a line's default account: the MSISDN as E.164 digits without `+`
+/// (`+79161234567` -> `79161234567`). Digits only, because the FRITZ!Box (the usual client,
+/// via sip-front) only handles numeric numbers. None for an unknown or non-international
+/// MSISDN (a national `0…` number can't be told apart across countries).
+pub fn phone_username(msisdn: &str) -> Option<String> {
+    let t = msisdn.trim();
+    let t = t
+        .strip_prefix('+')
+        .or_else(|| t.strip_prefix("00"))
+        .unwrap_or(t);
+    let ok =
+        (6..=15).contains(&t.len()) && t.chars().all(|c| c.is_ascii_digit()) && !t.starts_with('0');
+    ok.then(|| t.to_string())
+}
+
+/// Random alphanumeric SIP password: no `;`/quoting hazards in pjsip.conf or the FRITZ!Box.
+pub fn random_password(len: usize) -> String {
+    use rand::Rng as _;
+    rand::rng()
+        .sample_iter(rand::distr::Alphanumeric)
+        .take(len)
+        .map(char::from)
+        .collect()
+}
+
+/// External account usernames of every line except `exclude`.
+fn external_usernames_except<'a>(
+    instances: impl IntoIterator<Item = &'a Instance>,
+    exclude: &str,
+) -> HashSet<String> {
+    instances
+        .into_iter()
+        .filter(|i| i.id != exclude)
+        .flat_map(|i| {
+            i.sip()
+                .external_accounts()
+                .iter()
+                .map(|a| a.username.trim().to_string())
+                .filter(|u| !u.is_empty())
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+/// Give a line its default phone-number account once its MSISDN is known: username =
+/// `phone_username`, password random. Added next to any existing accounts (never replaces
+/// one). Records `default_account` so a later user deletion sticks. Returns true if `inst`
+/// changed. Takes effect at the next engine start (config is rendered at start).
+fn ensure_default_account(inst: &mut Instance, taken: &HashSet<String>) -> bool {
+    if non_empty(&inst.default_account).is_some() {
+        return false;
+    }
+    let Some(user) = phone_username(inst.msisdn()) else {
+        return false;
+    };
+    let mut sip = inst.sip();
+    let accounts = sip.external.get_or_insert_with(Vec::new);
+    if !accounts.iter().any(|a| a.username.trim() == user) {
+        if taken.contains(&user) {
+            tracing::warn!(
+                instance = %inst.id,
+                "default SIP account {user} not added to line {}: another line already uses \
+                 that username",
+                inst.id
+            );
+            return false;
+        }
+        accounts.push(ExternalAccount {
+            username: user.clone(),
+            password: random_password(24),
+            extra: Map::new(),
+        });
+        tracing::info!(
+            instance = %inst.id,
+            "added default SIP account {user} to line {} (active from the next engine start)",
+            inst.id
+        );
+    }
+    inst.sip = Some(sip);
+    inst.default_account = Some(user);
+    true
+}
+
+/// External SIP usernames must be unique across ALL lines: sip-front (and any client set up
+/// by number) tells lines apart by them.
+fn validate_unique_across_lines(inst: &Instance, taken: &HashSet<String>) -> Result<(), CfgError> {
+    for a in inst.sip().external_accounts() {
+        let u = a.username.trim();
+        if !u.is_empty() && taken.contains(u) {
+            return invalid(format!(
+                "SIP username '{u}' is already used by another line. \
+                 Each account needs a username that is unique across all lines."
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Startup migration: give every line with a known MSISDN its default account, then refresh
+/// the sip-front export. Returns the ids of lines that changed.
+pub fn ensure_default_accounts() -> anyhow::Result<Vec<String>> {
+    with_lock(|| {
+        let mut data = load_locked()?;
+        let mut changed = Vec::new();
+        let ids: Vec<String> = data.instances.keys().cloned().collect();
+        for iid in ids {
+            let taken = external_usernames_except(data.instances.values(), &iid);
+            if let Some(inst) = data.instances.get_mut(&iid)
+                && ensure_default_account(inst, &taken)
+            {
+                changed.push(iid);
+            }
+        }
+        if !changed.is_empty() {
+            save_locked(&data)?;
+        }
+        crate::front_proxy::export(&data.settings, data.instances.values());
+        Ok(changed)
+    })
+}
+
 /// URL-safe random token of `n` bytes (Python's secrets.token_urlsafe).
 pub fn token_urlsafe(n: usize) -> String {
     let mut buf = vec![0u8; n];
@@ -1535,11 +1693,28 @@ pub fn upsert_instance(mut patch: Map<String, Value>) -> Result<Instance, CfgErr
         sip.insert("webrtc".into(), Value::Object(wr));
         merged.insert("sip".into(), Value::Object(sip));
 
-        let inst: Instance =
+        let mut inst: Instance =
             serde_json::from_value(Value::Object(merged)).map_err(anyhow::Error::from)?;
         validate_sip_external_usernames(&inst.sip())?;
+        let taken = external_usernames_except(data.instances.values(), &iid);
+        // Only names this save introduces: a pre-existing clash must not block unrelated
+        // updates (e.g. learn_msisdn's patch).
+        let before: HashSet<String> = existing_typed
+            .as_ref()
+            .map(|e| {
+                e.sip()
+                    .external_accounts()
+                    .iter()
+                    .map(|a| a.username.trim().to_string())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let taken_new: HashSet<String> = taken.difference(&before).cloned().collect();
+        validate_unique_across_lines(&inst, &taken_new)?;
+        ensure_default_account(&mut inst, &taken);
         data.instances.insert(iid.clone(), inst.clone());
         save_locked(&data)?;
+        crate::front_proxy::export(&data.settings, data.instances.values());
         Ok(inst)
     })
 }
@@ -1566,7 +1741,9 @@ pub fn delete_instance(iid: &str) -> anyhow::Result<()> {
     with_lock(|| {
         let mut data = load_locked()?;
         data.instances.shift_remove(iid);
-        save_locked(&data)
+        save_locked(&data)?;
+        crate::front_proxy::export(&data.settings, data.instances.values());
+        Ok(())
     })
 }
 
@@ -2030,5 +2207,127 @@ mod tests {
         assert!(s.webhook.events.incoming_call);
         assert_eq!(s.http_port, 8443);
         assert_eq!(s.esim.download_timeout_s(), 300);
+    }
+
+    fn line(id: &str, msisdn: &str, accounts: Value) -> Instance {
+        serde_json::from_value(json!({
+            "id": id, "imsi": "250011234567890", "mcc": "250", "mnc": "01",
+            "msisdn": msisdn, "sip": {"external": accounts}
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn phone_usernames() {
+        assert_eq!(
+            phone_username("+79161234567").as_deref(),
+            Some("79161234567")
+        );
+        assert_eq!(
+            phone_username(" 0049163123456 ").as_deref(),
+            Some("49163123456")
+        );
+        assert_eq!(
+            phone_username("49163123456").as_deref(),
+            Some("49163123456")
+        );
+        assert_eq!(phone_username(""), None);
+        assert_eq!(phone_username("01632092135"), None); // national: ambiguous
+        assert_eq!(phone_username("+7916abc"), None);
+        assert_eq!(phone_username("+12345"), None);
+        let pw = random_password(24);
+        assert_eq!(pw.len(), 24);
+        assert!(pw.chars().all(|c| c.is_ascii_alphanumeric()));
+        assert_ne!(pw, random_password(24));
+    }
+
+    #[test]
+    fn default_account_added_once() {
+        let mut inst = line(
+            "1",
+            "+79161234567",
+            json!([{"username": "mts", "password": "p"}]),
+        );
+        assert!(ensure_default_account(&mut inst, &HashSet::new()));
+        let accts = inst.sip().external.unwrap();
+        assert_eq!(accts.len(), 2);
+        assert_eq!(accts[0].username, "mts"); // existing account kept
+        assert_eq!(accts[1].username, "79161234567");
+        assert_eq!(accts[1].password.len(), 24);
+        assert_eq!(inst.default_account.as_deref(), Some("79161234567"));
+        // Idempotent, and a user-deleted default is not re-created.
+        assert!(!ensure_default_account(&mut inst, &HashSet::new()));
+        let mut sip = inst.sip();
+        sip.external
+            .as_mut()
+            .unwrap()
+            .retain(|a| a.username == "mts");
+        inst.sip = Some(sip);
+        assert!(!ensure_default_account(&mut inst, &HashSet::new()));
+        assert_eq!(inst.sip().external_accounts().len(), 1);
+    }
+
+    #[test]
+    fn default_account_needs_msisdn_and_free_name() {
+        let mut no_number = line("1", "", json!([]));
+        assert!(!ensure_default_account(&mut no_number, &HashSet::new()));
+        assert!(no_number.default_account.is_none());
+        let mut clash = line("2", "+79161234567", json!([]));
+        let taken: HashSet<String> = ["79161234567".to_string()].into();
+        assert!(!ensure_default_account(&mut clash, &taken));
+        assert!(clash.default_account.is_none());
+        // An account the user already named after the number is adopted, password kept.
+        let mut own = line(
+            "3",
+            "+79161234567",
+            json!([{"username": "79161234567", "password": "mine"}]),
+        );
+        assert!(ensure_default_account(&mut own, &HashSet::new()));
+        let accts = own.sip().external.unwrap();
+        assert_eq!(accts.len(), 1);
+        assert_eq!(accts[0].password, "mine");
+    }
+
+    #[test]
+    fn usernames_unique_across_lines() {
+        let a = line("1", "", json!([{"username": "mts", "password": "p"}]));
+        let b = line("2", "", json!([{"username": "mts", "password": "q"}]));
+        let taken = external_usernames_except([&a, &b], "2");
+        assert!(validate_unique_across_lines(&b, &taken).is_err());
+        let taken = external_usernames_except([&a, &b], "1");
+        assert!(taken.contains("mts"));
+        let c = line("3", "", json!([{"username": "blau", "password": "q"}]));
+        assert!(validate_unique_across_lines(&c, &taken).is_ok());
+    }
+
+    #[test]
+    fn front_proxy_export() {
+        let mut settings = Settings::default();
+        assert!(crate::front_proxy::lines_file(&settings).is_none());
+        settings.front_proxy = Some(FrontProxy {
+            lines_file: Some("/x/vowifi.json".into()),
+            engine_host: Some("192.0.2.1".into()),
+            ..Default::default()
+        });
+        assert_eq!(
+            crate::front_proxy::lines_file(&settings),
+            Some(PathBuf::from("/x/vowifi.json"))
+        );
+        let mut a = line(
+            "1",
+            "+79161234567",
+            json!([{"username": "mts", "password": "p"}]),
+        );
+        a.ports = Some(alloc_ports(2));
+        ensure_default_account(&mut a, &HashSet::new());
+        let b = line("2", "", json!([{"username": "blau", "password": "q"}])); // no default
+        let doc = crate::front_proxy::render(&settings, [&a, &b]);
+        let rows = doc.as_array().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["number"], "79161234567");
+        assert_eq!(rows[0]["username"], "79161234567");
+        assert_eq!(rows[0]["target"], "192.0.2.1:5080");
+        assert_eq!(rows[0]["transport"], "udp");
+        assert_eq!(rows[0]["password"].as_str().unwrap().len(), 24);
     }
 }
