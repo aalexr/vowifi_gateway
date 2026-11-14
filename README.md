@@ -311,10 +311,10 @@ Each call has two legs, and Asterisk converts between them when their codecs dif
 | Leg | Codecs, in preference order |
 |-----|-----------------------------|
 | Carrier (IMS) | EVS (only on an EVS engine image, see **EVS** below), AMR-WB, AMR: what a phone offers, the same on every line. |
-| External SIP clients | G.722, PCMU, PCMA, Opus, AMR |
+| External SIP clients | G.722, PCMU, PCMA, Opus, AMR (the gateway's order wins over the client's) |
 | Browser softphone | Opus, G.722, PCMU, PCMA |
 
-A FRITZ!Box DECT HD handset (G.722) on an AMR-WB or EVS carrier call is converted once, e.g. AMR-WB ↔ G.722, and stays wideband (16 kHz).
+SIP clients get G.722 whenever they offer it, even if they list Opus or PCM first. An AMR-WB or EVS carrier call is converted once and stays wideband: 16 kHz, the widest audio any carrier codec has inside the gateway (EVS is decoded and encoded at 16 kHz). Opus couldn't carry more, so it's only a fallback for SIP clients. The browser softphone keeps Opus first, for its packet-loss resilience over the internet.
 
 The carrier codecs aren't a setting: which one a call uses is decided per call, from what the carrier offers or answers.
 
