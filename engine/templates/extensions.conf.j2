@@ -25,7 +25,7 @@ same => n,TrySystem(/usr/local/bin/notify.py call_in "${CALLERID(num)}" &)
 same => n,WaitForPrecondition(10,2000)
 same => n,Ringing()
 {% if dialstr %}
-same => n,Dial({{ dialstr }},60,U(codec_mt_answered^s^1))
+same => n,Dial({{ dialstr }},60,b(local_offer^s^1)U(codec_mt_answered^s^1))
 same => n,GotoIf($["${DIALSTATUS}" = "ANSWER"]?done)
 ; Not answered: give the carrier the final response a phone would. Declined on a local client
 ; (603 -> Q.850 21) or busy -> cause 17 = 486 Busy Here; unanswered / no client reachable ->
@@ -60,6 +60,14 @@ same => n,Hangup()
 ; leg's remote/local SDP codecs (after an answer pjmedia has narrowed the local one to the
 ; negotiated codecs, so an outgoing call's ls is not the full offer), bw = its b= lines,
 ; cl = the local client's answer.
+; Pre-dial handler on each local client leg (Dial b()): offer the client our codec order,
+; Opus first. Without it chan_pjsip offers in the carrier channel's order (G722, AMR, opus …)
+; and the FRITZ!Box picks G722; codec_prefs_outgoing_offer does not change that. Same list as
+; endpoint-local in pjsip.conf; a browser ignores the AMR it doesn't know.
+[local_offer]
+exten => s,1,Set(PJSIP_MEDIA_OFFER(audio)=opus,g722,ulaw,alaw,amr)
+same => n,Return()
+
 [codec_mt_answered]
 exten => s,1,Set(MASTER_CHANNEL(CLIENT_SDP)=${CHANNEL(pjsip,remote_sdp_codecs)})
 same => n,Return()

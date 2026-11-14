@@ -207,16 +207,25 @@ message_context=msg-from-local
 ; shows no incoming-call (Answer/Decline) overlay. The IMS realm is always a valid FQDN.
 from_domain={{ realm }}
 disallow=all
-; Prefer G.722 (wideband, 16 kHz audio) on the local leg, then PCM. Both negotiate
-; telephone-event/8000 (G.722's RTP clock is 8000 per RFC 3551), which is what makes DTMF
-; reliable with Linphone/MicroSIP/FRITZ!Box; Opus would need telephone-event/48000. With an
-; AMR-WB IMS leg, G.722 keeps the call wideband end to end. The WebRTC endpoint overrides
-; this with Opus first.
+; Prefer Opus on the local leg, then G.722 (wideband, 16 kHz audio), then PCM. Clients that
+; offer Opus (FRITZ!Box, Linphone, app phones) also offer telephone-event/48000 for DTMF;
+; clients without Opus (DECT-only setups, older phones) still get G.722 with
+; telephone-event/8000 (G.722's RTP clock is 8000 per RFC 3551).
+allow=opus
 allow=g722
 allow=ulaw
 allow=alaw
-allow=opus
 allow=amr
+; Use OUR order, not the other side's, in every direction:
+; - incoming_offer (calls from the client): the FRITZ!Box lists G722 before opus, and
+;   Asterisk's default (prefer:pending) would follow it and never pick Opus.
+; - outgoing_offer (carrier calls to the client) is NOT set here: chan_pjsip builds that offer
+;   from the carrier channel's caps (G722, AMR first) and ignores prefer:configured. The
+;   dialplan sets it with PJSIP_MEDIA_OFFER instead ([local_offer] in extensions.conf).
+; - incoming_answer: the FRITZ!Box answers G722 first even when offered opus first; with
+;   prefer:configured Asterisk still sends Opus when the answer lists it.
+codec_prefs_incoming_offer=prefer:configured,operation:intersect,keep:all,transcode:allow
+codec_prefs_incoming_answer=prefer:configured,operation:intersect,keep:all,transcode:allow
 rtp_symmetric=yes
 force_rport=yes
 rewrite_contact=yes
@@ -264,9 +273,8 @@ auth=auth-{{ webrtc_user }}
 aors={{ webrtc_user }}
 transport=transport-wss
 webrtc=yes
-; Browsers offer Opus 48 kHz (plus telephone-event/48000 for DTMF); prefer it over the
-; template's PCM-first order (kept for external SIP clients) so an AMR-WB carrier leg stays
-; wideband end to end instead of being squeezed through 8 kHz ulaw.
+; Browsers offer Opus 48 kHz (plus telephone-event/48000 for DTMF). Same order as the
+; template, minus AMR (browsers never offer it).
 disallow=all
 allow=opus
 allow=g722

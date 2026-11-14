@@ -287,16 +287,16 @@ Each call has two legs, and Asterisk converts between them when their codecs dif
 | Leg | Codecs, in preference order |
 |-----|-----------------------------|
 | Carrier (IMS) | **SIM Config → Carrier codecs**, per line. Default: AMR-WB, AMR, what a phone offers. |
-| External SIP clients | G.722, PCMU, PCMA, Opus, AMR |
+| External SIP clients | Opus, G.722, PCMU, PCMA, AMR (the gateway's order wins over the client's) |
 | Browser softphone | Opus, G.722, PCMU, PCMA |
 
-With the default, a FRITZ!Box DECT HD handset (G.722) on an AMR-WB carrier call is converted once, AMR-WB ↔ G.722, and stays wideband (16 kHz).
+A client that offers Opus (FRITZ!Box, Linphone, app phones) gets Opus; one without it gets G.722. Either way an AMR-WB or EVS carrier call is converted once and stays wideband (16 kHz, the gateway's internal rate).
 
 On incoming calls, the gateway answers the carrier with every codec from this list that the carrier offered. With the default list they're in the carrier's offer order; with any other list, in **this list's** order. **SIM Config → Incoming calls: answer with a single speech codec** makes the answer carry only the first of them (plus `telephone-event` for DTMF), as 3GPP TS 24.229 asks of a terminating phone. Off by default: MTS RU then never sends audio (see **Troubleshooting**), and none of the tested carriers needs it.
 
 Presets besides the default:
 - **G.722 first, then AMR-WB, AMR**, for carriers that accept G.722 themselves (O2 Germany offers it on incoming calls):
-  - G.722 calls with a FRITZ!Box pass through the gateway without any conversion; the carrier converts to AMR-WB where the far end needs it.
+  - G.722 calls with a client that has no Opus pass through the gateway without any conversion; the carrier converts to AMR-WB where the far end needs it. Clients that offer Opus still get Opus (one conversion).
   - The SDP bandwidth (`b=AS`) is raised from 41 to 88 kbit/s, the 64 kbit/s G.722 stream plus IPv6/UDP/RTP headers.
 - **AMR, then AMR-WB**, for carriers that end incoming calls answered with AMR-WB or EVS (see **Troubleshooting**, Beeline RU). Calls are then narrowband (8 kHz) end to end. A custom list may name more codecs after `amr`, e.g. `amr, evs, amrwb, g722, alaw, ulaw`: AMR stays the one incoming calls use, the rest are offered too.
 - **EVS first, then AMR-WB, AMR**: needs an EVS engine image, see **EVS** below.
