@@ -54,32 +54,23 @@ transport=volte_ims
 context=volte_ims
 message_context=volte_ims_msg
 disallow=all
-; Per-line carrier codecs (control: ims_codecs). Default AMR-WB (HD Voice, 16 kHz) first,
-; AMR-NB as fallback, like a phone: offering only amr pins every call to narrowband even when
-; the carrier and far end support wideband. Carriers that accept G.722 (O2 DE) can put it
-; first so a G.722 local client (FRITZ!Box DECT HD) is bridged without transcoding; carriers
-; that fail AMR-WB answers (Beeline RU incoming calls) can put AMR first.
+; Carrier codecs, the same on every line: what a phone offers - EVS (only on an EVS engine
+; image), AMR-WB, AMR (render.py). Which one a call uses is decided per call, see below.
 {% for codec in ims_codecs %}
 allow={{ codec }}
 {% endfor %}
 ; SDP b=AS incl. RTP/UDP/IP headers, sized for the largest codec offered (render.py).
 bw_value={{ ims_bw }}
-; Incoming calls: the MT 183/200 SDP comes from the pjmedia negotiator, which the fork
-; (res_pjsip_session.c) puts into answer-multiple-codecs mode unless preferred_codec_only is
-; set, so codec_prefs alone does not change it. The default list follows the carrier's offer
-; order (prefer:pending); a custom list chooses by OUR order, so its first codec comes first.
-codec_prefs_incoming_offer=prefer:{{ 'configured' if ims_codecs_custom else 'pending' }},operation:intersect,keep:first,transcode:allow
-{% if mt_single_codec %}
-; Per line (control: mt_single_codec): answer with exactly ONE speech codec, as TS 24.229
-; asks of a terminating UE (telephone-event may be added). Beeline RU rejects a multi-codec
-; answer ("Media Negotiation Failed").
-preferred_codec_only=yes
-{% else %}
-; Multi-codec answer (default). MTS RU (Lucent P-CSCF) needs it: it re-offers the chosen codec
-; in the PRACK, and with a single-codec answer it skips that and never sends media (no audio
-; on incoming calls). O2/Vodafone DE worked with it too.
+; Incoming calls: answer in the CARRIER's offer order (prefer:pending), so the first codec of
+; the carrier's offer that we support comes first - what phones do (they take the caller's
+; first codec; on Beeline RU the caller's codecs come before the network's appended ones).
+; The MT 183/200 SDP comes from the pjmedia negotiator, which the fork (res_pjsip_session.c)
+; puts into answer-multiple-codecs mode unless preferred_codec_only is set. Keep the
+; multi-codec answer: MTS RU (Lucent P-CSCF) re-offers the chosen codec in the PRACK only then,
+; and with a single-codec answer never sends media (no audio on incoming calls); O2/Vodafone DE
+; and Beeline RU (2026-11-12) work with it.
+codec_prefs_incoming_offer=prefer:pending,operation:intersect,keep:first,transcode:allow
 preferred_codec_only=no
-{% endif %}
 outbound_auth=volte_ims
 aors=volte_ims
 ; rewrite_contact MUST be off towards the P-CSCF. With sec-agree (TS 33.203 §7) the P-CSCF

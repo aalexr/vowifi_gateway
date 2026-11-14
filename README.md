@@ -310,27 +310,19 @@ Each call has two legs, and Asterisk converts between them when their codecs dif
 
 | Leg | Codecs, in preference order |
 |-----|-----------------------------|
-| Carrier (IMS) | **SIM Config → Carrier codecs**, per line. Default: AMR-WB, AMR, what a phone offers. |
+| Carrier (IMS) | EVS (only on an EVS engine image, see **EVS** below), AMR-WB, AMR: what a phone offers, the same on every line. |
 | External SIP clients | G.722, PCMU, PCMA, Opus, AMR |
 | Browser softphone | Opus, G.722, PCMU, PCMA |
 
-With the default, a FRITZ!Box DECT HD handset (G.722) on an AMR-WB carrier call is converted once, AMR-WB ↔ G.722, and stays wideband (16 kHz).
+A FRITZ!Box DECT HD handset (G.722) on an AMR-WB or EVS carrier call is converted once, e.g. AMR-WB ↔ G.722, and stays wideband (16 kHz).
 
-On outgoing calls, the gateway offers the carrier exactly this list, in this order, like a phone (3GPP codecs only, no codecs taken from the calling client). The far end picks from the front, so put the codec you want first. AMR and AMR-WB are offered with `mode-change-capability=2`, which a network needs before it can answer AMR-WB restricted for circuit-switched interworking (`mode-set=0,1,2;mode-change-period=2`); without it Beeline RU answered narrowband AMR only. The dialled number is sent as `sip:<number>@<realm>;user=phone`: without `user=phone` MTS RU routed calls over its circuit-switched side (slow setup, narrowband).
+The carrier codecs aren't a setting: which one a call uses is decided per call, from what the carrier offers or answers.
 
-On incoming calls, the gateway answers the carrier with every codec from this list that the carrier offered. With the default list they're in the carrier's offer order; with any other list, in **this list's** order. **SIM Config → Incoming calls: answer with a single speech codec** makes the answer carry only the first of them (plus `telephone-event` for DTMF), as 3GPP TS 24.229 asks of a terminating phone. Off by default: MTS RU then never sends audio (see **Troubleshooting**), and none of the tested carriers needs it.
+On outgoing calls, the gateway offers the carrier exactly this list, in this order, like a phone (3GPP codecs only, no codecs taken from the calling client), and the far end picks. AMR and AMR-WB are offered with `mode-change-capability=2`, which a network needs before it can answer AMR-WB restricted for circuit-switched interworking (`mode-set=0,1,2;mode-change-period=2`); without it Beeline RU answered narrowband AMR only. The dialled number is sent as `sip:<number>@<realm>;user=phone`: without `user=phone` MTS RU routed calls over its circuit-switched side (slow setup, narrowband).
 
-Presets besides the default:
-- **G.722 first, then AMR-WB, AMR**, for carriers that accept G.722 themselves (O2 Germany offers it on incoming calls):
-  - G.722 calls with a FRITZ!Box pass through the gateway without any conversion; the carrier converts to AMR-WB where the far end needs it.
-  - The SDP bandwidth (`b=AS`) is raised from 41 to 88 kbit/s, the 64 kbit/s G.722 stream plus IPv6/UDP/RTP headers.
-- **AMR, then AMR-WB**, for carriers that end incoming calls answered with AMR-WB or EVS (see **Troubleshooting**, Beeline RU). Calls are then narrowband (8 kHz) end to end. A custom list may name more codecs after `amr`, e.g. `amr, evs, amrwb, g722, alaw, ulaw`: AMR stays the one incoming calls use, the rest are offered too.
-- **EVS first, then AMR-WB, AMR**: needs an EVS engine image, see **EVS** below.
-- **Custom**: any order of `evs`, `amrwb`, `amr`, `g722`, `alaw`, `ulaw`. The list must keep AMR-WB or AMR, so calls the carrier can't convert still work.
+On incoming calls, the gateway answers with every codec from this list that the carrier offered, in the **carrier's** offer order. The call runs on the first one, so it uses the carrier's first codec the gateway supports, as a phone does. On Beeline RU the caller's own codecs come first in the offer, and the network appends its EVS and AMR-WB after them; Beeline ended calls answered with those appended codecs (`Media Negotiation Failed`), and following the offer order avoids them. The answer always lists several codecs: MTS RU sets up media only then (it re-offers the chosen codec in its `PRACK`), and every tested carrier accepts it.
 
-Only use G.722 where you've tested an answered call in both directions: a carrier listing G.722 in its offer doesn't prove it carries it. Check the carrier's `b=AS` in its offer, too: G.722 needs about 88 kbit/s with IPv6/UDP/RTP headers.
-- **O2 Germany:** offers `b=AS:88` with G.722. Works.
-- **Vodafone Germany:** offers G.722 with only `b=AS:50`, and polices the call to that. Both directions lost a steady ~44 % of packets (RTCP), heard as clipped voice. Leave G.722 out there: EVS (`evs, amrwb, amr`, 49 kbit/s with headers) or the default AMR-WB fits.
+G.722 and G.711 are never used towards the carrier, as on a phone. O2 Germany carries G.722, but EVS and AMR-WB are just as wideband inside the gateway. Vodafone Germany offers G.722 with only `b=AS:50` and polices the call to that: both directions lost a steady ~44 % of packets, heard as clipped voice.
 
 Per-carrier results are in **Tested carriers → Codecs per carrier**.
 
@@ -340,10 +332,9 @@ Per-carrier results are in **Tested carriers → Codecs per carrier**.
 
 To use EVS:
 1. Build the engine image with it, for example by adding `EVS_CODEC=1` to `.env` and running `./install.sh reload --engines`. Plain `podman build --build-arg EVS_CODEC=1 …` works too. This restarts the lines.
-2. Put `evs` in the line's carrier codecs: the **EVS first** preset, or a custom list. EVS worked on O2 DE and Vodafone DE (outgoing calls are answered EVS-only there) and on an outgoing MTS RU call to an iPhone; Beeline RU offers it but ended calls answered with it.
-3. Restart the line.
+2. Restart the lines. Every line then offers EVS first, and accepts it where the carrier offers it first. EVS worked on O2 DE and Vodafone DE (outgoing calls are answered EVS-only there) and on an outgoing MTS RU call to an iPhone. Beeline RU appends EVS to its offers and ended calls answered with it; with the carrier's order those calls use the caller's codec instead.
 
-On an image without EVS, `evs` in a list is ignored at engine start (logged as `[render] ims_codecs: evs needs an engine image built with EVS_CODEC=1`), so a line never negotiates EVS it can't convert.
+On an image without EVS, lines offer AMR-WB and AMR only (logged at engine start as `[render] carrier codecs: no EVS (engine image built without EVS_CODEC=1)`), so a line never negotiates EVS it can't convert.
 
 What the gateway offers and answers:
 - EVS Primary, wideband (16 kHz, the gateway's internal audio rate), with DTX unless the carrier sets `dtx=0`.
@@ -354,13 +345,11 @@ What the gateway offers and answers:
 
 EVS on the carrier leg is still converted for the local clients (EVS ↔ G.722/Opus/AMR-WB …), like any other carrier codec.
 
-The codec setting is rendered into the engine's `pjsip.conf`. Changing it needs the engine image rebuilt once after upgrading (`./install.sh reload --engines`) and the line restarted.
-
 #### Which codecs a carrier supports
 
 Every call records the codecs from its SDP. The engine reads them through the Asterisk fork's `CHANNEL(pjsip,remote_sdp_codecs|remote_sdp_bw|local_sdp_codecs)`, and they're stored with the call in the call log:
 - **Softphone → Recent calls** shows the codec of each call, carrier leg ↔ local client (for example `AMR-WB ↔ G.722`). Hover over it for the full SDP lists and the carrier's `b=` lines.
-- **SIM Config → Carrier codecs → Seen from this carrier** sums the logged calls up per line. An incoming call's offer lists every speech codec the network accepts. On an outgoing call the carrier picks one from our offer, and the pick depends on the far end, so that row only shows what was answered. Codecs on the line's own list are highlighted.
+- **SIM Config → Carrier codecs → Seen from this carrier** sums the logged calls up per line. An incoming call's offer lists every speech codec the network accepts. On an outgoing call the carrier picks one from our offer, and the pick depends on the far end, so that row only shows what was answered. Codecs the gateway uses towards the carrier are highlighted.
 - The control log has one line per call (`call in|out <peer>: carrier SDP [...] b=[...], our answer|negotiated [...], client [...]`). On an outgoing call our own SDP is only read after the answer, when it has been narrowed to the negotiated codecs, so the full offer isn't in the log.
 
 To find out what a new carrier supports, make one incoming call on the line. Calls from before this feature, and calls through an engine image built before it, have no codecs recorded.
@@ -507,8 +496,7 @@ in practice); MOBIKE / `UPDATE_SA_ADDRESSES` (the host has a stable wired IP); m
 - **Incoming calls connect but have no audio in either direction (outgoing calls are fine)**: the carrier's `INVITE` lists `precondition` in `Supported` (not `Require`) and reports its own side ready (`a=curr:qos local sendrecv`). The engine answers `183` with `curr:qos local none` and waits for the carrier's `UPDATE`, while the carrier waits for ours. Neither is sent, and the carrier never opens the media path. Enable **SIM Config → Incoming calls: skip QoS preconditions unless the carrier requires them** for that line (needed on Vodafone DE). Incoming calls then go without preconditions, like on carriers that don't offer them (O2 DE). Over VoWiFi there's no radio bearer to reserve, so nothing is lost. Off by default.
 - **Incoming calls never ring, or end the moment you answer, with `Media Negotiation Failed`** (Beeline RU; outgoing calls are fine): the carrier sends `CANCEL` (before ringing) or `BYE` (right after answering) with `Reason: Q.850;cause=31 … Media Negotiation Failed`. Find it with `grep 'Media Negotiation' /var/log/asterisk/full` in the engine. Beeline's Huawei core rejects two things other carriers accept, and needs both settings:
   1. QoS preconditions when its `INVITE` only *supports* them: enable **SIM Config → Incoming calls: skip QoS preconditions unless the carrier requires them**.
-  2. Any codec but AMR-NB as the one used (the first in the answer), though it offers EVS and AMR-WB; it also answers our outgoing calls with AMR-NB whatever we offer: put `amr` first in **SIM Config → Carrier codecs** (**AMR, then AMR-WB**, or a custom list such as `amr, evs, amrwb, g722, alaw, ulaw`). Answers with several codecs are fine as long as AMR comes first; the single-codec option isn't needed.
-- **Incoming calls connect but have no audio, the carrier's `PRACK` has no SDP** (MTS RU; outgoing calls are fine): the line has **SIM Config → Incoming calls: answer with a single speech codec** enabled. MTS's P-CSCF sets up media only after it re-offers the chosen codec in the `PRACK` for our `183`, and it skips that re-offer when the answer already has one codec. The local client's `X-RTP-Stat` in the `BYE` then shows `PR=0`. Turn the option off for that line.
+  2. EVS or AMR-WB as the used codec (the first in the answer) when the network appended them to the offer behind the caller's own codecs. The gateway answers in the carrier's offer order (**Codecs**), so the call uses the caller's codec, as on a phone. If a call still ends this way, look at the offer in the log: offers seen on 2026-11-12 carried only the appended codecs, and haven't been retested since.
 - **External client no audio**: confirm `VOWIFI_ADVERTISE_ADDR` is the correct LAN IP (not 127.x). Check that the firewall allows RTP from the client (`./install.sh firewall` opens UDP 10000+ for the LAN in firewalld).
 - **WebUI or SIP unreachable from the LAN, fine on the host itself**: the ports are plain host sockets of your user, so the host firewall filters them. `./install.sh firewall` (re)adds the rule allowing the `vowifi` firewalld service from your LAN subnet; set `VOWIFI_FW_SOURCE` / `VOWIFI_FW_ZONE` if it picked the wrong subnet or zone.
 - **Outbound works, inbound fails**: your router's NAT may mangle the SIP `Contact` header. Use the TLS transport (port 5061) if your client supports it, or set `settings.tls.domain` to a public FQDN + port-forward.
@@ -600,12 +588,12 @@ From answered calls in both directions on each line (2026-11), read from the per
 i.e. every codec it accepts; "Picks" is what it answered on outgoing calls, where we offered EVS or
 all six codecs first. The far end matters on outgoing calls, so the pick can differ by callee.
 
-| Carrier | Offers (incoming) | `b=` | Picks (outgoing) | Works best with | Carrier codecs setting |
-|---------|-------------------|------|------------------|-----------------|------------------------|
-| O2 (DE) | EVS, AMR-WB, AMR, G.722, PCMA, PCMU | `AS:88` | EVS | EVS both ways; G.722 also works | `evs, g722, amrwb, amr` |
-| Vodafone (DE) | EVS (up to `bw=swb`), AMR-WB, G.722, AMR, PCMA | `AS:50` | EVS | EVS both ways. G.722 is offered but policed to 50 kbit/s: ~44 % loss | `evs, amrwb, amr` |
-| MTS (RU) | AMR-WB (`mode-set=0,1,2`, max 12.65 kbit/s), AMR, PCMA | `AS:88` | AMR-NB (to a Beeline phone) | AMR-WB. No EVS, no G.722 | default (`amrwb, amr`) |
-| Beeline (RU) | EVS (`bw=swb` and `bw=wb`), AMR-WB, AMR | `RR:0`, `RS:0` | AMR-NB, whatever we offer | AMR-NB only. Answers with EVS or AMR-WB as the used codec end in `Media Negotiation Failed`; a multi-codec answer with AMR first is fine | `amr` first, e.g. `amr, evs, amrwb, g722, alaw, ulaw` |
+| Carrier | Offers (incoming) | `b=` | Picks (outgoing) | Works best with |
+|---------|-------------------|------|------------------|-----------------|
+| O2 (DE) | EVS, AMR-WB, AMR, G.722, PCMA, PCMU | `AS:88` | EVS | EVS both ways; G.722 also worked |
+| Vodafone (DE) | EVS (up to `bw=swb`), AMR-WB, G.722, AMR, PCMA | `AS:50` | EVS | EVS both ways. G.722 is offered but policed to 50 kbit/s: ~44 % loss |
+| MTS (RU) | AMR-WB (`mode-set=0,1,2`, max 12.65 kbit/s), AMR, PCMA | `AS:88` | AMR-NB (to a Beeline phone) | AMR-WB. No EVS, no G.722 |
+| Beeline (RU) | The caller's codecs first, then the network's EVS (`bw=swb` and `bw=wb`), AMR-WB, AMR | `RR:0`, `RS:0` | AMR-WB with the phone-like offer (2026-11-14); AMR-NB before it | The caller's codec, in the carrier's order. Answers with the appended EVS or AMR-WB as the used codec end in `Media Negotiation Failed` |
 
 EVS needs an engine image built with `EVS_CODEC=1` (**Codecs → EVS**); without it, use AMR-WB on
 O2 and Vodafone. With a FRITZ!Box DECT HD handset (G.722) an EVS or AMR-WB carrier call is converted
