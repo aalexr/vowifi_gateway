@@ -316,6 +316,8 @@ Each call has two legs, and Asterisk converts between them when their codecs dif
 
 With the default, a FRITZ!Box DECT HD handset (G.722) on an AMR-WB carrier call is converted once, AMR-WB ↔ G.722, and stays wideband (16 kHz).
 
+On outgoing calls, the gateway offers the carrier exactly this list, in this order, like a phone (3GPP codecs only, no codecs taken from the calling client). The far end picks from the front, so put the codec you want first. AMR and AMR-WB are offered with `mode-change-capability=2`, which a network needs before it can answer AMR-WB restricted for circuit-switched interworking (`mode-set=0,1,2;mode-change-period=2`); without it Beeline RU answered narrowband AMR only. The dialled number is sent as `sip:<number>@<realm>;user=phone`: without `user=phone` MTS RU routed calls over its circuit-switched side (slow setup, narrowband).
+
 On incoming calls, the gateway answers the carrier with every codec from this list that the carrier offered. With the default list they're in the carrier's offer order; with any other list, in **this list's** order. **SIM Config → Incoming calls: answer with a single speech codec** makes the answer carry only the first of them (plus `telephone-event` for DTMF), as 3GPP TS 24.229 asks of a terminating phone. Off by default: MTS RU then never sends audio (see **Troubleshooting**), and none of the tested carriers needs it.
 
 Presets besides the default:
@@ -338,16 +340,17 @@ Per-carrier results are in **Tested carriers → Codecs per carrier**.
 
 To use EVS:
 1. Build the engine image with it, for example by adding `EVS_CODEC=1` to `.env` and running `./install.sh reload --engines`. Plain `podman build --build-arg EVS_CODEC=1 …` works too. This restarts the lines.
-2. Put `evs` in the line's carrier codecs: the **EVS first** preset, or a custom list. EVS worked on O2 DE and Vodafone DE (outgoing calls are answered EVS-only there); Beeline RU offers it but ends calls answered with it.
+2. Put `evs` in the line's carrier codecs: the **EVS first** preset, or a custom list. EVS worked on O2 DE and Vodafone DE (outgoing calls are answered EVS-only there) and on an outgoing MTS RU call to an iPhone; Beeline RU offers it but ended calls answered with it.
 3. Restart the line.
 
 On an image without EVS, `evs` in a list is ignored at engine start (logged as `[render] ims_codecs: evs needs an engine image built with EVS_CODEC=1`), so a line never negotiates EVS it can't convert.
 
 What the gateway offers and answers:
 - EVS Primary, wideband (16 kHz, the gateway's internal audio rate), with DTX unless the carrier sets `dtx=0`.
-- Its offer carries `br=5.9-24.4;bw=nb-wb`. An answer narrows `br` to one rate: 13.2 kbit/s if the carrier allows it, otherwise the allowed rate closest to it. The answer then carries `bw` as the overlap with the carrier's, or the carrier's band when there's no overlap (an offer with `bw=swb` only is answered `bw=swb` and gets wideband audio). `b=AS` is 49 kbit/s.
+- Its offer carries `br=5.9-24.4;bw=nb-swb;max-red=220`, what an iPhone offers. It accepts super-wideband but sends wideband. An answer, and any later offer in the same call, carries `br` and `bw` as the overlap with the other side's (the other side's band when there's no overlap: an offer with `bw=swb` only is answered `bw=swb` and gets wideband audio) and repeats the other side's `cmr`, `evs-mode-switch` and `ch-aw-recv`. Inside the agreed `br` range the gateway sends the highest rate up to 24.4 kbit/s (13.2 if the other side named no `br` at all). `b=AS` is 49 kbit/s.
 - Incoming EVS frames are decoded at any rate, compact or header-full, including the AMR-WB IO mode. Lost frames are concealed.
-- Not supported: channel-aware mode, reacting to CMR rate requests, and multiple frames per RTP packet (only the first is decoded).
+- Redundancy is received, not sent: when a packet carries several frames, a redundant copy stands in for a frame whose own packet was lost.
+- Not supported: channel-aware mode, reacting to CMR rate requests, and sending redundancy.
 
 EVS on the carrier leg is still converted for the local clients (EVS ↔ G.722/Opus/AMR-WB …), like any other carrier codec.
 
