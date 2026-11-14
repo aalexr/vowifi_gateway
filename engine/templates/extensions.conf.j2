@@ -60,6 +60,14 @@ same => n,Hangup()
 ; leg's remote/local SDP codecs (after an answer pjmedia has narrowed the local one to the
 ; negotiated codecs, so an outgoing call's ls is not the full offer), bw = its b= lines,
 ; cl = the local client's answer.
+; Pre-dial handler on the carrier leg of an outgoing call (Dial b()): offer the carrier the
+; line's ims_codecs in that order. Without it chan_pjsip puts the calling client's codecs
+; first (G722, PCMU, PCMA, then EVS/AMR-WB/AMR), which no phone does: an iPhone offers EVS,
+; AMR-WB, AMR only (TS 26.114), and the far end / interworking gateway picks from the front.
+[ims_offer]
+exten => s,1,Set(PJSIP_MEDIA_OFFER(audio)={{ ims_codecs | join(',') }})
+same => n,Return()
+
 [codec_mt_answered]
 exten => s,1,Set(MASTER_CHANNEL(CLIENT_SDP)=${CHANNEL(pjsip,remote_sdp_codecs)})
 same => n,Return()
@@ -111,7 +119,7 @@ same => n,TrySystem(/usr/local/bin/notify.py call_out "{{ dest }}" &)
 ; we give up. Most carriers roll to voicemail by ~30s; 35 is the default. (The repeated
 ; ringing itself is carrier-side MMTel behaviour and can't be removed here.) A caller who
 ; hangs up earlier still CANCELs immediately.
-same => n,Dial(PJSIP/{{ dest }}@volte_ims,{{ ring_timeout }},U(codec_mo_answered^s^1))
+same => n,Dial(PJSIP/{{ dest }}@volte_ims,{{ ring_timeout }},b(ims_offer^s^1)U(codec_mo_answered^s^1))
 ; Dial only returns here when the call was NEVER answered (reject/busy/no-answer/congestion);
 ; answered calls are bridged and tear down via BYE, never reaching this line.
 ; Save the REAL disposition for the call log BEFORE overriding the response (PJSIPHangup does
