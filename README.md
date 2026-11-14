@@ -311,10 +311,10 @@ Each call has two legs, and Asterisk converts between them when their codecs dif
 | Leg | Codecs, in preference order |
 |-----|-----------------------------|
 | Carrier (IMS) | **SIM Config → Carrier codecs**, per line. Default: AMR-WB, AMR, what a phone offers. |
-| External SIP clients | Opus, G.722, PCMU, PCMA, AMR (the gateway's order wins over the client's) |
+| External SIP clients | G.722, PCMU, PCMA, Opus, AMR (the gateway's order wins over the client's) |
 | Browser softphone | Opus, G.722, PCMU, PCMA |
 
-A client that offers Opus (FRITZ!Box, Linphone, app phones) gets Opus; one without it gets G.722. Either way an AMR-WB or EVS carrier call is converted once and stays wideband (16 kHz, the gateway's internal rate).
+SIP clients get G.722 whenever they offer it, even if they list Opus or PCM first. An AMR-WB or EVS carrier call is converted once and stays wideband: 16 kHz, the widest audio any carrier codec has inside the gateway (EVS is decoded and encoded at 16 kHz). Opus couldn't carry more, so it's only a fallback for SIP clients. The browser softphone keeps Opus first, for its packet-loss resilience over the internet.
 
 On outgoing calls, the gateway offers the carrier exactly this list, in this order, like a phone (3GPP codecs only, no codecs taken from the calling client). The far end picks from the front, so put the codec you want first. AMR and AMR-WB are offered with `mode-change-capability=2`, which a network needs before it can answer AMR-WB restricted for circuit-switched interworking (`mode-set=0,1,2;mode-change-period=2`); without it Beeline RU answered narrowband AMR only. The dialled number is sent as `sip:<number>@<realm>;user=phone`: without `user=phone` MTS RU routed calls over its circuit-switched side (slow setup, narrowband).
 
@@ -322,7 +322,7 @@ On incoming calls, the gateway answers the carrier with every codec from this li
 
 Presets besides the default:
 - **G.722 first, then AMR-WB, AMR**, for carriers that accept G.722 themselves (O2 Germany offers it on incoming calls):
-  - G.722 calls with a client that has no Opus pass through the gateway without any conversion; the carrier converts to AMR-WB where the far end needs it. Clients that offer Opus still get Opus (one conversion).
+  - G.722 calls with a SIP client pass through the gateway without any conversion; the carrier converts to AMR-WB where the far end needs it.
   - The SDP bandwidth (`b=AS`) is raised from 41 to 88 kbit/s, the 64 kbit/s G.722 stream plus IPv6/UDP/RTP headers.
 - **AMR, then AMR-WB**, for carriers that end incoming calls answered with AMR-WB or EVS (see **Troubleshooting**, Beeline RU). Calls are then narrowband (8 kHz) end to end. A custom list may name more codecs after `amr`, e.g. `amr, evs, amrwb, g722, alaw, ulaw`: AMR stays the one incoming calls use, the rest are offered too.
 - **EVS first, then AMR-WB, AMR**: needs an EVS engine image, see **EVS** below.

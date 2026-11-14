@@ -55,13 +55,21 @@ exten => h,1,Set(MEDIA=rs=${CARRIER_SDP}&bw=${CARRIER_BW}&ls=${CHANNEL(pjsip,loc
 same => n,TrySystem(/usr/local/bin/notify.py call_result in "${CALLPEER}" "${DIALSTATUS}" "${HANGUPCAUSE}" "${BASE64_ENCODE(${MEDIA})}" &)
 same => n,Hangup()
 
-; Pre-dial handler on each local client leg (Dial b()): offer the client our codec order,
-; Opus first. Without it chan_pjsip offers in the carrier channel's order (G722, AMR, opus …)
-; and the FRITZ!Box picks G722; codec_prefs_outgoing_offer does not change that. Same list as
-; endpoint-local in pjsip.conf; a browser ignores the AMR it doesn't know.
+; Pre-dial handler on each local client leg (Dial b()): offer the client our codec order.
+; Without it chan_pjsip offers in the carrier channel's order (e.g. AMR before PCM);
+; codec_prefs_outgoing_offer does not change that. SIP clients: G.722 first, as
+; endpoint-local in pjsip.conf. The browser softphone: Opus first, as its own endpoint.
 [local_offer]
-exten => s,1,Set(PJSIP_MEDIA_OFFER(audio)=opus,g722,ulaw,alaw,amr)
+{% if webrtc_enable %}
+exten => s,1,GotoIf($["${CHANNEL(endpoint)}" = "{{ webrtc_user }}"]?browser)
+same => n,Set(PJSIP_MEDIA_OFFER(audio)=g722,ulaw,alaw,opus,amr)
 same => n,Return()
+same => n(browser),Set(PJSIP_MEDIA_OFFER(audio)=opus,g722,ulaw,alaw)
+same => n,Return()
+{% else %}
+exten => s,1,Set(PJSIP_MEDIA_OFFER(audio)=g722,ulaw,alaw,opus,amr)
+same => n,Return()
+{% endif %}
 
 ; Pre-dial handler on the carrier leg of an outgoing call (Dial b()): offer the carrier the
 ; line's ims_codecs in that order. Without it chan_pjsip puts the calling client's codecs
