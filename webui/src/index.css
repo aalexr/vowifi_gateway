@@ -1208,6 +1208,33 @@ details.cfg-section[open] > summary {
   color: var(--text-dim);
   overflow-wrap: anywhere;
 }
+.simcfg-card-title {
+  margin-bottom: 14px;
+}
+.simcfg-msg {
+  font-size: 13px;
+  line-height: 1.45;
+  margin-top: 10px;
+  overflow-wrap: anywhere;
+}
+.simcfg-msg-info {
+  color: var(--text-dim);
+}
+.simcfg-msg-ok {
+  color: var(--ok);
+}
+.simcfg-msg-error {
+  color: var(--danger);
+}
+.simcfg-msg-inline {
+  margin-top: 0;
+  min-width: 0;
+  flex: 1;
+}
+.simcfg-delete {
+  margin-left: auto;
+  color: var(--danger);
+}
 .simcfg-actions {
   position: sticky;
   bottom: 0;
@@ -1228,12 +1255,8 @@ details.cfg-section[open] > summary {
   }
 }
 @container (max-width: 560px) {
-  .form-grid,
-  .form-grid-4 {
+  .form-grid {
     grid-template-columns: minmax(0, 1fr);
-  }
-  .form-grid-4 .field-wide {
-    grid-column: auto;
   }
   .cfg-section,
   .simcfg-card {
@@ -1249,7 +1272,8 @@ details.cfg-section[open] > summary {
     flex: 1;
   }
 }
-@container (min-width: 561px) and (max-width: 700px) {
+/* MCC and MNC stay side by side down to phone width; the wide fields take a full row. */
+@container (max-width: 700px) {
   .form-grid-4 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

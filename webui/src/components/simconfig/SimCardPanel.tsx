@@ -3,7 +3,7 @@ import type { CardInfo } from "../../api";
 import CardDetails from "./CardDetails";
 import Field from "./Field";
 import Hint from "./Hint";
-import StatusMessage from "./StatusMessage";
+import StatusMessage, { type Status } from "./StatusMessage";
 import type { FormSectionProps } from "./types";
 
 interface SimCardPanelProps extends FormSectionProps {
@@ -17,7 +17,7 @@ interface SimCardPanelProps extends FormSectionProps {
   onVerifyPin: () => void;
   onDeleteSavedPin: () => void;
   /** Detect / PIN feedback line. */
-  message: string;
+  message: Status | null;
 }
 
 /** Sticky side panel: reader picker, card detection and PIN entry/verification. */
@@ -36,7 +36,7 @@ export default function SimCardPanel({
 }: SimCardPanelProps) {
   return (
     <aside className="card simcfg-card">
-      <div className="cfg-section-title">SIM card</div>
+      <div className="cfg-section-title simcfg-card-title">SIM card</div>
       <Field label="Reader">
         <select
           value={form.reader_index}
@@ -50,18 +50,15 @@ export default function SimCardPanel({
         >
           {readers.map((r, i) => (
             <option key={i} value={i}>
-              {i}: {r}
-              {portForIdx(i) ? ` — USB ${portForIdx(i)}` : ""}
+              {i} · {portForIdx(i) ? `USB ${portForIdx(i)} · ` : ""}
+              {r}
             </option>
           ))}
           {readers.length === 0 && <option>no readers</option>}
         </select>
       </Field>
       {form.reader_port && (
-        <Hint>
-          Bound to USB port {form.reader_port} (stable across reader
-          re-enumeration)
-        </Hint>
+        <Hint>Bound to USB port {form.reader_port}</Hint>
       )}
       <button
         className="btn btn-ghost"
@@ -101,8 +98,8 @@ export default function SimCardPanel({
       {form.id && (
         <Hint style={{ marginTop: 8 }}>
           {form.has_pin
-            ? "A PIN is saved for this line and used automatically on start."
-            : "No PIN saved — you'll be asked for it when the line is started (if the SIM requires one)."}
+            ? "PIN saved; used on start."
+            : "No PIN saved; asked on start if the SIM needs one."}
         </Hint>
       )}
       <StatusMessage message={message} />

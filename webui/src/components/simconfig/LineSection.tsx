@@ -6,7 +6,7 @@ import type { FormSectionProps } from "./types";
 /** How this line is identified in the gateway. */
 export default function LineSection({ form, upd }: FormSectionProps) {
   return (
-    <Section title="Line" desc="How this line is identified in the gateway.">
+    <Section title="Line">
       <div className="form-grid">
         <Field label="Instance ID">
           <input

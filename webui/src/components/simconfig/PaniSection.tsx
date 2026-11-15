@@ -20,12 +20,6 @@ export default function PaniSection({ form, updSip, saved }: PaniSectionProps) {
       collapsible
       defaultOpen={paniCustomised(saved)}
       resetKey={saved?.id}
-      desc={
-        <>
-          Identifies the Wi-Fi access on REGISTER / SIP. Default matches real
-          phones: <code>IEEE-802.11;country=&lt;SIM home country&gt;</code>
-        </>
-      }
     >
       <Field label="Access type">
         <select

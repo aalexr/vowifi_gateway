@@ -1,32 +1,34 @@
 import React from "react";
 
-// Messages that read as success; anything else is shown as a warning.
-const isSuccess = (msg: string) =>
-  msg.includes("OK") ||
-  msg.includes("read") ||
-  msg.startsWith("Saved.") ||
-  msg.includes("deleted");
+/** Feedback after detect / PIN / save actions. The caller states the tone; it is never guessed
+ *  from the wording (an API error can say anything). */
+export type StatusTone = "info" | "ok" | "error";
+export interface Status {
+  text: string;
+  tone: StatusTone;
+}
 
-/** One-line feedback after detect / PIN / save actions. Renders nothing when empty. */
+export const status = (text: string, tone: StatusTone = "info"): Status => ({
+  text,
+  tone,
+});
+
+/** One-line feedback: neutral while working or when the next step is the user's, green on
+ *  success, red on failure. Renders nothing when empty. */
 export default function StatusMessage({
   message,
-  style,
+  className,
 }: {
-  message: string;
-  style?: React.CSSProperties;
+  message: Status | null;
+  className?: string;
 }) {
   if (!message) return null;
   return (
     <div
-      role="status"
-      style={{
-        fontSize: 13,
-        marginTop: 10,
-        color: isSuccess(message) ? "var(--ok)" : "var(--warn)",
-        ...style,
-      }}
+      role={message.tone === "error" ? "alert" : "status"}
+      className={`simcfg-msg simcfg-msg-${message.tone}${className ? ` ${className}` : ""}`}
     >
-      {message}
+      {message.text}
     </div>
   );
 }

@@ -14,17 +14,15 @@ export default function CarrierCodecsSection({ id }: { id?: InstanceId }) {
   return (
     <Section
       title="Carrier codecs"
-      desc="What this line's carrier has offered and answered. The gateway picks the codec per call."
-      collapsible
+            collapsible
       defaultOpen={false}
       resetKey={id}
     >
       <CarrierCodecsSeen id={id} supported={CARRIER_CODECS} />
       <Hint>
-        Every line uses what a phone offers: <b>EVS</b> (only on an engine image built
-        with <code>EVS_CODEC=1</code>, see the README), <b>AMR-WB</b>, <b>AMR</b>.
-        Outgoing calls offer them in that order. Incoming calls take the carrier's own
-        order, so the call runs on the first of them the carrier offered, as on a phone.
+        Every line offers <b>EVS</b> (engine image built with{" "}
+        <code>EVS_CODEC=1</code>), <b>AMR-WB</b>, <b>AMR</b> in that order;
+        incoming calls follow the carrier&apos;s order.
       </Hint>
     </Section>
   );

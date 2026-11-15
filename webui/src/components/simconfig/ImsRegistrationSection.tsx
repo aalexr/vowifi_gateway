@@ -21,7 +21,7 @@ export default function ImsRegistrationSection({
   return (
     <Section
       title="IMS registration"
-      desc="Advanced — leave off/empty unless the carrier needs them."
+      desc="Leave off unless the carrier needs them."
       collapsible
       defaultOpen={imsAdvancedSet(saved)}
       resetKey={saved?.id}
@@ -88,15 +88,10 @@ export default function ImsRegistrationSection({
         cancelled before ringing on Beeline RU)
       </CheckboxRow>
       <Hint>
-        These change only this line. Some IMS cores accept the REGISTER and then
-        remove it within a second (status "The carrier's IMS accepted the
-        registration but then removed it again") unless it looks like a native
-        phone. <b>MTS RU</b> needs only the Geolocation country (the country you
-        are in, e.g. <code>DE</code>); <b>Vodafone DE</b> and <b>Beeline RU</b> need
-        the incoming-call precondition option, <b>Beeline RU</b> also AMR
-        first in its carrier codecs; the other options are there for carriers
-        that turn out to need them (an iPhone sends all of them). Restart the
-        line after changing them.
+        For IMS cores that accept the REGISTER and drop it a second later:{" "}
+        <b>MTS RU</b> needs the Geolocation country (where you are, e.g.{" "}
+        <code>DE</code>); <b>Vodafone DE</b> and <b>Beeline RU</b> need the
+        incoming-call precondition option. An iPhone sends all of these.
       </Hint>
     </Section>
   );

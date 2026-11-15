@@ -3,7 +3,7 @@ import React, { useEffect, useState } from "react";
 interface SectionProps {
   title: React.ReactNode;
   desc?: React.ReactNode;
-  /** Render as a foldable <details>; `false` gives a plain always-open card. */
+  /** Render as a foldable <details> (advanced sections); default is a plain always-open card. */
   collapsible?: boolean;
   /** Initial open state (re-applied whenever `resetKey` changes). */
   defaultOpen?: boolean;
@@ -21,7 +21,7 @@ interface SectionProps {
 export default function Section({
   title,
   desc,
-  collapsible = true,
+  collapsible = false,
   defaultOpen,
   resetKey,
   children,

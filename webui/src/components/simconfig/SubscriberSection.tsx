@@ -17,10 +17,7 @@ export default function SubscriberSection({
   onSmscModeChange,
 }: SubscriberSectionProps) {
   return (
-    <Section
-      title="Subscriber & device"
-      desc="Read from the SIM; the IMEI is what the line presents to the network."
-    >
+    <Section title="Subscriber & device">
       <div className="form-grid form-grid-4">
         <Field label="IMSI" wide>
           <input
