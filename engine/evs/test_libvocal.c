@@ -14,7 +14,12 @@
  *     be concealed with a full, non-silent frame; the DTX gap is fed to the
  *     decoder as missing frames and must still yield full frames;
  *   - two handles interleaved on one thread and two threads in parallel must
- *     produce bit-identical streams (per-instance state, reentrancy).
+ *     produce bit-identical streams (per-instance state, reentrancy);
+ *   - vocal_evs_set_coder() (optional symbol; what codec_vevs uses to follow a
+ *     CMR) must switch the frame size from the next frame on, refuse a
+ *     non-Primary rate without changing anything, and the switched stream
+ *     must decode;
+ *   - 8 kHz (NB) encoding and decoding must work (160-sample frames).
  *
  * Usage: test_libvocal [path/to/libvocal.so]   (default: "libvocal.so" via
  * the normal library search path, as codec_vevs uses). Exit 0 = pass.
@@ -46,6 +51,7 @@ static int (*p_close_enc)(void);
 static int (*p_init_dec)(uint16);
 static int (*p_dec)(sint15 *, uint16, uint8 *, uint16, vbool);
 static int (*p_close_dec)(void);
+static int (*p_set_enc)(uint16, uint32); /* optional */
 
 static int failures;
 #define CHECK(cond, ...)                         \
@@ -312,6 +318,106 @@ static void test_threads(void)
 	}
 }
 
+/* rate switching between frames, as codec_vevs does on a CMR */
+static void test_switch(void)
+{
+	static const struct { int from; uint16 bw; uint32 rate; int bits; } seg[] = {
+		{0, VOCAL_EVS_BW_WB, 24400, 488},   /* initial */
+		{40, VOCAL_EVS_BW_WB, 13200, 264},  /* CMR WB 13.2 */
+		{80, VOCAL_EVS_BW_NB, 9600, 192},   /* CMR NB 9.6 */
+		{120, VOCAL_EVS_BW_SWB, 24400, 488}, /* CMR SWB 24.4: WB at 16 kHz input */
+	};
+	int nseg = (int)(sizeof(seg) / sizeof(seg[0])), wrong = 0, lag = 0;
+	void *h;
+
+	if (!p_set_enc) {
+		printf("  set_coder: not exported, skipped\n");
+		return;
+	}
+	h = p_alloc();
+	p_set(h);
+	CHECK(p_init_enc(seg[0].bw, FS, seg[0].rate, 0) == FRAME, "switch: init");
+	for (int f = 0; f < 150; f++) {
+		int k = 0;
+		for (int i = 0; i < nseg; i++)
+			if (f >= seg[i].from)
+				k = i;
+		if (k > 0 && f == seg[k].from) {
+			p_set(h);
+			CHECK(p_set_enc(seg[k].bw, seg[k].rate) == 0, "switch to %u refused", (unsigned)seg[k].rate);
+		}
+		if (f == 100) {
+			/* an AMR-WB IO rate is no EVS Primary rate: refused, rate kept */
+			p_set(h);
+			CHECK(p_set_enc(VOCAL_EVS_BW_WB, 12650) < 0, "switch to 12.65 (IO) accepted");
+		}
+		p_set(h);
+		st_main.bits[f] = p_enc(st_main.data[f], MAXB, pcm_in + f * FRAME, FRAME);
+		if (st_main.bits[f] != seg[k].bits)
+			wrong++;
+	}
+	p_set(h);
+	p_close_enc();
+	p_destroy(h);
+	CHECK(wrong == 0, "switch: %d frames not at the requested rate", wrong);
+	for (int f = 150; f < NFRAMES; f++)
+		st_main.bits[f] = 0;
+	if (decode_all(&st_main, NULL, pcm_out) < 0) {
+		CHECK(0, "switch: decoding failed");
+		return;
+	}
+	double c = best_corr(pcm_in, pcm_out, 45 * FRAME, 145 * FRAME, &lag);
+	printf("  set_coder 24.4 -> 13.2 -> NB 9.6 -> 24.4: corr %.3f\n", c);
+	CHECK(c >= 0.6, "switch: correlation %.3f < 0.6", c);
+}
+
+/* narrowband: 8 kHz in and out */
+static void test_nb(void)
+{
+	static sint15 in8[NSAMP / 2], out8[NSAMP / 2 + 600];
+	int n8 = NSAMP / 2, lag = 0, wrong = 0;
+	void *he = p_alloc(), *hd = p_alloc();
+
+	for (int i = 0; i < n8; i++) /* 2:1 with a pair average as anti-alias filter */
+		in8[i] = (sint15)((pcm_in[2 * i] + pcm_in[2 * i + 1]) / 2);
+	p_set(he);
+	CHECK(p_init_enc(VOCAL_EVS_BW_WB, 8000, 13200, 0) == FRAME / 2, "NB: encoder init at 8 kHz");
+	p_set(hd);
+	CHECK(p_init_dec(8000) == FRAME / 2, "NB: decoder init at 8 kHz");
+	for (int f = 0; f < 150; f++) {
+		uint8 buf[MAXB];
+		int bits;
+		p_set(he);
+		bits = p_enc(buf, MAXB, in8 + f * (FRAME / 2), FRAME / 2);
+		if (bits != 264)
+			wrong++;
+		p_set(hd);
+		CHECK(p_dec(out8 + f * (FRAME / 2), FRAME, buf, (uint16)(bits > 0 ? bits : 0), bits <= 0) == FRAME / 2,
+		      "NB: frame %d not decoded", f);
+	}
+	p_set(he);
+	p_close_enc();
+	p_destroy(he);
+	p_set(hd);
+	p_close_dec();
+	p_destroy(hd);
+	CHECK(wrong == 0, "NB: %d frames not at 13.2 kbps", wrong);
+	double best = -1;
+	for (lag = 0; lag < 600; lag++) {
+		double xy = 0, xx = 0, yy = 0;
+		for (int n = 10 * (FRAME / 2); n < 140 * (FRAME / 2); n++) {
+			xy += (double)in8[n] * out8[n + lag];
+			xx += (double)in8[n] * in8[n];
+			yy += (double)out8[n + lag] * out8[n + lag];
+		}
+		double c = (xx > 0 && yy > 0) ? xy / sqrt(xx * yy) : 0;
+		if (c > best)
+			best = c;
+	}
+	printf("  NB 8 kHz, 13.2 kbps: corr %.3f\n", best);
+	CHECK(best >= 0.7, "NB: correlation %.3f < 0.7", best);
+}
+
 static void test_errors(void)
 {
 	void *h = p_alloc();
@@ -365,6 +471,7 @@ int main(int argc, char **argv)
 	LOAD(p_init_dec, "vocal_evs_init_decoder");
 	LOAD(p_dec, "vocal_evs_process_decoder");
 	LOAD(p_close_dec, "vocal_evs_close_decoder");
+	*(void **)(&p_set_enc) = dlsym(lib, "vocal_evs_set_coder");
 
 	make_input();
 	printf("libvocal round trip (16 kHz, WB, DTX on):\n");
@@ -374,6 +481,8 @@ int main(int argc, char **argv)
 	test_rate(24400, 0.80);
 	test_interleaved();
 	test_threads();
+	test_switch();
+	test_nb();
 	test_errors();
 
 	dlclose(lib);
