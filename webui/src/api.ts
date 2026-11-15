@@ -149,6 +149,8 @@ export interface InstanceConfig {
   reader_index?: number;
   reader_port?: string;
   smsc?: string;
+  /** Where `smsc` came from: read from the SIM ("auto") or typed by hand ("manual"). */
+  smsc_mode?: "auto" | "manual";
   msisdn?: string;
   enabled?: boolean;
   sip?: SipConfig;

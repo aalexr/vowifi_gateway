@@ -1,16 +1,33 @@
 import React from "react";
+import { Trash2 } from "lucide-react";
 import Field from "./Field";
+import Hint from "./Hint";
 import Section from "./Section";
 import type { FormSectionProps } from "./types";
 
-/** How this line is identified in the gateway. */
-export default function LineSection({ form, upd }: FormSectionProps) {
+interface LineSectionProps extends FormSectionProps {
+  /** The form is an existing line: its id is fixed (it keys ports, PIN and logs). */
+  saved: boolean;
+  busy: boolean;
+  onDelete: () => void;
+}
+
+/** How this line is identified in the gateway, and removing it. */
+export default function LineSection({
+  form,
+  upd,
+  saved,
+  busy,
+  onDelete,
+}: LineSectionProps) {
   return (
     <Section title="Line">
       <div className="form-grid">
         <Field label="Instance ID">
           <input
+            className="mono"
             value={form.id}
+            readOnly={saved}
             onChange={(e) => upd({ id: e.currentTarget.value })}
             placeholder="1"
           />
@@ -19,7 +36,7 @@ export default function LineSection({ form, upd }: FormSectionProps) {
           <input
             value={form.name}
             onChange={(e) => upd({ name: e.currentTarget.value })}
-            placeholder="Telus"
+            placeholder="e.g. O2 UK"
           />
         </Field>
         <Field label="Phone number (MSISDN)">
@@ -39,6 +56,21 @@ export default function LineSection({ form, upd }: FormSectionProps) {
           />
         </Field>
       </div>
+      {saved && (
+        <div className="simcfg-delete-row">
+          <Hint style={{ margin: 0 }}>
+            Deleting stops the line&apos;s engine and removes its config.
+          </Hint>
+          <button
+            type="button"
+            className="btn btn-danger"
+            onClick={onDelete}
+            disabled={busy}
+          >
+            <Trash2 size={16} aria-hidden /> Delete line
+          </button>
+        </div>
+      )}
     </Section>
   );
 }
