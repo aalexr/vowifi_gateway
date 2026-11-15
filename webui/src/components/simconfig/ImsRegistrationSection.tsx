@@ -21,7 +21,7 @@ export default function ImsRegistrationSection({
   return (
     <Section
       title="IMS registration"
-      desc="Leave off unless the carrier needs them."
+      desc="Workarounds for specific IMS cores; the note at the end says which carrier needs which."
       collapsible
       defaultOpen={imsAdvancedSet(saved)}
       resetKey={saved?.id}

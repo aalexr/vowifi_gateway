@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useId } from "react";
 
 export type SmscMode = "auto" | "manual";
 
@@ -18,10 +18,16 @@ export default function SmscField({
   onModeChange,
 }: SmscFieldProps) {
   const auto = mode === "auto";
+  const id = useId();
   return (
     <div style={{ marginTop: 12 }}>
-      <label>SMS centre (SMSC)</label>
-      <div className="segmented" style={{ marginBottom: 6 }}>
+      <label htmlFor={id}>SMS centre (SMSC)</label>
+      <div
+        className="segmented"
+        role="group"
+        aria-label="SMSC source"
+        style={{ marginBottom: 6 }}
+      >
         <button
           type="button"
           className={`btn${auto ? " is-active" : ""}`}
@@ -40,14 +46,12 @@ export default function SmscField({
         </button>
       </div>
       <input
+        id={id}
         className="mono"
         value={value}
         readOnly={auto}
         onChange={(e) => onChange(e.currentTarget.value)}
-        placeholder={
-          auto ? "detect card / verify PIN to read from SIM" : "+1..."
-        }
-        style={auto ? { opacity: 0.7 } : undefined}
+        placeholder={auto ? "read from the SIM once it is unlocked" : "+49…"}
       />
     </div>
   );

@@ -14,7 +14,7 @@ export default function CarrierCodecsSection({ id }: { id?: InstanceId }) {
   return (
     <Section
       title="Carrier codecs"
-            collapsible
+      collapsible
       defaultOpen={false}
       resetKey={id}
     >

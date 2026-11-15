@@ -42,6 +42,7 @@ export default function PaniSection({ form, updSip, saved }: PaniSectionProps) {
       {sip.pani_country_enable !== false && (
         <input
           className="mono"
+          aria-label="Country code (ISO 3166 alpha-2)"
           maxLength={2}
           style={{ marginTop: 6 }}
           value={sip.pani_country || ""}
@@ -65,6 +66,7 @@ export default function PaniSection({ form, updSip, saved }: PaniSectionProps) {
       {!!sip.pani_node_id_enable && (
         <input
           className="mono"
+          aria-label="Wi-Fi AP BSSID"
           style={{ marginTop: 6 }}
           value={sip.pani_node_id || ""}
           onChange={(e) => updSip({ pani_node_id: e.currentTarget.value })}

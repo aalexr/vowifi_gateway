@@ -1,4 +1,5 @@
 import React from "react";
+import { Plus } from "lucide-react";
 import type { SipExternalAccount } from "../../api";
 import Hint from "./Hint";
 
@@ -27,12 +28,16 @@ export default function ExternalAccounts({
       {accounts.map((a, i) => (
         <div key={i} className="sip-account-row">
           <input
+            aria-label={`Account ${i + 1} username`}
+            autoComplete="off"
             placeholder="username"
             value={a.username}
             onChange={(e) => setField(i, "username", e.currentTarget.value)}
           />
           <input
             type="password"
+            aria-label={`Account ${i + 1} password`}
+            autoComplete="new-password"
             placeholder="password"
             value={a.password}
             onChange={(e) => setField(i, "password", e.currentTarget.value)}
@@ -40,10 +45,7 @@ export default function ExternalAccounts({
         </div>
       ))}
       {error && (
-        <div
-          style={{ color: "var(--danger)", fontSize: 12.5, marginBottom: 6 }}
-          role="alert"
-        >
+        <div className="simcfg-msg simcfg-msg-error" role="alert" style={{ marginTop: 0, marginBottom: 6 }}>
           {error}
         </div>
       )}
@@ -51,7 +53,7 @@ export default function ExternalAccounts({
         className="btn btn-ghost"
         onClick={() => onChange([...accounts, { username: "", password: "" }])}
       >
-        + Add account
+        <Plus size={16} aria-hidden /> Add account
       </button>
     </>
   );

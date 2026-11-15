@@ -349,7 +349,7 @@ EVS on the carrier leg is still converted for the local clients (EVS ↔ G.722/O
 
 Every call records the codecs from its SDP. The engine reads them through the Asterisk fork's `CHANNEL(pjsip,remote_sdp_codecs|remote_sdp_bw|local_sdp_codecs)`, and they're stored with the call in the call log:
 - **Softphone → Recent calls** shows the codec of each call, carrier leg ↔ local client (for example `AMR-WB ↔ G.722`). Click or tap it for the full SDP lists and the carrier's `b=` lines.
-- **SIM Config → Carrier codecs → Seen from this carrier** sums the logged calls up per line. An incoming call's offer lists every speech codec the network accepts. On an outgoing call the carrier picks one from our offer, and the pick depends on the far end, so that row only shows what was answered. Codecs the gateway uses towards the carrier are highlighted.
+- **SIM Config → Carrier codecs → Seen from this carrier** sums the logged calls up per line. An incoming call's offer lists every speech codec the network accepts. On an outgoing call the carrier picks one from our offer, and the pick depends on the far end, so that row only shows what was answered. Codecs the gateway doesn't use towards the carrier have a dashed outline.
 - The control log has one line per call (`call in|out <peer>: carrier SDP [...] b=[...], our answer|negotiated [...], client [...]`). On an outgoing call our own SDP is only read after the answer, when it has been narrowed to the negotiated codecs, so the full offer isn't in the log.
 
 To find out what a new carrier supports, make one incoming call on the line. Calls from before this feature, and calls through an engine image built before it, have no codecs recorded.
@@ -362,7 +362,7 @@ There is **no required carrier database** — every carrier-specific value is de
 
 - **ePDG FQDN** — derived from the SIM's IMSI (MCC/MNC): `epdg.epc.mnc<MNC>.mcc<MCC>.pub.3gppnetwork.org`, resolved via DNS.
 - **IMS realm / EAP NAI** — likewise derived: `ims.mnc<MNC>.mcc<MCC>.3gppnetwork.org`.
-- **SMSC** — read from the SIM's **EF_SMSP** (`6F42`, authoritative per-SIM). If the SIM doesn't carry one, provisioning asks you to enter it, and you can always override it per-line in **SIM Config**.
+- **SMSC** — read from the SIM's **EF_SMSP** (`6F42`, authoritative per-SIM). If the SIM doesn't carry one, provisioning asks you to enter it, and you can always override it per-line in **SIM Config** (**Manual**). The choice is saved with the line (`smsc_mode`), so reading the card again never replaces a hand-typed SMSC.
 - **IMEI / IMEISV** — you set the IMEI per line; the IMEISV (used to answer the ePDG's `DEVICE_IDENTITY` request) is auto-derived from it (14-digit IMEI base + a 2-digit software version) unless you provide one explicitly.
 - **IMS address family** — auto-detected per line (see the SWu client notes). A small built-in per-carrier *hint* table (`CARRIER_CP_PREF`) only seeds the probe order to speed up the first attach; it is never required — an unknown carrier just probes the default ladder.
 
@@ -418,7 +418,7 @@ reports as *not provisioned for Wi-Fi Calling* — the fallback path deliberatel
 so the two are not confused.
 
 **`PIN_PROBLEM`:**  
-Wrong PIN, or the SIM locked (PUK needed). Re-provision with the correct PIN; if the SIM is locked, unlock it first (SIM manager tool outside this gateway).
+Wrong PIN, or the SIM locked (PUK needed). Re-provision with the correct PIN; if the SIM is locked, unlock it first (SIM manager tool outside this gateway). **SIM Config** opens PIN entry for such a line and shows the remaining attempts before any try: with the count unknown it asks you to detect the card first, the last attempt needs an explicit confirmation, and a blocked PIN can't be retried there.
 
 **Start refused with *card mismatch*, or `NO_CARD` — "The card in this line's reader is a different SIM":**  
 Each line remembers its SIM's ICCID and its reader (USB port). When that reader now holds another

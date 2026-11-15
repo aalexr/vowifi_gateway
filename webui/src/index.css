@@ -284,7 +284,7 @@ time {
 }
 .app-instance-count {
   font-size: 11px;
-  color: var(--text-faint);
+  color: var(--text-dim);
   padding: 0 8px 8px;
 }
 .app-title {
@@ -1162,7 +1162,7 @@ a {
 }
 .sim-selector-label {
   font-size: 12px;
-  color: var(--text-mute);
+  color: var(--text-dim);
   white-space: nowrap;
   margin: 0;
   flex-shrink: 0;
@@ -1175,12 +1175,6 @@ a {
   min-width: 0;
   max-width: none;
   width: auto;
-}
-.sim-selector-hint {
-  font-size: 11px;
-  color: var(--text-faint);
-  flex-shrink: 0;
-  white-space: nowrap;
 }
 
 .msg-bubble {
@@ -1339,6 +1333,9 @@ a {
   .app-content {
     padding: 4px 12px 10px !important;
   }
+  .simcfg-actions::after {
+    height: 10px;
+  }
 
   .sim-selector {
     padding: 5px 8px;
@@ -1359,9 +1356,6 @@ a {
     padding: 4px 8px;
     font-size: 13px;
     border-radius: 8px;
-  }
-  .sim-selector-hint {
-    display: none;
   }
 
   .split-pane,
@@ -1697,7 +1691,7 @@ label {
 /* ============ SIM Config ============ */
 /* Container queries, not viewport media queries: the usable width depends on the sidebar. */
 .simcfg {
-  max-width: 1120px;
+  max-width: 1200px;
   container-type: inline-size;
 }
 .simcfg-grid {
@@ -1799,7 +1793,7 @@ details.cfg-section[open] > summary {
 }
 .hint {
   font-size: 12px;
-  color: var(--text-mute);
+  color: var(--text-dim);
   line-height: 1.5;
   margin-top: 6px;
 }
@@ -1825,7 +1819,7 @@ details.cfg-section[open] > summary {
   font-size: 12px;
 }
 .simcfg-facts dt {
-  color: var(--text-mute);
+  color: var(--text-dim);
 }
 .simcfg-facts dd {
   margin: 0;
@@ -1870,9 +1864,117 @@ details.cfg-section[open] > summary {
   min-width: 0;
   flex: 1;
 }
-.simcfg-delete {
-  margin-left: auto;
+/* Line header: the line's name, state pill, pipeline and failure reason (Dashboard lamps). */
+.simcfg-head {
+  padding: 16px 18px;
+  margin-bottom: 16px;
+}
+.simcfg-head-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.simcfg-head-id {
+  min-width: 0;
+}
+.simcfg-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.simcfg-head-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.simcfg-head-meta .mono {
+  font-variant-numeric: tabular-nums;
+}
+/* PIN block in the SIM card panel. */
+.simcfg-pin-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.simcfg-pin-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+.simcfg-pin-saved {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.simcfg-pin-guard {
+  margin-top: 10px;
+  font-size: 12.5px;
+}
+.simcfg-pin-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.simcfg-pin-actions:first-child {
+  margin-top: 0;
+}
+.simcfg-pin-forget {
+  display: block;
+  margin-top: 12px;
+  font-size: 12.5px;
   color: var(--danger);
+}
+.simcfg-pin-forget:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.simcfg-delete-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.simcfg-actions-msg {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+}
+.simcfg-dirty {
+  color: var(--text-soft);
+  font-weight: 500;
+}
+/* Read-only fields (auto SMSC, a saved line's id): visibly not editable, still readable. */
+.simcfg input[readonly] {
+  background: var(--hover);
+  color: var(--text-dim);
+  cursor: default;
+}
+/* Codecs seen from the carrier: dashed = not used by the gateway (shape, not just colour). */
+.codec-chip {
+  font-family: var(--font-mono);
+  margin: 0 6px 6px 0;
+  --pill: var(--text-soft);
+}
+.codec-chip-unused {
+  --pill: var(--text-dim);
+  background: transparent;
+  border-style: dashed;
+  border-color: var(--border-strong);
 }
 .simcfg-actions {
   position: sticky;
@@ -1884,6 +1986,18 @@ details.cfg-section[open] > summary {
   align-items: center;
   flex-wrap: wrap;
   box-shadow: 0 -8px 24px -12px var(--shadow);
+}
+/* Sticky stops at the scroller's padding edge: paint that strip below the bar with the page
+   background so fields don't show through under it. Height = .app-content padding-bottom. */
+.simcfg-actions::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  right: -1px;
+  top: calc(100% + 1px);
+  height: 24px;
+  background: var(--bg);
+  pointer-events: none;
 }
 @container (max-width: 820px) {
   .simcfg-grid {
@@ -1904,11 +2018,11 @@ details.cfg-section[open] > summary {
   .simcfg-actions {
     padding: 10px 12px;
   }
-  .simcfg-actions .hint {
-    display: none;
-  }
   .simcfg-actions .btn {
     flex: 1;
+  }
+  .simcfg-actions-msg {
+    flex-basis: 100%;
   }
 }
 /* MCC and MNC stay side by side down to phone width; the wide fields take a full row. */

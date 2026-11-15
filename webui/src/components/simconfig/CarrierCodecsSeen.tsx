@@ -23,29 +23,24 @@ export default function CarrierCodecsSeen({ id, supported }: Props) {
 
   if (!seen) return null;
   const none = !seen.incoming_calls && !seen.outgoing_calls;
-  const chip = (name: string, calls: number, total: number, key: string) => {
+  const isUsed = (name: string) => {
     const setting = codecSetting(name);
-    const used = setting !== undefined && supported.includes(setting);
+    return setting !== undefined && supported.includes(setting);
+  };
+  const anyUnused = [...seen.offered, ...seen.answered].some(
+    (c) => !isUsed(c.name),
+  );
+  const chip = (name: string, calls: number, total: number, key: string) => {
+    const used = isUsed(name);
     return (
       <span
         key={key}
-        className="mono"
-        title={`${name}: ${calls} of ${total} call${total === 1 ? "" : "s"}${
-          used ? " · the gateway uses it" : " · the gateway doesn't use it towards the carrier"
-        }`}
-        style={{
-          display: "inline-block",
-          padding: "2px 8px",
-          margin: "0 6px 6px 0",
-          borderRadius: 999,
-          fontSize: 12,
-          border: "1px solid var(--border)",
-          background: used ? "var(--active)" : "transparent",
-          color: used ? undefined : "var(--text-mute)",
-        }}
+        className={`pill codec-chip${used ? "" : " codec-chip-unused"}`}
+        title={`${name}: ${calls} of ${total} call${total === 1 ? "" : "s"}`}
       >
         {codecLabel(name)}
         {calls < total ? ` ${calls}/${total}` : ""}
+        {!used && <span className="sr-only"> (not used by the gateway)</span>}
       </span>
     );
   };
@@ -54,7 +49,7 @@ export default function CarrierCodecsSeen({ id, supported }: Props) {
     <div style={{ fontSize: 13, margin: "4px 0 10px" }}>
       <div style={{ fontWeight: 600, marginBottom: 6 }}>Seen from this carrier</div>
       {none ? (
-        <div style={{ color: "var(--text-mute)" }}>
+        <div style={{ color: "var(--text-dim)" }}>
           Nothing logged yet. An incoming call shows everything the carrier
           accepts.
         </div>
@@ -78,6 +73,12 @@ export default function CarrierCodecsSeen({ id, supported }: Props) {
               {seen.answered.map((c) =>
                 chip(c.name, c.calls, seen.outgoing_calls, `a-${c.name}`),
               )}
+            </div>
+          )}
+          {anyUnused && (
+            <div className="hint" style={{ marginTop: 0 }}>
+              Dashed: the carrier sent it, the gateway doesn&apos;t use it
+              towards the carrier.
             </div>
           )}
           {seen.bandwidth.length > 0 && (

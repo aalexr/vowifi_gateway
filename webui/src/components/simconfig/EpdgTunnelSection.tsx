@@ -6,7 +6,16 @@ import Section from "./Section";
 import type { FormSectionProps } from "./types";
 
 /** SWu tunnel parameters: APN, IDr encoding, IMS address family, EAP-AKA re-auth. */
+const CP_MODES: [string, string][] = [
+  ["dual", "Dual-stack (IPv4+IPv6)"],
+  ["v6", "IPv6 only"],
+  ["v4", "IPv4 only"],
+];
+
 export default function EpdgTunnelSection({ form, upd }: FormSectionProps) {
+  // Auto-detect pins the family that worked; the select then shows it, marked as detected.
+  const pinnedByAuto =
+    !!form.cp_mode && form.cp_mode !== "auto" && form.cp_mode_source === "auto";
   return (
     <Section title="ePDG tunnel">
       <div className="form-grid">
@@ -33,9 +42,12 @@ export default function EpdgTunnelSection({ form, upd }: FormSectionProps) {
             onChange={(e) => upd({ cp_mode: e.currentTarget.value })}
           >
             <option value="auto">Auto-detect (recommended)</option>
-            <option value="dual">Dual-stack (IPv4+IPv6)</option>
-            <option value="v6">IPv6 only</option>
-            <option value="v4">IPv4 only</option>
+            {CP_MODES.map(([v, label]) => (
+              <option key={v} value={v}>
+                {label}
+                {pinnedByAuto && form.cp_mode === v ? " (auto-detected)" : ""}
+              </option>
+            ))}
           </select>
         </Field>
       </div>
@@ -43,13 +55,8 @@ export default function EpdgTunnelSection({ form, upd }: FormSectionProps) {
         <b>APN-FQDN</b> (
         <code>&lt;apn&gt;.apn.epc.mnc…mcc….pub.3gppnetwork.org</code>) only
         for carriers that require it; some reject it.{" "}
-        {form.cp_mode &&
-        form.cp_mode !== "auto" &&
-        form.cp_mode_source === "auto" ? (
-          <>
-            Address family auto-detected as {form.cp_mode.toUpperCase()};
-            switch back to Auto-detect to re-probe.
-          </>
+        {pinnedByAuto ? (
+          <>Choose Auto-detect to probe the address families again.</>
         ) : (
           <>
             Auto-detect probes the families after SIM auth and pins the one
