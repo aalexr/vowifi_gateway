@@ -14,6 +14,7 @@
  *   vocal_set_data(h);                 select it for the calls that follow
  *   vocal_evs_init_coder(...)          / vocal_evs_init_decoder(...)
  *   vocal_set_data(h); vocal_evs_process_coder(...)   once per 20 ms frame
+ *   vocal_set_data(h); vocal_evs_set_coder(...)       optional, between frames
  *   vocal_set_data(h); vocal_evs_close_coder();       / ..._close_decoder()
  *   vocal_destroy_data(h);
  *
@@ -23,6 +24,8 @@
  *
  * Return values:
  *   init_coder / init_decoder   samples per 20 ms frame (fs / 50), < 0 on error
+ *   set_coder                   0, or < 0 if the rate is not an EVS Primary
+ *                               rate (the encoder keeps its settings then)
  *   process_coder               number of BITS written to enc_data (one raw EVS
  *                               frame, MSB first, i.e. the RTP compact-format
  *                               payload of an EVS Primary frame);
@@ -39,6 +42,15 @@
  * bits in RTP (sensitivity-sorted, RFC 4867) order. bad_frame != 0 or a bit
  * count of 0 means "nothing usable arrived": the decoder conceals a lost
  * speech frame, or continues comfort noise if it is in a DTX pause.
+ *
+ * vocal_evs_set_coder(bandwidth, bitrate) changes the encoder's EVS Primary
+ * bitrate and maximum audio bandwidth from the next frame on, as the reference
+ * encoder does for its bitrate/bandwidth switching profiles (e.g. to follow a
+ * CMR, TS 26.445 A.2.2.1.1). The same limits as vocal_evs_init_coder() apply:
+ * the bandwidth is capped by the sampling rate and by what the bitrate has
+ * (no SWB below 9.6 kbps, no FB below 16.4 kbps, NB at most 24.4 kbps), and
+ * 5.9 kbps is SC-VBR (WB at most). Optional for a libvocal: codec_vevs works
+ * without it, it just can't follow rate requests then.
  */
 #ifndef VOCAL_H
 #define VOCAL_H
@@ -75,6 +87,7 @@ VOCAL_API int vocal_evs_init_coder(uint16 bandwidth, uint16 sampling_frequency, 
 VOCAL_API int vocal_evs_process_coder(uint8 *enc_data, uint16 enc_data_size, const sint15 *enc_samples,
                                       uint16 sample_count);
 VOCAL_API int vocal_evs_close_coder(void);
+VOCAL_API int vocal_evs_set_coder(uint16 bandwidth, uint32 bitrate);
 
 VOCAL_API int vocal_evs_init_decoder(uint16 sampling_frequency);
 VOCAL_API int vocal_evs_process_decoder(sint15 *dec_samples, uint16 max_sample_count, uint8 *dec_data,

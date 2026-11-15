@@ -100,42 +100,21 @@ static int valid_fs(unsigned int fs)
 
 /* ------------------------------------------------------------------ encoder */
 
-VOCAL_API int vocal_evs_init_coder(uint16 bandwidth, uint16 sampling_frequency, uint32 bitrate, vbool dtx_enable)
+/*
+ * Bitrate, bandwidth and codec mode for an EVS Primary rate, as the reference
+ * encoder derives them (io_enc.c read_next_brate()/read_next_bwidth() and the
+ * NB clamp of the encoder.c main loop), for the first frame and for a switch
+ * between frames alike. Returns -1 if brate is not an EVS Primary rate; st is
+ * left untouched then.
+ */
+static int enc_apply_rate(Encoder_State *st, unsigned int fs, short bw, long brate)
 {
-	struct vocal_ctx *c = cur;
-	Encoder_State *st;
-	long brate = (long)bitrate;
-	short bw;
+	short sc_vbr = 0;
 	int j;
-
-	if (!c || c->kind != VOCAL_NONE || !valid_fs(sampling_frequency) || bandwidth > VOCAL_EVS_BW_FB) {
-		return -1;
-	}
-	st = calloc(1, sizeof(*st));
-	if (!st) {
-		return -1;
-	}
-	bw = (short)bandwidth;
-
-	/* defaults as in io_ini_enc(), then the "command line" we would pass */
-	st->ind_list = c->ind_list;
-	st->input_Fs = sampling_frequency;
-	st->Opt_AMR_WB = 0;
-	st->Opt_RF_ON = 0;
-	st->rf_fec_offset = 0;
-	st->rf_fec_indicator = 1;
-	st->Opt_SC_VBR = 0;
-	st->last_Opt_SC_VBR = 0;
-	st->bitstreamformat = MIME;
-	st->Opt_DTX_ON = dtx_enable ? 1 : 0;
-	/* "-dtx" without a value: fixed SID update every FIXED_SID_RATE (8) frames */
-	st->var_SID_rate_flag = 0;
-	st->interval_SID = FIXED_SID_RATE;
 
 	/* 5.9 kbps is source-controlled VBR on top of the 7.2 kbps configuration */
 	if (brate == ACELP_5k90) {
-		st->Opt_SC_VBR = 1;
-		st->last_Opt_SC_VBR = 1;
+		sc_vbr = 1;
 		brate = ACELP_7k20;
 		if (bw != NB) {
 			bw = WB;
@@ -144,25 +123,32 @@ VOCAL_API int vocal_evs_init_coder(uint16 bandwidth, uint16 sampling_frequency, 
 	for (j = 0; j < SIZE_BRATE_TBL && brate_tbl[j] != brate; j++) {
 	}
 	if (j == SIZE_BRATE_TBL) {
-		free(st);
 		return -1; /* not an EVS Primary rate */
 	}
 
 	/* the audio bandwidth cannot exceed fs/2 */
-	if (sampling_frequency == 8000 && bw > NB) {
+	if (fs == 8000 && bw > NB) {
 		bw = NB;
-	} else if (sampling_frequency == 16000 && bw > WB) {
+	} else if (fs == 16000 && bw > WB) {
 		bw = WB;
-	} else if (sampling_frequency == 32000 && bw > SWB) {
+	} else if (fs == 32000 && bw > SWB) {
+		bw = SWB;
+	}
+	/* nor what the bitrate has (TS 26.445 Table 1): 7.2/8.0 are NB/WB only,
+	 * FB starts at 16.4 */
+	if (brate < ACELP_9k60 && bw > WB) {
+		bw = WB;
+	} else if (brate < ACELP_16k40 && bw > SWB) {
 		bw = SWB;
 	}
 	/* NB is limited to 24.4 kbps (same clamp as the reference encoder) */
-	if ((sampling_frequency == 8000 || bw == NB) && brate > ACELP_24k40) {
+	if ((fs == 8000 || bw == NB) && brate > ACELP_24k40) {
 		brate = ACELP_24k40;
 	}
+
+	st->Opt_SC_VBR = sc_vbr;
 	st->max_bwidth = bw;
 	st->total_brate = brate;
-
 	switch (brate) {
 	case ACELP_9k60:
 	case ACELP_16k40:
@@ -176,6 +162,40 @@ VOCAL_API int vocal_evs_init_coder(uint16 bandwidth, uint16 sampling_frequency, 
 		st->codec_mode = MODE1;
 		break;
 	}
+	return 0;
+}
+
+VOCAL_API int vocal_evs_init_coder(uint16 bandwidth, uint16 sampling_frequency, uint32 bitrate, vbool dtx_enable)
+{
+	struct vocal_ctx *c = cur;
+	Encoder_State *st;
+
+	if (!c || c->kind != VOCAL_NONE || !valid_fs(sampling_frequency) || bandwidth > VOCAL_EVS_BW_FB) {
+		return -1;
+	}
+	st = calloc(1, sizeof(*st));
+	if (!st) {
+		return -1;
+	}
+
+	/* defaults as in io_ini_enc(), then the "command line" we would pass */
+	st->ind_list = c->ind_list;
+	st->input_Fs = sampling_frequency;
+	st->Opt_AMR_WB = 0;
+	st->Opt_RF_ON = 0;
+	st->rf_fec_offset = 0;
+	st->rf_fec_indicator = 1;
+	st->bitstreamformat = MIME;
+	st->Opt_DTX_ON = dtx_enable ? 1 : 0;
+	/* "-dtx" without a value: fixed SID update every FIXED_SID_RATE (8) frames */
+	st->var_SID_rate_flag = 0;
+	st->interval_SID = FIXED_SID_RATE;
+
+	if (enc_apply_rate(st, sampling_frequency, (short)bandwidth, (long)bitrate) < 0) {
+		free(st);
+		return -1;
+	}
+	st->last_Opt_SC_VBR = st->Opt_SC_VBR;
 	st->last_codec_mode = st->codec_mode;
 
 	init_encoder(st);
@@ -184,6 +204,19 @@ VOCAL_API int vocal_evs_init_coder(uint16 bandwidth, uint16 sampling_frequency, 
 	c->kind = VOCAL_ENC;
 	c->frame_len = (short)(sampling_frequency / 50);
 	return c->frame_len;
+}
+
+/* Switch rate/bandwidth between frames. The reference main loop does the
+ * same when its -rate/-max_band profile files change the values: it only
+ * rewrites these fields, evs_enc() handles the transition (last_* state). */
+VOCAL_API int vocal_evs_set_coder(uint16 bandwidth, uint32 bitrate)
+{
+	struct vocal_ctx *c = cur;
+
+	if (!c || c->kind != VOCAL_ENC || bandwidth > VOCAL_EVS_BW_FB) {
+		return -1;
+	}
+	return enc_apply_rate(c->enc, (unsigned int)c->enc->input_Fs, (short)bandwidth, (long)bitrate);
 }
 
 VOCAL_API int vocal_evs_process_coder(uint8 *enc_data, uint16 enc_data_size, const sint15 *enc_samples,

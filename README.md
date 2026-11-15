@@ -339,12 +339,13 @@ To use EVS:
 On an image without EVS, lines offer AMR-WB and AMR only (logged at engine start as `[render] carrier codecs: no EVS (engine image built without EVS_CODEC=1)`), so a line never negotiates EVS it can't convert.
 
 What the gateway offers and answers:
-- EVS Primary with DTX unless the carrier sets `dtx=0`, up to super-wideband. The codec runs at 32 kHz when the local client takes Opus (the browser softphone) and at 16 kHz (wideband) for G.722, AMR-WB and other 16 kHz clients, so each call is converted once at the rate its client can use. The RTP clock is 16000 either way, as TS 26.445 defines for EVS.
+- EVS Primary with DTX unless the carrier sets `dtx=0`, up to super-wideband. The codec runs at 32 kHz when the local client takes Opus (the browser softphone), at 16 kHz (wideband) for G.722 and AMR-WB, and at 8 kHz for G.711, AMR and Asterisk's own prompts, so each call is converted once at the rate its client can use. The RTP clock is 16000 either way, as TS 26.445 defines for EVS.
 - Its offer carries `br=5.9-24.4;bw=nb-swb;max-red=220`, what an iPhone offers. An answer, and any later offer in the same call, carries `br` and `bw` as the overlap with the other side's (the other side's band when there's no overlap: an offer with `bw=swb` only is answered `bw=swb`, and a 16 kHz client gets wideband audio from it) and repeats the other side's `cmr`, `evs-mode-switch` and `ch-aw-recv`. Inside the agreed `br` range the gateway sends the highest rate up to 24.4 kbit/s (13.2 if the other side named no `br` at all). `b=AS` for EVS up to 24.4 kbit/s is 49 kbit/s over IPv6.
 - Incoming EVS frames are decoded at any rate, compact or header-full, including the AMR-WB IO mode. Lost frames are concealed.
 - Redundancy is received, not sent: when a packet carries several frames, a redundant copy stands in for a frame whose own packet was lost.
 - Super-wideband only reaches you when the far end sends it: a call that crosses a circuit-switched link (between Russian operators, e.g. MTS → Beeline) arrives as AMR-WB, and the carrier's media gateway re-encodes that into EVS, so it stays wideband (2026-11-15). Between German operators EVS stays end to end: a Telekom DE phone (Pixel 8a) calling the O2 line arrived with 8–14 kHz content, decoded at 32 kHz (2026-11-15).
-- Not supported: channel-aware mode, reacting to CMR rate requests, and sending redundancy.
+- Rate requests (CMR) are followed: when the other side asks for a lower bitrate or a narrower band in the CMR byte of its header-full packets, the gateway switches its encoder from the next frame on, within the negotiated `br`/`bw` and never above the rate it started with (which `b=AS` was sized for). Each switch is logged (`EVS: encoder follows CMR …`). Requests for AMR-WB IO or channel-aware mode are ignored, and so are requests sent in RTCP.
+- Not supported: channel-aware mode and sending redundancy.
 
 EVS on the carrier leg is still converted for the local clients (EVS ↔ G.722/Opus/AMR-WB …), like any other carrier codec.
 
