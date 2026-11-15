@@ -59,7 +59,8 @@ disallow=all
 {% for codec in ims_codecs %}
 allow={{ codec }}
 {% endfor %}
-; SDP b=AS incl. RTP/UDP/IP headers, sized for the largest codec offered (render.py).
+; Enables SDP b=AS/RS/RR. The fork sizes b=AS per call for the negotiated codecs; this value
+; (render.py) is only the fallback for codecs it cannot size.
 bw_value={{ ims_bw }}
 ; Incoming calls: answer in the CARRIER's offer order (prefer:pending), so the first codec of
 ; the carrier's offer that we support comes first - what phones do (they take the caller's
