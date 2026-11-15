@@ -2,53 +2,35 @@ import React from "react";
 
 interface RoundBtnProps {
   icon: React.ReactNode;
-  label: React.ReactNode;
-  color?: string;
-  bg?: string;
+  /** Visible caption under the button; also its accessible name. */
+  label: string;
   onClick?: () => void;
-  active?: boolean;
+  /** Toggle buttons (Mute, Keypad, Record) pass their state; plain actions leave it undefined. */
+  pressed?: boolean;
+  /** "hangup" = the red end-call button; default = neutral control. */
+  variant?: "default" | "hangup";
 }
 
+/** Round in-call control with its caption. */
 export default function RoundBtn({
   icon,
   label,
-  color,
-  bg = undefined,
   onClick,
-  active = false,
+  pressed,
+  variant = "default",
 }: RoundBtnProps) {
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        gap: 6,
-      }}
-    >
+    <div className="round-btn-wrap">
       <button
+        type="button"
+        className={`round-btn${variant === "hangup" ? " is-hangup" : ""}`}
         onClick={onClick}
-        style={{
-          width: 58,
-          height: 58,
-          borderRadius: "50%",
-          cursor: "pointer",
-          fontSize: 22,
-          border: "1px solid " + (active ? color : "var(--border-strong)"),
-          background:
-            bg ||
-            (active
-              ? `color-mix(in srgb, ${color} 13%, transparent)`
-              : "var(--hover)"),
-          color: bg ? color : active ? color : "var(--text-soft)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
+        aria-label={label}
+        aria-pressed={pressed}
       >
         {icon}
       </button>
-      <span style={{ fontSize: 11, color: "var(--text-mute)" }}>{label}</span>
+      <span aria-hidden="true">{label}</span>
     </div>
   );
 }

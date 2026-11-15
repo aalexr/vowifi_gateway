@@ -348,7 +348,7 @@ EVS on the carrier leg is still converted for the local clients (EVS ↔ G.722/O
 #### Which codecs a carrier supports
 
 Every call records the codecs from its SDP. The engine reads them through the Asterisk fork's `CHANNEL(pjsip,remote_sdp_codecs|remote_sdp_bw|local_sdp_codecs)`, and they're stored with the call in the call log:
-- **Softphone → Recent calls** shows the codec of each call, carrier leg ↔ local client (for example `AMR-WB ↔ G.722`). Hover over it for the full SDP lists and the carrier's `b=` lines.
+- **Softphone → Recent calls** shows the codec of each call, carrier leg ↔ local client (for example `AMR-WB ↔ G.722`). Click or tap it for the full SDP lists and the carrier's `b=` lines.
 - **SIM Config → Carrier codecs → Seen from this carrier** sums the logged calls up per line. An incoming call's offer lists every speech codec the network accepts. On an outgoing call the carrier picks one from our offer, and the pick depends on the far end, so that row only shows what was answered. Codecs the gateway uses towards the carrier are highlighted.
 - The control log has one line per call (`call in|out <peer>: carrier SDP [...] b=[...], our answer|negotiated [...], client [...]`). On an outgoing call our own SDP is only read after the answer, when it has been narrowed to the negotiated codecs, so the full offer isn't in the log.
 
@@ -482,6 +482,7 @@ in practice); MOBIKE / `UPDATE_SA_ADDRESSES` (the host has a stable wired IP); m
 / external-AAA (PAP/CHAP); and emergency sessions / N1-mode-5GS.
 
 **Browser softphone won't connect / stuck "connecting":**  
+- The Softphone header shows both legs: **IMS** (the line's carrier registration, as on the Dashboard) and **WebRTC** (this browser's registration with the line's Asterisk). A call needs both. When WebRTC registration fails, the SIP status (e.g. `401 Unauthorized`) is shown with a **Reconnect** button; a failed call likewise keeps its SIP status and Reason header on screen until dismissed.
 - Hard-refresh (Ctrl+Shift+R) to load the latest WebUI bundle, and accept the self-signed cert for the line's WSS port (the browser needs a per-port exception; the WebUI port and each line's WebRTC port use the same cert but are trusted separately).
 - On an **IPv4 IMS carrier** (e.g. Vodafone UK) the engine installs a source-based policy route so the tunnel's full-IPv4 default route doesn't blackhole the container's own LAN return traffic (the WSS handshake). This is automatic; if you run a heavily customised network, the table id / rule preference are overridable via `SWU_LAN_BYPASS_TABLE` / `SWU_LAN_BYPASS_PREF`.
 

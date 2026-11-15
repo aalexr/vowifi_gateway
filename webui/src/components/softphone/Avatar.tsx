@@ -1,35 +1,13 @@
 import React from "react";
-import { Phone as PhoneIcon } from "lucide-react";
+import { Phone as PhoneIcon, PhoneOff } from "lucide-react";
 
-interface AvatarProps {
-  /** Peer number; currently not rendered (the avatar shows a phone glyph). */
-  label?: string;
-  color?: string;
-  size?: number;
-}
-
-export default function Avatar({
-  label,
-  color = "var(--primary)",
-  size = 96,
-}: AvatarProps) {
+/** The call screen's anchor glyph. Neutral by design: call health is told in words and SIP
+ *  detail, not by tinting a picture in lamp colours. `ended` swaps in the hang-up glyph. */
+export default function Avatar({ ended = false }: { ended?: boolean }) {
+  const Icon = ended ? PhoneOff : PhoneIcon;
   return (
-    <div
-      style={{
-        width: size,
-        height: size,
-        borderRadius: "50%",
-        background: `color-mix(in srgb, ${color} 13%, transparent)`,
-        border: `2px solid color-mix(in srgb, ${color} 33%, transparent)`,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        fontSize: size * 0.42,
-        color,
-        margin: "0 auto",
-      }}
-    >
-      <PhoneIcon size={size * 0.4} strokeWidth={1.6} />
+    <div className="call-avatar" aria-hidden="true">
+      <Icon size={30} strokeWidth={1.6} />
     </div>
   );
 }
