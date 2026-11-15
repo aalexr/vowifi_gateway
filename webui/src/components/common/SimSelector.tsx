@@ -41,11 +41,14 @@ export default function SimSelector({
   // If the currently-selected line's reader just went away, move selection to the first
   // still-present line (or clear it) so no view stays pinned to a vanished reader.
   const id = selected?.id != null ? selected.id : "";
+  // Wait for the first card scan: the instance list usually arrives before it, and with no
+  // cards yet every line looks absent, which would clear a valid selection on page load.
   useEffect(() => {
+    if (!cards.length) return;
     if (id && !live.some((i) => i.id === id)) {
       setSelected(live[0] ? live[0].id : null);
     }
-  }, [id, live.map((i) => i.id).join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [id, cards.length, live.map((i) => i.id).join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!live.length) return null;
   const shortLabel = SHORT_LABELS[label] || "Line";

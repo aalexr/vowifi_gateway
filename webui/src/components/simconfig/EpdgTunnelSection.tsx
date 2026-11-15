@@ -8,10 +8,7 @@ import type { FormSectionProps } from "./types";
 /** SWu tunnel parameters: APN, IDr encoding, IMS address family, EAP-AKA re-auth. */
 export default function EpdgTunnelSection({ form, upd }: FormSectionProps) {
   return (
-    <Section
-      title="ePDG tunnel"
-      desc="IKEv2 / EAP-AKA attach to the carrier's Wi-Fi calling gateway."
-    >
+    <Section title="ePDG tunnel">
       <div className="form-grid">
         <Field label="APN">
           <input
@@ -42,27 +39,23 @@ export default function EpdgTunnelSection({ form, upd }: FormSectionProps) {
           </select>
         </Field>
       </div>
-      {form.cp_mode &&
+      <Hint>
+        <b>APN-FQDN</b> (
+        <code>&lt;apn&gt;.apn.epc.mnc…mcc….pub.3gppnetwork.org</code>) only
+        for carriers that require it; some reject it.{" "}
+        {form.cp_mode &&
         form.cp_mode !== "auto" &&
-        form.cp_mode_source === "auto" && (
-          <Hint>
-            Auto-detected: {form.cp_mode.toUpperCase()}. Switch back to
-            Auto-detect to re-probe.
-          </Hint>
+        form.cp_mode_source === "auto" ? (
+          <>
+            Address family auto-detected as {form.cp_mode.toUpperCase()};
+            switch back to Auto-detect to re-probe.
+          </>
+        ) : (
+          <>
+            Auto-detect probes the families after SIM auth and pins the one
+            that works.
+          </>
         )}
-      <Hint>
-        <b>IDr</b> is how the APN is presented to the ePDG. <b>Bare APN</b>{" "}
-        (just the APN string) is what most carriers' ePDGs expect and is the
-        safe default; <b>APN-FQDN</b> (
-        <code>&lt;apn&gt;.apn.epc.mnc…mcc….pub.3gppnetwork.org</code>) is
-        required only by a few stricter carriers — some networks reject it.
-      </Hint>
-      <Hint>
-        <b>IMS address family</b> must match the carrier's IMS PDN.{" "}
-        <b>Auto-detect</b> figures it out for you (matches known carriers, else
-        probes families after SIM auth) and pins the one that works — leave this
-        unless you know the carrier needs a specific family. Telus/EE are IPv6;
-        Vodafone UK is IPv4.
       </Hint>
       <CheckboxRow
         checked={form.use_reauth_id !== false}
@@ -71,13 +64,8 @@ export default function EpdgTunnelSection({ form, upd }: FormSectionProps) {
         Use EAP-AKA fast re-authentication
       </CheckboxRow>
       <Hint>
-        On by default. After a successful attach the carrier's AAA may hand out
-        a short-lived re-authentication identity; presenting it on a reconnect
-        lets the network skip a full SIM auth run. If it has expired the engine
-        notices the rejection and retries with the permanent IMSI identity by
-        itself, so this is safe to leave on. Turn it <b>off</b> for a carrier
-        whose AAA rejects it on every reconnect (O2 UK) to skip that wasted
-        attach attempt.
+        An expired re-auth identity falls back to the IMSI by itself. Turn off
+        for a carrier whose AAA rejects it on every reconnect (O2 UK).
       </Hint>
     </Section>
   );

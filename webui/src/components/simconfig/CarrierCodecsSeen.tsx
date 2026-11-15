@@ -55,8 +55,8 @@ export default function CarrierCodecsSeen({ id, supported }: Props) {
       <div style={{ fontWeight: 600, marginBottom: 6 }}>Seen from this carrier</div>
       {none ? (
         <div style={{ color: "var(--text-mute)" }}>
-          Nothing logged yet. Each call records the carrier's codecs (needs a current
-          engine image); an incoming call shows everything the carrier accepts.
+          Nothing logged yet. An incoming call shows everything the carrier
+          accepts.
         </div>
       ) : (
         <>

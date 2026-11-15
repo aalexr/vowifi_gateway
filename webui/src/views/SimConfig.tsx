@@ -20,7 +20,10 @@ import LocalSipSection from "../components/simconfig/LocalSipSection";
 import ImsRegistrationSection from "../components/simconfig/ImsRegistrationSection";
 import PaniSection from "../components/simconfig/PaniSection";
 import CarrierCodecsSection from "../components/simconfig/CarrierCodecsSection";
-import StatusMessage from "../components/simconfig/StatusMessage";
+import StatusMessage, {
+  status,
+  type Status,
+} from "../components/simconfig/StatusMessage";
 import type { SmscMode } from "../components/simconfig/SmscField";
 import type { InstanceForm } from "../components/simconfig/types";
 import type { CommonViewProps } from "./common-view-props";
@@ -40,8 +43,8 @@ export default function SimConfig({
   const [readers, setReaders] = useState<string[]>([]);
   const [card, setCard] = useState<CardInfo | null>(null);
   const [pin, setPin] = useState("");
-  const [pinMsg, setPinMsg] = useState(""); // detect / PIN feedback (SIM card section)
-  const [saveMsg, setSaveMsg] = useState(""); // save feedback (action bar)
+  const [pinMsg, setPinMsg] = useState<Status | null>(null); // detect / PIN feedback (SIM card panel)
+  const [saveMsg, setSaveMsg] = useState<Status | null>(null); // save feedback (action bar)
   const [form, setForm] = useState<InstanceForm>(emptyInstance());
   const [saving, setSaving] = useState(false);
   const [smscMode, setSmscMode] = useState<SmscMode>("auto"); // 'auto' = read from SIM, 'manual' = typed
@@ -99,12 +102,12 @@ export default function SimConfig({
     (cards.find((c) => c.index === i) || {}).reader_port || "";
 
   const detect = async () => {
-    setPinMsg("Detecting…");
+    setPinMsg(status("Detecting…"));
     try {
       const c = await api.detect(readerIdx());
       setCard(c);
       if (!c.present) {
-        setPinMsg("No SIM card in this reader.");
+        setPinMsg(status("No SIM card in this reader.", "error"));
         return;
       }
       const patch: Partial<InstanceConfig> = {
@@ -122,20 +125,24 @@ export default function SimConfig({
       upd(patch);
       setPinMsg(
         c.imsi
-          ? "Card read."
-          : `Card present (enter PIN to read IMSI). ICCID ${c.iccid || "?"}, tries ${c.pin_tries ?? "?"}`,
+          ? status("Card read.", "ok")
+          : status(
+              `Card present; enter the PIN to read the IMSI (${c.pin_tries ?? "?"} tries left).`,
+            ),
       );
     } catch (e) {
-      setPinMsg("Error: " + asApiError(e).message);
+      setPinMsg(status(asApiError(e).message, "error"));
     }
   };
 
   const verifyPin = async () => {
-    setPinMsg("Verifying…");
+    setPinMsg(status("Verifying…"));
     try {
       const r = await api.verifyPin(pin, readerIdx());
       setPinMsg(
-        r.ok ? "PIN OK ✓" : `Failed: ${r.error} (${r.tries} tries left)`,
+        r.ok
+          ? status("PIN OK.", "ok")
+          : status(`PIN rejected: ${r.error} (${r.tries} tries left)`, "error"),
       );
       if (r.ok) {
         const p: Partial<InstanceConfig> = { pin };
@@ -144,13 +151,13 @@ export default function SimConfig({
         await detect();
       }
     } catch (e) {
-      setPinMsg("Error: " + asApiError(e).message);
+      setPinMsg(status(asApiError(e).message, "error"));
     }
   };
 
   const save = async () => {
     setSaving(true);
-    setSaveMsg("");
+    setSaveMsg(null);
     try {
       const sipError = sipUsernameConflict(form.sip);
       if (sipError) throw new Error(sipError);
@@ -186,24 +193,23 @@ export default function SimConfig({
       }
       const res = await api.saveInstance(body);
       await refresh();
-      if (res?.restart_required) {
-        const message =
-          "Saved. Restart this line (Stop → Start) for SIP, IMEI, and softphone changes to take effect.";
-        setSaveMsg(message);
-        alert(message);
-      } else {
-        setSaveMsg("Saved.");
-      }
+      // The sticky action bar shows this message; no alert() on top of it.
+      setSaveMsg(
+        status(
+          res?.restart_required
+            ? "Saved. Restart the line (Stop → Start) to apply."
+            : "Saved.",
+          "ok",
+        ),
+      );
     } catch (err) {
-      const e = asApiError(err);
-      setSaveMsg(e.message);
-      alert(e.message);
+      setSaveMsg(status(asApiError(err).message, "error"));
     }
     setSaving(false);
   };
 
   const del = async () => {
-    if (!confirm("Delete this instance?")) return;
+    if (!confirm(`Delete line ${form.name || form.id}?`)) return;
     await api.deleteInstance(form.id);
     await refresh();
     setForm(emptyInstance());
@@ -224,8 +230,8 @@ export default function SimConfig({
       await refresh();
       setPinMsg(
         r.had_pin
-          ? "Saved PIN deleted — the line will ask for it on next start."
-          : "No saved PIN to delete.",
+          ? status("Saved PIN deleted; the line asks for it on next start.", "ok")
+          : status("No saved PIN to delete."),
       );
     } catch (e) {
       alert(asApiError(e).message);
@@ -290,17 +296,17 @@ export default function SimConfig({
             >
               Save
             </button>
-            {form.id && (
-              <button className="btn btn-danger" onClick={del}>
-                Delete
-              </button>
-            )}
             {saveMsg ? (
-              <StatusMessage message={saveMsg} style={{ marginTop: 0 }} />
+              <StatusMessage message={saveMsg} className="simcfg-msg-inline" />
             ) : (
               <span className="hint" style={{ margin: 0 }}>
-                Restart the line after saving for most changes to apply.
+                Most changes apply after a line restart.
               </span>
+            )}
+            {form.id && (
+              <button className="btn btn-ghost simcfg-delete" onClick={del}>
+                Delete line
+              </button>
             )}
           </div>
         </div>

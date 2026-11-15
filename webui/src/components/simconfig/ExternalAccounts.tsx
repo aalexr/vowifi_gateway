@@ -22,8 +22,7 @@ export default function ExternalAccounts({
     <>
       <div className="cfg-subhead">External SIP accounts</div>
       <Hint style={{ marginTop: 0, marginBottom: 8 }}>
-        Each account needs a unique username and cannot reuse an Asterisk or
-        WebRTC name.
+        Unique usernames, not reusing the Asterisk or WebRTC name.
       </Hint>
       {accounts.map((a, i) => (
         <div key={i} className="sip-account-row">

@@ -19,10 +19,7 @@ export default function LocalSipSection({
 }: LocalSipSectionProps) {
   const sip = form.sip;
   return (
-    <Section
-      title="Local SIP access"
-      desc="How phones and SIP clients on your network reach this line."
-    >
+    <Section title="Local SIP access">
       <div className="form-grid">
         <Field label="Listen address">
           <select
@@ -44,10 +41,7 @@ export default function LocalSipSection({
             <option value="tls">TLS</option>
           </select>
         </Field>
-        <Field
-          label="Device User-Agent (identify to the carrier as this device)"
-          wide
-        >
+        <Field label="User-Agent towards the carrier" wide>
           <input
             className="mono"
             value={sip.user_agent || ""}
