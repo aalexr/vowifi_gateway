@@ -1,0 +1,754 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-15T17:29:14.984666+00:00",
+  "title": "Design System: VoWiFi gateway",
+  "extensions": {
+    "colorMeta": {
+      "signal-indigo": {
+        "role": "primary",
+        "displayName": "Signal Indigo",
+        "tonalRamp": [
+          "#1e1b4b",
+          "#312e81",
+          "#3730a3",
+          "#4338ca",
+          "#4f46e5",
+          "#6366f1",
+          "#a5b4fc",
+          "#e0e7ff"
+        ]
+      },
+      "signal-indigo-deep": {
+        "role": "primary",
+        "displayName": "Signal Indigo Deep",
+        "tonalRamp": [
+          "#1e1b4b",
+          "#312e81",
+          "#3730a3",
+          "#4338ca",
+          "#4f46e5",
+          "#6366f1",
+          "#a5b4fc",
+          "#e0e7ff"
+        ]
+      },
+      "signal-indigo-dark": {
+        "role": "primary",
+        "displayName": "Signal Indigo (dark theme)",
+        "tonalRamp": [
+          "#1e1b4b",
+          "#312e81",
+          "#3730a3",
+          "#4338ca",
+          "#4f46e5",
+          "#6366f1",
+          "#a5b4fc",
+          "#e0e7ff"
+        ]
+      },
+      "paper": {
+        "role": "neutral",
+        "displayName": "Paper",
+        "tonalRamp": [
+          "#09090b",
+          "#18181b",
+          "#27272a",
+          "#3f3f46",
+          "#71717a",
+          "#a1a1aa",
+          "#d4d4d8",
+          "#f4f4f5"
+        ]
+      },
+      "panel-white": {
+        "role": "neutral",
+        "displayName": "Panel White",
+        "tonalRamp": [
+          "#09090b",
+          "#18181b",
+          "#27272a",
+          "#3f3f46",
+          "#71717a",
+          "#a1a1aa",
+          "#d4d4d8",
+          "#f4f4f5"
+        ]
+      },
+      "hairline": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "tonalRamp": [
+          "#09090b",
+          "#18181b",
+          "#27272a",
+          "#3f3f46",
+          "#71717a",
+          "#a1a1aa",
+          "#d4d4d8",
+          "#f4f4f5"
+        ]
+      },
+      "hairline-strong": {
+        "role": "neutral",
+        "displayName": "Hairline Strong",
+        "tonalRamp": [
+          "#09090b",
+          "#18181b",
+          "#27272a",
+          "#3f3f46",
+          "#71717a",
+          "#a1a1aa",
+          "#d4d4d8",
+          "#f4f4f5"
+        ]
+      },
+      "hover-wash": {
+        "role": "neutral",
+        "displayName": "Hover Wash",
+        "tonalRamp": [
+          "#09090b",
+          "#18181b",
+          "#27272a",
+          "#3f3f46",
+          "#71717a",
+          "#a1a1aa",
+          "#d4d4d8",
+          "#f4f4f5"
+        ]
+      },
+      "active-wash": {
+        "role": "neutral",
+        "displayName": "Active Wash",
+        "tonalRamp": [
+          "#09090b",
+          "#18181b",
+          "#27272a",
+          "#3f3f46",
+          "#71717a",
+          "#a1a1aa",
+          "#d4d4d8",
+          "#f4f4f5"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "tonalRamp": [
+          "#09090b",
+          "#18181b",
+          "#27272a",
+          "#3f3f46",
+          "#71717a",
+          "#a1a1aa",
+          "#d4d4d8",
+          "#f4f4f5"
+        ]
+      },
+      "ink-soft": {
+        "role": "neutral",
+        "displayName": "Ink Soft",
+        "tonalRamp": [
+          "#09090b",
+          "#18181b",
+          "#27272a",
+          "#3f3f46",
+          "#71717a",
+          "#a1a1aa",
+          "#d4d4d8",
+          "#f4f4f5"
+        ]
+      },
+      "ink-dim": {
+        "role": "neutral",
+        "displayName": "Ink Dim",
+        "tonalRamp": [
+          "#09090b",
+          "#18181b",
+          "#27272a",
+          "#3f3f46",
+          "#71717a",
+          "#a1a1aa",
+          "#d4d4d8",
+          "#f4f4f5"
+        ]
+      },
+      "ink-mute": {
+        "role": "neutral",
+        "displayName": "Ink Mute",
+        "tonalRamp": [
+          "#09090b",
+          "#18181b",
+          "#27272a",
+          "#3f3f46",
+          "#71717a",
+          "#a1a1aa",
+          "#d4d4d8",
+          "#f4f4f5"
+        ]
+      },
+      "ink-faint": {
+        "role": "neutral",
+        "displayName": "Ink Faint",
+        "tonalRamp": [
+          "#09090b",
+          "#18181b",
+          "#27272a",
+          "#3f3f46",
+          "#71717a",
+          "#a1a1aa",
+          "#d4d4d8",
+          "#f4f4f5"
+        ]
+      },
+      "night": {
+        "role": "neutral",
+        "displayName": "Night",
+        "tonalRamp": [
+          "#09090b",
+          "#18181b",
+          "#27272a",
+          "#3f3f46",
+          "#71717a",
+          "#a1a1aa",
+          "#d4d4d8",
+          "#f4f4f5"
+        ]
+      },
+      "night-panel": {
+        "role": "neutral",
+        "displayName": "Night Panel",
+        "tonalRamp": [
+          "#09090b",
+          "#18181b",
+          "#27272a",
+          "#3f3f46",
+          "#71717a",
+          "#a1a1aa",
+          "#d4d4d8",
+          "#f4f4f5"
+        ]
+      },
+      "night-input": {
+        "role": "neutral",
+        "displayName": "Night Input",
+        "tonalRamp": [
+          "#09090b",
+          "#18181b",
+          "#27272a",
+          "#3f3f46",
+          "#71717a",
+          "#a1a1aa",
+          "#d4d4d8",
+          "#f4f4f5"
+        ]
+      },
+      "night-hairline": {
+        "role": "neutral",
+        "displayName": "Night Hairline",
+        "tonalRamp": [
+          "#09090b",
+          "#18181b",
+          "#27272a",
+          "#3f3f46",
+          "#71717a",
+          "#a1a1aa",
+          "#d4d4d8",
+          "#f4f4f5"
+        ]
+      },
+      "night-hairline-strong": {
+        "role": "neutral",
+        "displayName": "Night Hairline Strong",
+        "tonalRamp": [
+          "#09090b",
+          "#18181b",
+          "#27272a",
+          "#3f3f46",
+          "#71717a",
+          "#a1a1aa",
+          "#d4d4d8",
+          "#f4f4f5"
+        ]
+      },
+      "night-hover": {
+        "role": "neutral",
+        "displayName": "Night Hover",
+        "tonalRamp": [
+          "#09090b",
+          "#18181b",
+          "#27272a",
+          "#3f3f46",
+          "#71717a",
+          "#a1a1aa",
+          "#d4d4d8",
+          "#f4f4f5"
+        ]
+      },
+      "night-active": {
+        "role": "neutral",
+        "displayName": "Night Active",
+        "tonalRamp": [
+          "#09090b",
+          "#18181b",
+          "#27272a",
+          "#3f3f46",
+          "#71717a",
+          "#a1a1aa",
+          "#d4d4d8",
+          "#f4f4f5"
+        ]
+      },
+      "night-ink": {
+        "role": "neutral",
+        "displayName": "Night Ink",
+        "tonalRamp": [
+          "#09090b",
+          "#18181b",
+          "#27272a",
+          "#3f3f46",
+          "#71717a",
+          "#a1a1aa",
+          "#d4d4d8",
+          "#f4f4f5"
+        ]
+      },
+      "night-ink-soft": {
+        "role": "neutral",
+        "displayName": "Night Ink Soft",
+        "tonalRamp": [
+          "#09090b",
+          "#18181b",
+          "#27272a",
+          "#3f3f46",
+          "#71717a",
+          "#a1a1aa",
+          "#d4d4d8",
+          "#f4f4f5"
+        ]
+      },
+      "night-ink-dim": {
+        "role": "neutral",
+        "displayName": "Night Ink Dim",
+        "tonalRamp": [
+          "#09090b",
+          "#18181b",
+          "#27272a",
+          "#3f3f46",
+          "#71717a",
+          "#a1a1aa",
+          "#d4d4d8",
+          "#f4f4f5"
+        ]
+      },
+      "ok": {
+        "role": "tertiary",
+        "displayName": "OK (text)",
+        "tonalRamp": [
+          "#052e16",
+          "#14532d",
+          "#15803d",
+          "#16a34a",
+          "#22c55e",
+          "#4ade80",
+          "#bbf7d0",
+          "#f0fdf4"
+        ]
+      },
+      "ok-night": {
+        "role": "tertiary",
+        "displayName": "OK (dark text)",
+        "tonalRamp": [
+          "#052e16",
+          "#14532d",
+          "#15803d",
+          "#16a34a",
+          "#22c55e",
+          "#4ade80",
+          "#bbf7d0",
+          "#f0fdf4"
+        ]
+      },
+      "ok-solid": {
+        "role": "tertiary",
+        "displayName": "OK Lamp",
+        "tonalRamp": [
+          "#052e16",
+          "#14532d",
+          "#15803d",
+          "#16a34a",
+          "#22c55e",
+          "#4ade80",
+          "#bbf7d0",
+          "#f0fdf4"
+        ]
+      },
+      "warn": {
+        "role": "tertiary",
+        "displayName": "Registering (text)",
+        "tonalRamp": [
+          "#422006",
+          "#713f12",
+          "#a16207",
+          "#ca8a04",
+          "#eab308",
+          "#facc15",
+          "#fef08a",
+          "#fefce8"
+        ]
+      },
+      "warn-night": {
+        "role": "tertiary",
+        "displayName": "Registering (dark text)",
+        "tonalRamp": [
+          "#422006",
+          "#713f12",
+          "#a16207",
+          "#ca8a04",
+          "#eab308",
+          "#facc15",
+          "#fef08a",
+          "#fefce8"
+        ]
+      },
+      "registering-amber": {
+        "role": "tertiary",
+        "displayName": "Registering Lamp",
+        "tonalRamp": [
+          "#422006",
+          "#713f12",
+          "#a16207",
+          "#ca8a04",
+          "#eab308",
+          "#facc15",
+          "#fef08a",
+          "#fefce8"
+        ]
+      },
+      "pipeline-amber": {
+        "role": "tertiary",
+        "displayName": "Pipeline Current Step",
+        "tonalRamp": [
+          "#422006",
+          "#713f12",
+          "#a16207",
+          "#ca8a04",
+          "#eab308",
+          "#facc15",
+          "#fef08a",
+          "#fefce8"
+        ]
+      },
+      "tunnel-orange": {
+        "role": "tertiary",
+        "displayName": "Tunnel Down (text)",
+        "tonalRamp": [
+          "#431407",
+          "#7c2d12",
+          "#c2410c",
+          "#ea580c",
+          "#f97316",
+          "#fb923c",
+          "#fed7aa",
+          "#fff7ed"
+        ]
+      },
+      "tunnel-orange-night": {
+        "role": "tertiary",
+        "displayName": "Tunnel Down (dark text)",
+        "tonalRamp": [
+          "#431407",
+          "#7c2d12",
+          "#c2410c",
+          "#ea580c",
+          "#f97316",
+          "#fb923c",
+          "#fed7aa",
+          "#fff7ed"
+        ]
+      },
+      "tunnel-orange-dot": {
+        "role": "tertiary",
+        "displayName": "Tunnel Down Lamp",
+        "tonalRamp": [
+          "#431407",
+          "#7c2d12",
+          "#c2410c",
+          "#ea580c",
+          "#f97316",
+          "#fb923c",
+          "#fed7aa",
+          "#fff7ed"
+        ]
+      },
+      "danger": {
+        "role": "tertiary",
+        "displayName": "Danger",
+        "tonalRamp": [
+          "#450a0a",
+          "#7f1d1d",
+          "#b91c1c",
+          "#dc2626",
+          "#ef4444",
+          "#f87171",
+          "#fecaca",
+          "#fef2f2"
+        ]
+      },
+      "danger-night": {
+        "role": "tertiary",
+        "displayName": "Danger (dark)",
+        "tonalRamp": [
+          "#450a0a",
+          "#7f1d1d",
+          "#b91c1c",
+          "#dc2626",
+          "#ef4444",
+          "#f87171",
+          "#fecaca",
+          "#fef2f2"
+        ]
+      },
+      "danger-dot": {
+        "role": "tertiary",
+        "displayName": "Danger Lamp",
+        "tonalRamp": [
+          "#450a0a",
+          "#7f1d1d",
+          "#b91c1c",
+          "#dc2626",
+          "#ef4444",
+          "#f87171",
+          "#fecaca",
+          "#fef2f2"
+        ]
+      },
+      "stopped-slate": {
+        "role": "tertiary",
+        "displayName": "Stopped Lamp",
+        "tonalRamp": [
+          "#0f172a",
+          "#1e293b",
+          "#334155",
+          "#475569",
+          "#64748b",
+          "#94a3b8",
+          "#cbd5e1",
+          "#f1f5f9"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Page titles in the app header (19px on phones)."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Config section titles and card headers."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Buttons, nav, inputs, main text."
+      },
+      "body-small": {
+        "displayName": "Body Small",
+        "purpose": "Banners, notes, detail rows."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Field labels, pills, hints."
+      },
+      "caption": {
+        "displayName": "Caption",
+        "purpose": "Reader meta, theme picker, pipeline labels (10px)."
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "Logs, identifiers, live numbers with tabular figures."
+      }
+    },
+    "shadows": [
+      {
+        "name": "card-rest",
+        "value": "0 1px 2px rgba(9,9,11,0.04)",
+        "purpose": "Resting cards, light theme only (none in dark)."
+      },
+      {
+        "name": "button-primary",
+        "value": "inset 0 1px 0 rgba(255,255,255,0.15), 0 1px 2px rgba(9,9,11,0.12)",
+        "purpose": "Bevel on the primary button."
+      },
+      {
+        "name": "segment-lift",
+        "value": "0 1px 2px var(--shadow)",
+        "purpose": "Active segment in segmented controls."
+      },
+      {
+        "name": "sticky-bar",
+        "value": "0 -8px 24px -12px var(--shadow)",
+        "purpose": "SIM Config sticky save bar."
+      },
+      {
+        "name": "toast",
+        "value": "0 8px 30px var(--shadow)",
+        "purpose": "Toasts."
+      },
+      {
+        "name": "modal",
+        "value": "0 24px 60px -12px var(--shadow)",
+        "purpose": "Modal cards over the overlay (2px backdrop blur)."
+      },
+      {
+        "name": "focus-ring",
+        "value": "0 0 0 3px color-mix(in srgb, var(--primary) 40%, transparent)",
+        "purpose": "Input focus ring (50% mix in dark)."
+      }
+    ],
+    "motion": [
+      {
+        "name": "state-fast",
+        "value": "0.15s",
+        "purpose": "Hover/active colour changes on buttons, nav, row-delete reveal, disclosure chevrons."
+      },
+      {
+        "name": "theme-swap",
+        "value": "0.2s",
+        "purpose": "Body background/colour when the theme changes."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "icon-nav",
+        "value": "600px"
+      },
+      {
+        "name": "phone",
+        "value": "860px"
+      },
+      {
+        "name": "cfg-narrow (container)",
+        "value": "560px"
+      },
+      {
+        "name": "cfg-mid (container)",
+        "value": "700px"
+      },
+      {
+        "name": "cfg-single-column (container)",
+        "value": "820px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one filled action in a group (Provision, Save, Call).",
+      "html": "<button class=\"ds-btn ds-btn-primary\">Provision</button>",
+      "css": ".ds-btn{font-family:\"Adwaita Sans\",ui-sans-serif,system-ui,sans-serif;display:inline-flex;align-items:center;justify-content:center;gap:6px;border-radius:8px;padding:8px 14px;font-weight:500;font-size:14px;cursor:pointer;border:1px solid transparent;transition:background .15s,border-color .15s;}.ds-btn-primary{background:var(--primary,#4f46e5);color:#fff;box-shadow:inset 0 1px 0 rgba(255,255,255,.15),0 1px 2px rgba(9,9,11,.12);}.ds-btn-primary:hover{background:var(--primary-hover,#4338ca);}.ds-btn:focus-visible{outline:2px solid color-mix(in srgb,#4f46e5 40%,transparent);outline-offset:2px;}"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Routine line actions: Stop, Re-register, SIP info.",
+      "html": "<button class=\"ds-btn-ghost\">Re-register</button>",
+      "css": ".ds-btn-ghost{font-family:\"Adwaita Sans\",ui-sans-serif,system-ui,sans-serif;display:inline-flex;align-items:center;justify-content:center;gap:6px;border-radius:8px;padding:8px 14px;font-weight:500;font-size:14px;cursor:pointer;border:1px solid transparent;transition:background .15s,border-color .15s;background:transparent;border-color:var(--border-strong,#d4d4d8);color:var(--text-soft,#3f3f46);}.ds-btn-ghost:hover{background:var(--hover,#f4f4f5);}.ds-btn-ghost:focus-visible{outline:2px solid color-mix(in srgb,#4f46e5 40%,transparent);outline-offset:2px;}"
+    },
+    {
+      "name": "Danger Button",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Destructive confirmations (delete profile, unprovision).",
+      "html": "<button class=\"ds-btn-danger\">Delete</button>",
+      "css": ".ds-btn-danger{font-family:\"Adwaita Sans\",ui-sans-serif,system-ui,sans-serif;display:inline-flex;align-items:center;justify-content:center;gap:6px;border-radius:8px;padding:8px 14px;font-weight:500;font-size:14px;cursor:pointer;border:1px solid transparent;transition:background .15s,border-color .15s;background:#dc2626;color:#fff;}.ds-btn-danger:hover{background:color-mix(in srgb,#dc2626 85%,black);}.ds-btn-danger:focus-visible{outline:2px solid color-mix(in srgb,#4f46e5 40%,transparent);outline-offset:2px;}"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Label above, hint below; indigo border and ring on focus.",
+      "html": "<label class=\"ds-label\">SMSC<input class=\"ds-input\" value=\"+16475800172\"></label><div class=\"ds-hint\">Read from EF_SMSP.</div>",
+      "css": ".ds-label{font-family:\"Adwaita Sans\",ui-sans-serif,system-ui,sans-serif;display:block;font-size:12px;font-weight:500;color:var(--text-dim,#71717a);}.ds-input{display:block;margin-top:4px;width:100%;font-family:\"Adwaita Sans\",ui-sans-serif,system-ui,sans-serif;font-size:14px;padding:8px 10px;border-radius:9px;border:1px solid var(--border-strong,#d4d4d8);background:var(--input-bg,#fff);color:var(--text,#09090b);outline:none;}.ds-input:focus{border-color:var(--primary,#4f46e5);box-shadow:0 0 0 3px color-mix(in srgb,#4f46e5 40%,transparent);}.ds-hint{font-family:\"Adwaita Sans\",ui-sans-serif,system-ui,sans-serif;font-size:12px;line-height:1.5;color:var(--text-mute,#a1a1aa);margin-top:6px;}"
+    },
+    {
+      "name": "Sidebar Nav",
+      "kind": "nav",
+      "refersTo": "nav-item",
+      "description": "Vertical tab list; active item gets the active wash and an indigo icon.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-item is-active\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><rect x=\"3\" y=\"3\" width=\"7\" height=\"9\" rx=\"1\"/><rect x=\"14\" y=\"3\" width=\"7\" height=\"5\" rx=\"1\"/><rect x=\"14\" y=\"12\" width=\"7\" height=\"9\" rx=\"1\"/><rect x=\"3\" y=\"16\" width=\"7\" height=\"5\" rx=\"1\"/></svg>Dashboard</a><a class=\"ds-nav-item\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z\"/></svg>Softphone</a></nav>",
+      "css": ".ds-nav{display:flex;flex-direction:column;gap:6px;width:192px;}.ds-nav-item{font-family:\"Adwaita Sans\",ui-sans-serif,system-ui,sans-serif;display:flex;gap:10px;align-items:center;padding:8px 10px;border-radius:8px;font-size:14px;font-weight:500;color:var(--text-dim,#71717a);cursor:pointer;transition:background .15s,color .15s;}.ds-nav-item:hover{background:var(--hover,#f4f4f5);color:var(--text,#09090b);}.ds-nav-item.is-active{background:var(--active,#ececef);color:var(--text,#09090b);}.ds-nav-item.is-active svg{color:var(--primary,#4f46e5);}"
+    },
+    {
+      "name": "Status Pill",
+      "kind": "chip",
+      "refersTo": "pill",
+      "description": "Line state: lamp dot plus label on a 12% tint.",
+      "html": "<span class=\"ds-pill ds-pill-ok\"><span class=\"ds-dot\"></span>Working</span> <span class=\"ds-pill ds-pill-warn\"><span class=\"ds-dot\"></span>Registering</span> <span class=\"ds-pill ds-pill-orange\"><span class=\"ds-dot\"></span>Tunnel down</span> <span class=\"ds-pill ds-pill-danger\"><span class=\"ds-dot\"></span>PIN problem</span>",
+      "css": ".ds-pill{font-family:\"Adwaita Sans\",ui-sans-serif,system-ui,sans-serif;display:inline-flex;align-items:center;gap:6px;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:500;line-height:1.6;white-space:nowrap;color:var(--p);background:color-mix(in srgb,var(--p) 12%,transparent);border:1px solid color-mix(in srgb,var(--p) 28%,transparent);}.ds-dot{width:6px;height:6px;border-radius:999px;background:var(--d);}.ds-pill-ok{--p:#15803d;--d:#16a34a;}.ds-pill-warn{--p:#a16207;--d:#eab308;}.ds-pill-orange{--p:#c2410c;--d:#f97316;}.ds-pill-danger{--p:#dc2626;--d:#ef4444;}"
+    },
+    {
+      "name": "Line Pipeline",
+      "kind": "custom",
+      "refersTo": "",
+      "description": "Five-step health bar on each reader card; shows where a line stopped.",
+      "html": "<div class=\"ds-pipe\"><div><i class=\"done\"></i><span>SIM</span></div><div><i class=\"done\"></i><span>ePDG DNS</span></div><div><i class=\"cur\"></i><span>Tunnel</span></div><div><i></i><span>IMS reg</span></div><div><i></i><span>Working</span></div></div>",
+      "css": ".ds-pipe{display:flex;gap:6px;width:420px;font-family:\"Adwaita Sans\",ui-sans-serif,system-ui,sans-serif;}.ds-pipe>div{flex:1;text-align:center;}.ds-pipe i{display:block;height:5px;border-radius:3px;background:var(--border-strong,#d4d4d8);}.ds-pipe i.done{background:#16a34a;}.ds-pipe i.cur{background:#ca8a04;}.ds-pipe span{display:block;font-size:10px;color:var(--text-mute,#a1a1aa);margin-top:4px;}"
+    },
+    {
+      "name": "Reader Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "One physical reader and its line: header, state pill, facts, ghost actions.",
+      "html": "<div class=\"ds-card\"><div class=\"ds-card-head\"><strong>Reader 0 \u00b7 Alcor Link AK9563</strong><span class=\"ds-cpill\"><span></span>Working</span></div><div class=\"ds-card-sub\">O2 (DE)</div><dl class=\"ds-facts\"><dt>Carrier</dt><dd>262-03</dd><dt>SMSC</dt><dd class=\"m\">+49176000443</dd></dl></div>",
+      "css": ".ds-card{font-family:\"Adwaita Sans\",ui-sans-serif,system-ui,sans-serif;width:420px;padding:20px;background:var(--panel,#fff);border:1px solid var(--border,#e4e4e7);border-radius:10px;box-shadow:0 1px 2px rgba(9,9,11,.04);color:var(--text,#09090b);}.ds-card-head{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:15px;}.ds-card-sub{font-size:12px;color:var(--text-mute,#a1a1aa);margin-top:2px;}.ds-cpill{display:inline-flex;align-items:center;gap:6px;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:500;color:#15803d;background:color-mix(in srgb,#15803d 12%,transparent);border:1px solid color-mix(in srgb,#15803d 28%,transparent);}.ds-cpill span{width:6px;height:6px;border-radius:999px;background:#16a34a;}.ds-facts{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:14px 0 0;font-size:13px;}.ds-facts dt{color:var(--text-mute,#a1a1aa);}.ds-facts dd{margin:0;color:var(--text-soft,#3f3f46);}.ds-facts .m{font-family:\"Adwaita Mono\",ui-monospace,monospace;font-variant-numeric:tabular-nums;}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Switchboard",
+    "overview": "**Creative North Star: \"The Switchboard\"**\n\nThe UI is an operator's panel of telephone lines. Each SIM is a line on the board, and the board's job is to say at a glance which lines are live, which are coming up, and which are down and where. The chrome stays quiet: zinc neutrals, hairline borders, one indigo accent, compact type. That way the status lamps (green, amber, orange, red, slate) are what the eye finds first.\n\nIt is dense the way a desk instrument is: 12\u201314px text, tight 6\u201312px gaps, real values printed in full (IMSI, SMSC, P-CSCF, codecs) rather than summarised. Light and dark are equal citizens; dark is a true near-black board (#09090b), not a grey inversion, and it drops card shadows entirely. On a phone the board turns into a bottom tab bar and single-pane views so the softphone and messages work one-handed.\n\nThe stylesheet's own label for this direction is \"clean devtool\"; the Switchboard is what that devtool is for.",
+    "keyCharacteristics": [
+      "Zinc neutral scale, one indigo accent, semantic state colours with fixed meanings",
+      "Hairline 1px borders define surfaces; shadows are near-absent at rest",
+      "Small, precise type in Adwaita Sans; Adwaita Mono with tabular figures for identifiers and live numbers",
+      "Gently rounded (8\u201310px) rectangles, full pills for status",
+      "Every theme token has a light and a dark value; both must be checked"
+    ],
+    "rules": [
+      {
+        "name": "The Lamp Rule",
+        "body": "Green, amber, orange and red belong to line health. A pill, banner or dot in one of those colours always means a state, and a state always uses the same colour wherever it appears (dashboard pill, pipeline, softphone registration).",
+        "section": "colors"
+      },
+      {
+        "name": "The Tint, Not Fill Rule",
+        "body": "Status surfaces are tints mixed from the lamp token: pills at 12% background / 28% border, banners at 9% over the panel / 35% border. Solid fills are reserved for dots, pipeline bars and destructive buttons.",
+        "section": "colors"
+      },
+      {
+        "name": "The Steady Digits Rule",
+        "body": "Anything that updates in place (timers, counters, signal values, `<time>`) uses tabular figures so it never jitters.",
+        "section": "typography"
+      },
+      {
+        "name": "The Float-Only Rule",
+        "body": "Shadows mark things above the board: toasts, modals, sticky bars. Resting cards are drawn by their border.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** define every new colour as a CSS custom property with light, dark and auto-dark values in `index.css`, and check both themes.",
+      "**Do** colour line health with the lamp tokens through `.pill-*`, `.banner-*` and `.st-*` classes, so a state looks the same everywhere.",
+      "**Do** use ghost buttons for routine line actions and keep one primary button per group.",
+      "**Do** print real identifiers in full, in Adwaita Mono with tabular figures where they update.",
+      "**Do** use container queries for layouts inside the content area, because the sidebar takes width."
+    ],
+    "donts": [
+      "**Don't** use green, amber, orange or red for anything that isn't a line or result state (The Lamp Rule).",
+      "**Don't** put shadows on resting cards beyond the card-rest token; shadows are for toasts, modals and sticky bars.",
+      "**Don't** hard-code hex values in component inline styles when a token exists; `#ca8a04` in the pipeline and the `.st-*` dots are the known exceptions.",
+      "**Don't** add a second typeface; hierarchy comes from size and weight in Adwaita Sans."
+    ]
+  }
+}
