@@ -63,7 +63,7 @@ export const LineDetails = ({
         <Row label="Number" mono>
           {d.msisdn || inst.msisdn || "—"}
         </Row>
-        <Row label="Carrier">{`${inst.mcc}-${inst.mnc}`}</Row>
+        <Row label="Carrier" mono>{`${inst.mcc}-${inst.mnc}`}</Row>
         {pinNeedsAttention(d.pin) && (
           <Row label="PIN">
             <span style={{ color: "var(--warn)" }}>

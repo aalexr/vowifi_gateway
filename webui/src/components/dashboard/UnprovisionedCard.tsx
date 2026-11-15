@@ -149,7 +149,9 @@ export const UnprovisionedCard = ({
       >
         {row("ICCID", card.iccid || "—", true)}
         {row("IMSI", card.imsi || "—", true)}
-        {card.mcc && card.mnc && row("Carrier", `${card.mcc}-${card.mnc}`)}
+        {card.mcc &&
+          card.mnc &&
+          row("Carrier", `${card.mcc}-${card.mnc}`, true)}
         {row(
           "SMSC",
           card.smsc ? (
