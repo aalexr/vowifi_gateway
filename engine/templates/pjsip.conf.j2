@@ -200,9 +200,10 @@ message_context=msg-from-local
 ; shows no incoming-call (Answer/Decline) overlay. The IMS realm is always a valid FQDN.
 from_domain={{ realm }}
 disallow=all
-; Prefer G.722 (wideband, 16 kHz audio) on the local leg, then PCM, then Opus. No carrier leg is
-; wider than 16 kHz inside the gateway (codec_vevs decodes and encodes EVS at 16 kHz, AMR-WB is
-; 16 kHz), so Opus would carry nothing more than G.722 and only costs more CPU. G.722 and PCM
+; Prefer G.722 (wideband, 16 kHz audio) on the local leg, then PCM, then Opus. AMR-WB is 16 kHz,
+; and so is most EVS: only an EVS call whose carrier side is super-wideband end to end has more
+; (codec_vevs runs at 32 kHz towards Opus, at 16 kHz towards G.722), and Opus would carry that
+; band. Until the client codec is chosen per call, G.722 stays first for SIP clients. G.722 and PCM
 ; negotiate telephone-event/8000 (G.722's RTP clock is 8000 per RFC 3551), the DTMF every client
 ; handles. Opus stays as a fallback for clients that offer nothing else.
 allow=g722

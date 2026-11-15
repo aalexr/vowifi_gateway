@@ -314,7 +314,7 @@ Each call has two legs, and Asterisk converts between them when their codecs dif
 | External SIP clients | G.722, PCMU, PCMA, Opus, AMR (the gateway's order wins over the client's) |
 | Browser softphone | Opus, G.722, PCMU, PCMA |
 
-SIP clients get G.722 whenever they offer it, even if they list Opus or PCM first. An AMR-WB or EVS carrier call is converted once and stays wideband: 16 kHz, the widest audio any carrier codec has inside the gateway (EVS is decoded and encoded at 16 kHz). Opus couldn't carry more, so it's only a fallback for SIP clients. The browser softphone keeps Opus first, for its packet-loss resilience over the internet.
+SIP clients get G.722 whenever they offer it, even if they list Opus or PCM first. An AMR-WB or EVS carrier call is converted once and stays wideband (16 kHz) for them. The browser softphone keeps Opus first, for its packet-loss resilience over the internet, and on an EVS call it also gets super-wideband audio (up to 16 kHz audio bandwidth, 32 kHz sampling) when the carrier side has it: the gateway runs EVS at 32 kHz towards Opus and at 16 kHz towards G.722 (**EVS** below). SIP clients don't get Opus per call yet, so for them G.722 stays first.
 
 The carrier codecs aren't a setting: which one a call uses is decided per call, from what the carrier offers or answers.
 
@@ -324,7 +324,7 @@ On incoming calls, the gateway answers with every codec from this list that the 
 
 The SDP bandwidth `b=AS` is sized per call for the codecs in that SDP, as a phone does. It counts the RTP stream including RTP, UDP and IP headers (TS 26.114), from the AMR/AMR-WB `mode-set`, the EVS `br` range, `ptime`, and whether the line's IMS connection is IPv4 or IPv6. An offer covers its largest codec. An answer covers the codecs it agreed to, so an AMR-WB call restricted to `mode-set=0,1,2` over IPv6 says 38 kbit/s, the same as MTS RU and an iPhone. `b=RS`/`b=RR` (RTCP) stay 600/2000.
 
-G.722 and G.711 are never used towards the carrier, as on a phone. O2 Germany carries G.722, but EVS and AMR-WB are just as wideband inside the gateway. Vodafone Germany offers G.722 with only `b=AS:50` and polices the call to that: both directions lost a steady ~44 % of packets, heard as clipped voice.
+G.722 and G.711 are never used towards the carrier, as on a phone. O2 Germany carries G.722, but EVS and AMR-WB are at least as wideband. Vodafone Germany offers G.722 with only `b=AS:50` and polices the call to that: both directions lost a steady ~44 % of packets, heard as clipped voice.
 
 Per-carrier results are in **Tested carriers → Codecs per carrier**.
 
@@ -339,10 +339,11 @@ To use EVS:
 On an image without EVS, lines offer AMR-WB and AMR only (logged at engine start as `[render] carrier codecs: no EVS (engine image built without EVS_CODEC=1)`), so a line never negotiates EVS it can't convert.
 
 What the gateway offers and answers:
-- EVS Primary, wideband (16 kHz, the gateway's internal audio rate), with DTX unless the carrier sets `dtx=0`.
-- Its offer carries `br=5.9-24.4;bw=nb-swb;max-red=220`, what an iPhone offers. It accepts super-wideband but sends wideband. An answer, and any later offer in the same call, carries `br` and `bw` as the overlap with the other side's (the other side's band when there's no overlap: an offer with `bw=swb` only is answered `bw=swb` and gets wideband audio) and repeats the other side's `cmr`, `evs-mode-switch` and `ch-aw-recv`. Inside the agreed `br` range the gateway sends the highest rate up to 24.4 kbit/s (13.2 if the other side named no `br` at all). `b=AS` for EVS up to 24.4 kbit/s is 49 kbit/s over IPv6.
+- EVS Primary with DTX unless the carrier sets `dtx=0`, up to super-wideband. The codec runs at 32 kHz when the local client takes Opus (the browser softphone) and at 16 kHz (wideband) for G.722, AMR-WB and other 16 kHz clients, so each call is converted once at the rate its client can use. The RTP clock is 16000 either way, as TS 26.445 defines for EVS.
+- Its offer carries `br=5.9-24.4;bw=nb-swb;max-red=220`, what an iPhone offers. An answer, and any later offer in the same call, carries `br` and `bw` as the overlap with the other side's (the other side's band when there's no overlap: an offer with `bw=swb` only is answered `bw=swb`, and a 16 kHz client gets wideband audio from it) and repeats the other side's `cmr`, `evs-mode-switch` and `ch-aw-recv`. Inside the agreed `br` range the gateway sends the highest rate up to 24.4 kbit/s (13.2 if the other side named no `br` at all). `b=AS` for EVS up to 24.4 kbit/s is 49 kbit/s over IPv6.
 - Incoming EVS frames are decoded at any rate, compact or header-full, including the AMR-WB IO mode. Lost frames are concealed.
 - Redundancy is received, not sent: when a packet carries several frames, a redundant copy stands in for a frame whose own packet was lost.
+- Super-wideband only reaches you when the far end sends it: a call that crosses a circuit-switched link (between Russian operators, e.g. MTS → Beeline) arrives as AMR-WB, and the carrier's media gateway re-encodes that into EVS, so it stays wideband (2026-11-15). Between German operators EVS stays end to end: a Telekom DE phone (Pixel 8a) calling the O2 line arrived with 8–14 kHz content, decoded at 32 kHz (2026-11-15).
 - Not supported: channel-aware mode, reacting to CMR rate requests, and sending redundancy.
 
 EVS on the carrier leg is still converted for the local clients (EVS ↔ G.722/Opus/AMR-WB …), like any other carrier codec.
