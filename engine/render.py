@@ -113,10 +113,11 @@ def _default_gateway_ipv4():
 _IMS_CODECS_PHONE = ["evs", "amrwb", "amr"]
 # Asterisk codec name where it differs from ours (the fork names its EVS codec "vevs").
 _IMS_CODEC_ASTERISK = {"evs": "vevs"}
-# SDP b=AS (kbit/s) per codec, INCLUDING RTP/UDP/IP headers as the fork's bw_value requires.
-# 41 = AMR-WB 23.85 + headers, what iPhones send; 49 = EVS at up to 24.4 kbit/s (the fork's
-# br=5.9-24.4 offer) + 24 kbit/s headers. The largest codec offered wins: too small a value
-# can make the network reserve too little bandwidth for the call.
+# Fallback SDP b=AS (kbit/s, incl. RTP/UDP/IP headers) for the endpoint's bw_value. The fork
+# computes b=AS per call from the codecs in each SDP (AMR/AMR-WB mode-set, EVS br, ptime,
+# IPv4/IPv6 of the IMS transport), e.g. 38 for AMR-WB mode-set=0,1,2 over IPv6 as MTS RU and
+# iPhones send; bw_value only enables the b= lines and covers codecs it can't size. 41 =
+# AMR-WB 23.85 over IPv4, 49 = EVS 24.4 over IPv6; the largest of the offered codecs is used.
 _IMS_CODEC_BW = {"evs": 49, "amrwb": 41, "amr": 41}
 
 

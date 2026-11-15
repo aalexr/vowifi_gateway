@@ -322,6 +322,8 @@ On outgoing calls, the gateway offers the carrier exactly this list, in this ord
 
 On incoming calls, the gateway answers with every codec from this list that the carrier offered, in the **carrier's** offer order. The call runs on the first one, so it uses the carrier's first codec the gateway supports, as a phone does. On Beeline RU the caller's own codecs come first in the offer, and the network appends its EVS and AMR-WB after them; Beeline ended calls answered with those appended codecs (`Media Negotiation Failed`), and following the offer order avoids them. The answer always lists several codecs: MTS RU sets up media only then (it re-offers the chosen codec in its `PRACK`), and every tested carrier accepts it.
 
+The SDP bandwidth `b=AS` is sized per call for the codecs in that SDP, as a phone does. It counts the RTP stream including RTP, UDP and IP headers (TS 26.114), from the AMR/AMR-WB `mode-set`, the EVS `br` range, `ptime`, and whether the line's IMS connection is IPv4 or IPv6. An offer covers its largest codec. An answer covers the codecs it agreed to, so an AMR-WB call restricted to `mode-set=0,1,2` over IPv6 says 38 kbit/s, the same as MTS RU and an iPhone. `b=RS`/`b=RR` (RTCP) stay 600/2000.
+
 G.722 and G.711 are never used towards the carrier, as on a phone. O2 Germany carries G.722, but EVS and AMR-WB are just as wideband inside the gateway. Vodafone Germany offers G.722 with only `b=AS:50` and polices the call to that: both directions lost a steady ~44 % of packets, heard as clipped voice.
 
 Per-carrier results are in **Tested carriers → Codecs per carrier**.
@@ -338,7 +340,7 @@ On an image without EVS, lines offer AMR-WB and AMR only (logged at engine start
 
 What the gateway offers and answers:
 - EVS Primary, wideband (16 kHz, the gateway's internal audio rate), with DTX unless the carrier sets `dtx=0`.
-- Its offer carries `br=5.9-24.4;bw=nb-swb;max-red=220`, what an iPhone offers. It accepts super-wideband but sends wideband. An answer, and any later offer in the same call, carries `br` and `bw` as the overlap with the other side's (the other side's band when there's no overlap: an offer with `bw=swb` only is answered `bw=swb` and gets wideband audio) and repeats the other side's `cmr`, `evs-mode-switch` and `ch-aw-recv`. Inside the agreed `br` range the gateway sends the highest rate up to 24.4 kbit/s (13.2 if the other side named no `br` at all). `b=AS` is 49 kbit/s.
+- Its offer carries `br=5.9-24.4;bw=nb-swb;max-red=220`, what an iPhone offers. It accepts super-wideband but sends wideband. An answer, and any later offer in the same call, carries `br` and `bw` as the overlap with the other side's (the other side's band when there's no overlap: an offer with `bw=swb` only is answered `bw=swb` and gets wideband audio) and repeats the other side's `cmr`, `evs-mode-switch` and `ch-aw-recv`. Inside the agreed `br` range the gateway sends the highest rate up to 24.4 kbit/s (13.2 if the other side named no `br` at all). `b=AS` for EVS up to 24.4 kbit/s is 49 kbit/s over IPv6.
 - Incoming EVS frames are decoded at any rate, compact or header-full, including the AMR-WB IO mode. Lost frames are concealed.
 - Redundancy is received, not sent: when a packet carries several frames, a redundant copy stands in for a frame whose own packet was lost.
 - Not supported: channel-aware mode, reacting to CMR rate requests, and sending redundancy.
