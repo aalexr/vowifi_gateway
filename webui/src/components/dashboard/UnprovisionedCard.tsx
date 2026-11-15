@@ -55,7 +55,7 @@ export const UnprovisionedCard = ({
       <span style={{ color: "var(--text-mute)" }}>{k}</span>
       <span
         className={mono ? "mono" : ""}
-        style={mono ? { fontSize: 11 } : undefined}
+        style={{ minWidth: 0, overflowWrap: "anywhere" }}
       >
         {v}
       </span>
@@ -80,7 +80,7 @@ export const UnprovisionedCard = ({
           {row(
             "Status",
             <span style={{ color: "var(--warn)" }}>
-              🔒 SIM locked — PIN required
+              SIM locked — PIN required
             </span>,
           )}
           {card.pin_tries != null && row("PIN tries", card.pin_tries)}
@@ -159,11 +159,11 @@ export const UnprovisionedCard = ({
             </span>
           ) : (
             <span style={{ color: "var(--warn)" }}>
-              ⚠ could not read from SIM — enter manually when provisioning
+              not on the SIM — enter it when provisioning
             </span>
           ),
         )}
-        {row("PIN", card.pin_enabled === false ? "disabled" : "unlocked ✓")}
+        {row("PIN", card.pin_enabled === false ? "disabled" : "unlocked")}
       </div>
       <button
         className="btn btn-primary"

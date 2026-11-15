@@ -251,6 +251,7 @@ export default function App() {
                       cards={cards}
                       noReaders={noReaders}
                       cardsKnown={cardsKnown}
+                      selected={selectedConfig}
                       setSelected={setSelected}
                       refresh={refresh}
                       subscribe={subscribe}

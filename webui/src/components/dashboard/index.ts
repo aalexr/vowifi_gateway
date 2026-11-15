@@ -10,4 +10,3 @@ export * from "./StateBadge";
 export * from "./StatusBanner";
 export * from "./UnprovisionedCard";
 export * from "./utils";
-export * from "./NoSiBanner";
