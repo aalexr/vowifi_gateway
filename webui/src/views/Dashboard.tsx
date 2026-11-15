@@ -9,7 +9,6 @@ import {
   StartPinModal,
   buildReaders,
   pinError,
-  NoSimBanner,
 } from "../components/dashboard";
 import { CommonViewProps } from "./common-view-props";
 
@@ -86,35 +85,32 @@ export default function Dashboard({
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fill,minmax(360px,1fr))",
+          // min() keeps one card from overflowing phones narrower than 360px.
+          gridTemplateColumns: "repeat(auto-fill,minmax(min(360px,100%),1fr))",
           gap: 16,
         }}
       >
-        {rows.length === 0 ? (
-          <NoSimBanner />
-        ) : (
-          rows.map((r) => (
-            <ReaderCard
-              key={`rdr-${r.name || r.index}`}
-              reader={r}
-              selected={!!r.instance && selected?.id === r.instance.id}
-              busy={!!r.instance && busy === r.instance.id}
-              onSelect={(inst) => setSelected(inst.id)}
-              run={(inst, fn) => act(inst.id, fn)}
-              onSipInfo={setSipInfo}
-              onConfigure={(inst) => {
-                setSelected(inst.id);
-                navigate("/sims");
-              }}
-              onViewLogs={(inst) => {
-                setSelected(inst.id);
-                navigate("/logs");
-              }}
-              onProvision={(pin) => setProvision({ card: r.card, pin })}
-              refresh={refresh}
-            />
-          ))
-        )}
+        {rows.map((r) => (
+          <ReaderCard
+            key={`rdr-${r.name || r.index}`}
+            reader={r}
+            selected={!!r.instance && selected?.id === r.instance.id}
+            busy={!!r.instance && busy === r.instance.id}
+            onSelect={(inst) => setSelected(inst.id)}
+            run={(inst, fn) => act(inst.id, fn)}
+            onSipInfo={setSipInfo}
+            onConfigure={(inst) => {
+              setSelected(inst.id);
+              navigate("/sims");
+            }}
+            onViewLogs={(inst) => {
+              setSelected(inst.id);
+              navigate("/logs");
+            }}
+            onProvision={(pin) => setProvision({ card: r.card, pin })}
+            refresh={refresh}
+          />
+        ))}
       </div>
       {provision && (
         <ProvisionModal

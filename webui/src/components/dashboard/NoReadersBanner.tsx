@@ -36,9 +36,8 @@ export const NoReadersBanner = () => {
           marginRight: "auto",
         }}
       >
-        Connect a USB smart-card reader with your SIM inserted — it is detected
-        automatically and this page updates in real time. Softphone, Messages
-        and SIM Config are disabled until a reader is present.
+        Connect a USB smart-card reader with your SIM inserted; it is picked up
+        automatically. Softphone, Messages and SIM Config need a reader.
       </div>
     </div>
   );

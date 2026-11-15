@@ -1,6 +1,6 @@
 import React from "react";
 import type { InstanceConfig } from "../../api";
-import { Pipeline } from "./Pipeline";
+import { Pipeline, RANK } from "./Pipeline";
 import { StateBadge } from "./StateBadge";
 import { StatusBanner } from "./StatusBanner";
 import { LineDetails } from "./LineDetails";
@@ -57,35 +57,35 @@ export const ReaderCard = ({
           gap: 10,
         }}
       >
+        {/* The line leads; the reader it sits in is secondary. The selected line is
+            marked by the card outline alone. */}
         <div style={{ minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 15, fontWeight: 700 }}>
+          {inst ? (
+            // The card click selects the line for the other tabs; this button is the
+            // same action for keyboard and screen-reader users.
+            <button
+              type="button"
+              className="line-title"
+              aria-pressed={selected}
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelect(inst);
+              }}
+            >
+              {inst.name || `Line ${inst.id}`}
+            </button>
+          ) : (
+            <div style={{ fontSize: 15, fontWeight: 600 }}>
               {readerTitle(r)}
-            </span>
-            {selected && (
-              <span
-                style={{
-                  fontSize: 10,
-                  fontWeight: 700,
-                  color: "var(--primary)",
-                  border: "1px solid var(--primary)",
-                  borderRadius: 6,
-                  padding: "1px 6px",
-                }}
-              >
-                ACTIVE
-              </span>
-            )}
-          </div>
-          <div
-            style={{ fontSize: 12, color: "var(--text-mute)", marginTop: 3 }}
-          >
-            {inst
-              ? inst.name || `Line ${inst.id}`
-              : r.present
-                ? "Unprovisioned SIM"
-                : "Empty"}
-          </div>
+            </div>
+          )}
+          {inst && (
+            <div
+              style={{ fontSize: 12, color: "var(--text-mute)", marginTop: 3 }}
+            >
+              {readerTitle(r)}
+            </div>
+          )}
         </div>
         {inst ? (
           <StateBadge st={inst.status} />
@@ -101,7 +101,11 @@ export const ReaderCard = ({
 
       {inst ? (
         <>
-          <Pipeline st={inst.status} />
+          {/* The pipeline locates a failure; a working or stopped line has none. */}
+          {inst.status &&
+            inst.status.state in RANK &&
+            inst.status.state !== "OK" &&
+            inst.status.state !== "STOPPED" && <Pipeline st={inst.status} />}
           <StatusBanner
             status={inst.status}
             onViewLogs={() => onViewLogs(inst)}
@@ -121,11 +125,7 @@ export const ReaderCard = ({
           refresh={refresh}
           onProvision={onProvision}
         />
-      ) : (
-        <div style={{ marginTop: 14, fontSize: 13, color: "var(--text-mute)" }}>
-          No SIM card inserted in this reader.
-        </div>
-      )}
+      ) : null}
     </div>
   );
 };

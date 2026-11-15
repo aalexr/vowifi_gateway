@@ -11,6 +11,12 @@
   --radius: 10px;
   --radius-sm: 8px;
   --sidebar-width: 224px;
+  /* line-state lamps: solid status colours, identical in both themes */
+  --lamp-ok: #16a34a;
+  --lamp-registering: #eab308;
+  --lamp-tunnel: #f97316;
+  --lamp-danger: #ef4444;
+  --lamp-stopped: #94a3b8;
   /* light (default + fallback when system preference is unavailable) */
   --bg: #fafafa;
   --sidebar: #fafafa;
@@ -318,31 +324,28 @@ time {
   display: inline-block;
 }
 .st-OK {
-  background: var(--ok-solid);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok-solid) 20%, transparent);
+  background: var(--lamp-ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--lamp-ok) 20%, transparent);
 }
 .st-REGISTERING {
-  background: #eab308;
-  box-shadow: 0 0 8px #eab30888;
+  background: var(--lamp-registering);
+  box-shadow: 0 0 8px
+    color-mix(in srgb, var(--lamp-registering) 53%, transparent);
 }
-.st-TUNNEL_DOWN {
-  background: #f97316;
-}
+.st-TUNNEL_DOWN,
 .st-EPDG_UNRESOLVED {
-  background: #f97316;
+  background: var(--lamp-tunnel);
 }
-.st-PIN_PROBLEM {
-  background: #ef4444;
-}
+.st-PIN_PROBLEM,
 .st-NO_CARD {
-  background: #ef4444;
+  background: var(--lamp-danger);
 }
 .st-ERROR {
-  background: #ef4444;
-  box-shadow: 0 0 8px #ef444488;
+  background: var(--lamp-danger);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--lamp-danger) 53%, transparent);
 }
 .st-STOPPED {
-  background: #94a3b8;
+  background: var(--lamp-stopped);
 }
 
 .card {
@@ -984,6 +987,72 @@ label {
   background: var(--panel);
   color: var(--text);
   box-shadow: 0 1px 2px var(--shadow);
+}
+
+/* Dashboard: the line name doubles as the keyboard path to selecting its card. */
+.line-title {
+  display: block;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+/* Inline text action inside banners ("view logs"). */
+.link-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+/* Dashboard: per-line identifiers (IMSI, ICCID, SMSC, P-CSCF) behind a disclosure. */
+.line-ids {
+  margin-top: 10px;
+}
+.line-ids > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  list-style: none;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-mute);
+  border-radius: 6px;
+  transition: color 0.15s;
+}
+.line-ids > summary::-webkit-details-marker {
+  display: none;
+}
+.line-ids > summary::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.15s;
+}
+.line-ids[open] > summary::before {
+  transform: rotate(45deg);
+}
+.line-ids > summary:hover {
+  color: var(--text-soft);
+}
+.line-ids[open] > summary {
+  margin-bottom: 8px;
 }
 
 /* ============ SIM Config ============ */

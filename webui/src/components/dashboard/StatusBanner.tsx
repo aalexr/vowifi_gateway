@@ -20,7 +20,7 @@ export const StatusBanner = ({
   return (
     <div
       className={`banner ${isError ? "banner-danger" : "banner-warn"}`}
-      style={{ marginTop: 12, fontSize: 12.5 }}
+      style={{ marginTop: 12 }}
     >
       {status.reason}
       {status.retry && status.retry.count > 0 && !isError && (
@@ -33,15 +33,16 @@ export const StatusBanner = ({
         <span>
           {" "}
           ·{" "}
-          <a
+          <button
+            type="button"
+            className="link-btn"
             onClick={(e) => {
               e.stopPropagation();
               onViewLogs();
             }}
-            style={{ cursor: "pointer", textDecoration: "underline" }}
           >
             view logs
-          </a>
+          </button>
         </span>
       )}
     </div>
