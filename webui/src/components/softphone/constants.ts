@@ -1,5 +1,3 @@
-export const GREEN = "var(--ok-solid)",
-  RED = "var(--danger-solid)";
 export const KEYS = [
   ["1", ""],
   ["2", "ABC"],

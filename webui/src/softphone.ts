@@ -17,6 +17,41 @@ interface Prov {
   domain?: string;
 }
 
+/** Why a call or registration ended, as far as JsSIP knows it. `code`/`reason` come from the
+ *  final SIP response (or the BYE/CANCEL Reason header the carrier's IMS adds), so the UI can
+ *  show "486 Busy Here" instead of a generic "Call ended". */
+export interface EndInfo {
+  /** JsSIP cause constant, e.g. "Busy", "Rejected", "Bye", "User Denied Media Access". */
+  cause?: string;
+  /** "local" | "remote" | "system" (JsSIP originator). */
+  originator?: string;
+  /** SIP status code of the final response, when there was one. */
+  code?: number;
+  reason?: string;
+  /** Text of a Reason header (RFC 3326), e.g. `Q.850;cause=17;text="User busy"`. */
+  reasonHeader?: string;
+}
+
+// Pull status code / reason phrase / Reason header out of a JsSIP event without trusting its
+// shape: `message` is an IncomingResponse for failures, an IncomingRequest (BYE/CANCEL) for
+// remote endings, and absent for local or system ones.
+function endInfo(d: any): EndInfo {
+  const msg = d && d.message;
+  const info: EndInfo = {
+    cause: (d && d.cause) || undefined,
+    originator: (d && d.originator) || undefined,
+  };
+  if (msg) {
+    if (typeof msg.status_code === "number") info.code = msg.status_code;
+    if (msg.reason_phrase) info.reason = String(msg.reason_phrase);
+    try {
+      const h = typeof msg.getHeader === "function" && msg.getHeader("Reason");
+      if (h) info.reasonHeader = String(h);
+    } catch {}
+  }
+  return info;
+}
+
 export class Softphone {
   onEvent: (type: string, data?: any) => void;
   ua: JsSIP.UA | null = null;
@@ -159,7 +194,7 @@ export class Softphone {
     this.ua.on("registered", () => this.emit("registered", true));
     this.ua.on("unregistered", () => this.emit("registered", false));
     this.ua.on("registrationFailed", (e) =>
-      this.emit("regfail", (e && e.cause) || "failed"),
+      this.emit("regfail", endInfo({ ...e, message: e && e.response })),
     );
     this.ua.on("newRTCSession", (e: { session: RTCSession }) =>
       this.handleSession(e),
@@ -209,11 +244,11 @@ export class Softphone {
     // only one of them fires.
     session.on("ended", (d) => {
       if (this.session === session) this.session = null;
-      this.emit("ended", { cause: d && d.cause });
+      this.emit("ended", endInfo(d));
     });
     session.on("failed", (d) => {
       if (this.session === session) this.session = null;
-      this.emit("failed", { cause: d && d.cause });
+      this.emit("failed", endInfo(d));
     });
     session.on("peerconnection", (ev) => {
       const pc = ev.peerconnection;
@@ -277,8 +312,10 @@ export class Softphone {
       // ua.call() can throw synchronously (bad target, no media, etc.) before any session
       // event fires — surface it as a terminal 'failed' so the UI doesn't hang on "calling".
       this.session = null;
-      // @ts-ignore
-      this.emit("failed", { cause: (err && err.message) || "Call failed" });
+      this.emit("failed", {
+        cause: (err as Error | undefined)?.message || "Call failed",
+        originator: "system",
+      } satisfies EndInfo);
     }
   }
 
