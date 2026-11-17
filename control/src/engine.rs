@@ -191,6 +191,11 @@ pub async fn start(inst: &Instance, settings: &Settings) -> anyhow::Result<Strin
         );
     };
     bind_port("5060/udp".into(), "", ports.sip_udp);
+    // A line whose local SIP transport is TCP listens on the same container port (5060/tcp).
+    // Published for every line (nothing listens on it in UDP mode): TCP carries SIP messages of
+    // any size, while pasta drops a UDP datagram the container has to IP-fragment (> MTU - 28,
+    // 1472 bytes at MTU 1500). That's why sip-front talks TCP to engines in TCP mode.
+    bind_port("5060/tcp".into(), "", ports.sip_udp);
     bind_port("5061/tcp".into(), "", ports.sip_tls);
     bind_port("8089/tcp".into(), "", ports.webrtc);
     // AMI on host loopback only: the manager is its sole client.
