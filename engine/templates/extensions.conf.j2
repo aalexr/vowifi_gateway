@@ -57,17 +57,17 @@ same => n,Hangup()
 
 ; Pre-dial handler on each local client leg (Dial b()): offer the client our codec order.
 ; Without it chan_pjsip offers in the carrier channel's order (e.g. AMR before PCM);
-; codec_prefs_outgoing_offer does not change that. SIP clients: G.722 first, as
+; codec_prefs_outgoing_offer does not change that. SIP clients: AMR-WB, then G.722, as
 ; endpoint-local in pjsip.conf. The browser softphone: Opus first, as its own endpoint.
 [local_offer]
 {% if webrtc_enable %}
 exten => s,1,GotoIf($["${CHANNEL(endpoint)}" = "{{ webrtc_user }}"]?browser)
-same => n,Set(PJSIP_MEDIA_OFFER(audio)=g722,ulaw,alaw,opus,amr)
+same => n,Set(PJSIP_MEDIA_OFFER(audio)=amrwb,g722,ulaw,alaw,opus,amr)
 same => n,Return()
 same => n(browser),Set(PJSIP_MEDIA_OFFER(audio)=opus,g722,ulaw,alaw)
 same => n,Return()
 {% else %}
-exten => s,1,Set(PJSIP_MEDIA_OFFER(audio)=g722,ulaw,alaw,opus,amr)
+exten => s,1,Set(PJSIP_MEDIA_OFFER(audio)=amrwb,g722,ulaw,alaw,opus,amr)
 same => n,Return()
 {% endif %}
 

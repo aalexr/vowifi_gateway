@@ -311,10 +311,10 @@ Each call has two legs, and Asterisk converts between them when their codecs dif
 | Leg | Codecs, in preference order |
 |-----|-----------------------------|
 | Carrier (IMS) | EVS (only on an EVS engine image, see **EVS** below), AMR-WB, AMR: what a phone offers, the same on every line. |
-| External SIP clients | G.722, PCMU, PCMA, Opus, AMR (the gateway's order wins over the client's) |
+| External SIP clients | AMR-WB, G.722, PCMU, PCMA, Opus, AMR (the gateway's order wins over the client's) |
 | Browser softphone | Opus, G.722, PCMU, PCMA |
 
-SIP clients get G.722 whenever they offer it, even if they list Opus or PCM first. An AMR-WB or EVS carrier call is converted once and stays wideband (16 kHz) for them. The browser softphone keeps Opus first, for its packet-loss resilience over the internet, and on an EVS call it also gets super-wideband audio (up to 16 kHz audio bandwidth, 32 kHz sampling) when the carrier side has it: the gateway runs EVS at 32 kHz towards Opus and at 16 kHz towards G.722 (**EVS** below). SIP clients don't get Opus per call yet, so for them G.722 stays first.
+SIP clients get AMR-WB whenever they offer it, else G.722, even if they list Opus or PCM first. When the carrier call is AMR-WB too, a client on AMR-WB gets it without any conversion; otherwise an AMR-WB or EVS carrier call is converted once and stays wideband (16 kHz) for them. The browser softphone keeps Opus first, for its packet-loss resilience over the internet, and on an EVS call it also gets super-wideband audio (up to 16 kHz audio bandwidth, 32 kHz sampling) when the carrier side has it: the gateway runs EVS at 32 kHz towards Opus and at 16 kHz towards G.722 (**EVS** below). SIP clients don't get Opus per call yet, so for them the 16 kHz codecs AMR-WB and G.722 stay first.
 
 The carrier codecs aren't a setting: which one a call uses is decided per call, from what the carrier offers or answers.
 

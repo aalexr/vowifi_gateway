@@ -200,12 +200,18 @@ message_context=msg-from-local
 ; shows no incoming-call (Answer/Decline) overlay. The IMS realm is always a valid FQDN.
 from_domain={{ realm }}
 disallow=all
-; Prefer G.722 (wideband, 16 kHz audio) on the local leg, then PCM, then Opus. AMR-WB is 16 kHz,
-; and so is most EVS: only an EVS call whose carrier side is super-wideband end to end has more
-; (codec_vevs runs at 32 kHz towards Opus, at 16 kHz towards G.722), and Opus would carry that
-; band. Until the client codec is chosen per call, G.722 stays first for SIP clients. G.722 and PCM
-; negotiate telephone-event/8000 (G.722's RTP clock is 8000 per RFC 3551), the DTMF every client
-; handles. Opus stays as a fallback for clients that offer nothing else.
+; Prefer AMR-WB on the local leg, then G.722 (both wideband, 16 kHz audio), then PCM, Opus, AMR.
+; AMR-WB is a carrier codec too: when the carrier leg also runs AMR-WB and the client takes it,
+; both legs share one format and Asterisk bridges the frames without transcoding. Otherwise
+; (EVS, AMR) it is converted once and stays 16 kHz, as with G.722. Only an EVS call whose carrier
+; side is super-wideband end to end has more (codec_vevs runs at 32 kHz towards Opus, at 16 kHz
+; towards AMR-WB/G.722), and Opus would carry that band; until the client codec is chosen per
+; call, the wideband codecs stay first for SIP clients. G.722 and PCM negotiate
+; telephone-event/8000 (G.722's RTP clock is 8000 per RFC 3551), AMR-WB telephone-event/16000;
+; a client without either falls back to SIP INFO (dtmf_mode=auto_info below). Opus and AMR stay
+; as fallbacks for clients that offer nothing else. Keep this list in step with [local_offer] in
+; extensions.conf.
+allow=amrwb
 allow=g722
 allow=ulaw
 allow=alaw
@@ -217,8 +223,8 @@ allow=amr
 ; - outgoing_offer (carrier calls to the client) is NOT set here: chan_pjsip builds that offer
 ;   from the carrier channel's caps and ignores prefer:configured. The dialplan sets it with
 ;   PJSIP_MEDIA_OFFER instead ([local_offer] in extensions.conf).
-; - incoming_answer: with prefer:configured Asterisk uses G.722 whenever the client's answer
-;   lists it, whatever the client put first.
+; - incoming_answer: with prefer:configured Asterisk uses AMR-WB (else G.722) whenever the
+;   client's answer lists it, whatever the client put first.
 codec_prefs_incoming_offer=prefer:configured,operation:intersect,keep:all,transcode:allow
 codec_prefs_incoming_answer=prefer:configured,operation:intersect,keep:all,transcode:allow
 rtp_symmetric=yes
