@@ -222,7 +222,7 @@ Inside an engine, two working copies stay for interactive debugging. Asterisk's 
 ## Per-instance ports
 
 Each provisioned SIM gets a port block (no collisions across SIMs). Block `k` (0, 1, 2, …; a new SIM takes the first block whose ports are all free on the host, so a block held by another program is skipped):
-- SIP UDP: `5060 + 10*k`
+- SIP UDP and TCP: `5060 + 10*k` (TCP is used only when the line's transport is TCP)
 - SIP TLS: `5061 + 10*k`
 - WebRTC/WSS: `8089 + 10*k`
 - AMI: `5038 + 10*k` — published on **host loopback only** (the manager is its only client)
@@ -231,7 +231,7 @@ Each provisioned SIM gets a port block (no collisions across SIMs). Block `k` (0
 
 Example: the first block is 5060/5061/8089 with RTP 10000–10059, the second 5070/5071/8099 with RTP 12000–12059. The dashboard's **SIP info** shows a line's actual ports.
 
-With firewalld active, `install` (or `./install.sh firewall`) opens the WebUI port plus exactly the SIP UDP, TLS, WSS and 60-port RTP range of each of the first `VOWIFI_FW_INSTANCES` (10) blocks — **only to sources in the LAN subnet** (`VOWIFI_FW_SOURCE`), through a rich rule in the LAN's zone, so a zone shared with a WAN interface stays closed to everything else. Each run first removes the service and its rules from every zone, so changing `VOWIFI_FW_ZONE`/`VOWIFI_FW_SOURCE` leaves nothing open behind. Lines moved to non-default ports are not covered; open those yourself. If the LAN subnet can't be detected, nothing is opened and the installer says so.
+With firewalld active, `install` (or `./install.sh firewall`) opens the WebUI port plus exactly the SIP UDP, TCP, TLS, WSS and 60-port RTP range of each of the first `VOWIFI_FW_INSTANCES` (10) blocks — **only to sources in the LAN subnet** (`VOWIFI_FW_SOURCE`), through a rich rule in the LAN's zone, so a zone shared with a WAN interface stays closed to everything else. Each run first removes the service and its rules from every zone, so changing `VOWIFI_FW_ZONE`/`VOWIFI_FW_SOURCE` leaves nothing open behind. Lines moved to non-default ports are not covered; open those yourself. If the LAN subnet can't be detected, nothing is opened and the installer says so.
 
 ### WebUI over IPv6
 
@@ -276,7 +276,8 @@ Once an instance reaches `OK`, connect any SIP client to the **engine's** publis
 - **Username**: `<imsi>` (15-digit, read from the SIM)
 - **Password**: the **AMI secret** you set during provisioning (shared between SIP auth and Asterisk AMI)
 - **Domain/Server**: `<host-ip>` (or the FQDN in `settings.tls.domain` if you set one)
-- **Transport**: UDP (port 5060+offset), TLS (5061+offset), or WebRTC/WSS (8089+offset; path `/ws`)
+- **Transport**: UDP or TCP (port 5060+offset, whichever the line's transport is), TLS (5061+offset), or WebRTC/WSS (8089+offset; path `/ws`)
+  - Prefer TCP when SIP messages can get large (many codecs, long headers from a proxy in between, SMS): an engine runs on rootless pasta, which drops any UDP datagram the engine has to fragment, so a SIP message over 1472 bytes (MTU 1500) never reaches a UDP client. A 200 OK through a proxy with a 6-codec answer is already over that.
 
 ### Default phone-number account
 
@@ -302,6 +303,8 @@ In the FRITZ!Box account, tick **Use phone number for registration**: without it
 
 vowifi rewrites the file whenever a line, an account or the settings change. Each entry holds the line, its number, `target` (`<engine_host>:<SIP port>`), `transport`, `username` and `password`. Lines without a default account are left out. vowifi never calls sip-front.
 
+Set the line's local SIP transport to **TCP** (SIM Config) for lines behind sip-front: sip-front then talks TCP to that engine (same port, `target` unchanged). Over UDP, any SIP message from the engine over 1472 bytes is lost on the way out of its pasta network (see **External SIP clients → Transport**), and a 200 OK passing through the proxy easily reaches that.
+
 Tested clients: **MicroSIP** (Windows), **Zoiper** (multi-platform), Asterisk PJSIP trunk. Phones that can't dial `+` (e.g. FRITZ!Box DECT handsets) can dial `00…` instead if the line has **SIM Config → Dial a leading 00 as +** enabled; the gateway then sends `+…` to the carrier. Use it for carriers that don't accept `00` as the international prefix (MTS RU); it's off by default. The engine's `/` context accepts any `INVITE` and hairpins it to the IMS trunk (so you dial the **target number** directly, no prefix).
 
 ### Codecs
@@ -311,10 +314,10 @@ Each call has two legs, and Asterisk converts between them when their codecs dif
 | Leg | Codecs, in preference order |
 |-----|-----------------------------|
 | Carrier (IMS) | EVS (only on an EVS engine image, see **EVS** below), AMR-WB, AMR: what a phone offers, the same on every line. |
-| External SIP clients | G.722, PCMU, PCMA, Opus, AMR (the gateway's order wins over the client's) |
+| External SIP clients | AMR-WB, G.722, PCMU, PCMA, Opus, AMR (the gateway's order wins over the client's) |
 | Browser softphone | Opus, G.722, PCMU, PCMA |
 
-SIP clients get G.722 whenever they offer it, even if they list Opus or PCM first. An AMR-WB or EVS carrier call is converted once and stays wideband (16 kHz) for them. The browser softphone keeps Opus first, for its packet-loss resilience over the internet, and on an EVS call it also gets super-wideband audio (up to 16 kHz audio bandwidth, 32 kHz sampling) when the carrier side has it: the gateway runs EVS at 32 kHz towards Opus and at 16 kHz towards G.722 (**EVS** below). SIP clients don't get Opus per call yet, so for them G.722 stays first.
+SIP clients get AMR-WB whenever they offer it, else G.722, even if they list Opus or PCM first. When the carrier call is AMR-WB too, a client on AMR-WB gets it without any conversion; otherwise an AMR-WB or EVS carrier call is converted once and stays wideband (16 kHz) for them. The browser softphone keeps Opus first, for its packet-loss resilience over the internet, and on an EVS call it also gets super-wideband audio (up to 16 kHz audio bandwidth, 32 kHz sampling) when the carrier side has it: the gateway runs EVS at 32 kHz towards Opus and at 16 kHz towards G.722 (**EVS** below). SIP clients don't get Opus per call yet, so for them the 16 kHz codecs AMR-WB and G.722 stay first.
 
 The carrier codecs aren't a setting: which one a call uses is decided per call, from what the carrier offers or answers.
 

@@ -1033,7 +1033,7 @@ ensure_firewall() {
   fi
   as_root firewall-cmd --permanent --service="$FW_SERVICE" --set-short="VoWiFi gateway" >/dev/null
   as_root firewall-cmd --permanent --service="$FW_SERVICE" \
-    --set-description="VoWiFi->SIP gateway: WebUI, SIP UDP/TLS, WebRTC WSS and RTP for $n instances" >/dev/null
+    --set-description="VoWiFi->SIP gateway: WebUI, SIP UDP/TCP/TLS, WebRTC WSS and RTP for $n instances" >/dev/null
   # Replace the port list wholesale so a changed VOWIFI_PORT / instance count leaves nothing stale.
   for old in $(as_root firewall-cmd --permanent --service="$FW_SERVICE" --get-ports 2>/dev/null); do
     as_root firewall-cmd --permanent --service="$FW_SERVICE" --remove-port="$old" >/dev/null
@@ -1043,7 +1043,7 @@ ensure_firewall() {
   k=0
   while [ "$k" -lt "$n" ]; do
     rtp=$((10000 + 2000 * k))
-    ports="$ports $((5060 + 10 * k))/udp $((5061 + 10 * k))/tcp $((8089 + 10 * k))/tcp $rtp-$((rtp + 59))/udp"
+    ports="$ports $((5060 + 10 * k))/udp $((5060 + 10 * k))/tcp $((5061 + 10 * k))/tcp $((8089 + 10 * k))/tcp $rtp-$((rtp + 59))/udp"
     k=$((k + 1))
   done
   for port in $ports; do
